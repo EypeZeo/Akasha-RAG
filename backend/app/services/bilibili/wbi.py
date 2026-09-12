@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import logging
 import time
+import weakref
 from functools import reduce
 from typing import Optional
 from urllib.parse import urlencode
@@ -35,17 +36,20 @@ class WbiSigner:
     """B 站 WBI 签名器 (并发安全、低开销)"""
 
     def __init__(self, ttl_hours: float | None = None) -> None:
-        self._locks: dict[int, asyncio.Lock] = {}
+        # WeakKeyDictionary 而不是 id(loop) -> Lock：事件循环对象被垃圾回收
+        # 时条目自动清除，不会出现"新循环复用了旧循环的内存地址、拿到一把
+        # 绑定在已关闭循环上的锁"这类问题。
+        self._locks: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]" = weakref.WeakKeyDictionary()
         self._mixin_key: Optional[str] = None
         self._last_update: float = 0.0
         self._ttl_seconds: float = (ttl_hours or settings.wbi_cache_ttl_hours) * 3600.0
 
     def _lock_for_current_loop(self) -> asyncio.Lock:
-        key = id(asyncio.get_running_loop())
-        lock = self._locks.get(key)
+        loop = asyncio.get_running_loop()
+        lock = self._locks.get(loop)
         if lock is None:
             lock = asyncio.Lock()
-            self._locks[key] = lock
+            self._locks[loop] = lock
         return lock
 
     @staticmethod

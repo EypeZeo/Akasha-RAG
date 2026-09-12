@@ -330,6 +330,7 @@ class KnowledgeService:
                     report(f"📺 提取 B站正文 (字幕/语音): {title[:22]}...")
                     save_state(content_ref, status="downloading")
                     import asyncio
+                    from app.services.bilibili.client import bilibili_client
                     from app.services.bilibili.content_fetcher import bilibili_content_fetcher
                     with session_factory() as part_db:
                         parts = part_db.scalars(select(ContentPart).where(
@@ -337,12 +338,26 @@ class KnowledgeService:
                         ).order_by(ContentPart.part_index)).all()
                     if not parts:
                         raise RuntimeError("B站视频缺少分P元数据，请先重新同步收藏夹")
-                    for part in parts:
-                        part_text = asyncio.run(bilibili_content_fetcher.fetch_transcript(
-                            bvid=platform_item_id, cid=int(part.remote_part_id), title=title,
-                            part_title=part.part_title,
-                        ))
-                        part_transcripts.append((part, part_text))
+
+                    async def _fetch_all_parts():
+                        # 一次 asyncio.run 里顺序处理全部分 P（保持原有的逐 P
+                        # 顺序行为不变），而不是每个分 P 各开关一次事件循环——
+                        # 后者会让 bilibili_client 在每次 asyncio.run 内都新
+                        # 建一个绑定当前循环的 AsyncClient，循环销毁时这个
+                        # client 从未被关闭，连接被悬空丢弃（BUG-04）。
+                        results = []
+                        try:
+                            for p in parts:
+                                text = await bilibili_content_fetcher.fetch_transcript(
+                                    bvid=platform_item_id, cid=int(p.remote_part_id), title=title,
+                                    part_title=p.part_title,
+                                )
+                                results.append((p, text))
+                        finally:
+                            await bilibili_client.aclose()
+                        return results
+
+                    part_transcripts.extend(asyncio.run(_fetch_all_parts()))
                     transcript_text = "\n\n".join(text for _, text in part_transcripts)
                     if bail_if_cancelled(content_ref, claimed, item_platform):
                         return

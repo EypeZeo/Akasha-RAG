@@ -307,6 +307,32 @@ class RagService:
         return ""
 
     @staticmethod
+    def _filter_hits_to_done_items(db: Session, hits: list[dict]) -> list[dict]:
+        """丢弃"整体尚未 done"的条目残留在 Chroma 里的向量命中。
+
+        多 P 视频某一分 P 转写失败时，之前已成功的分 P 向量仍然留在 Chroma
+        里可被检索——但这个 `content_item_id` 的整体入库状态是 failed，不该
+        被当作可信内容返回给用户。一次批量查询状态，不逐条查库。
+        """
+        # `content_item_id` is `0` for legacy vectors upserted before this
+        # field existed (see chroma_service.py's upsert sentinel) -- treat
+        # that the same as "unknown" and pass them through unfiltered rather
+        # than matching a nonexistent VideoCache row and dropping them.
+        content_item_ids = {h.get("content_item_id") for h in hits if h.get("content_item_id")}
+        if not content_item_ids:
+            return hits
+        done_ids = {
+            row[0]
+            for row in db.query(VideoCache.content_item_id)
+            .filter(
+                VideoCache.content_item_id.in_(content_item_ids),
+                VideoCache.status == "done",
+            )
+            .all()
+        }
+        return [h for h in hits if h.get("content_item_id") not in content_item_ids or h.get("content_item_id") in done_ids]
+
+    @staticmethod
     def _scoped_done_query(
         db: Session, platform: str | None, scope_ids: set[str] | None
     ):
@@ -645,7 +671,7 @@ class RagService:
         if collection_id and collection_id not in ("all", ""):
             scope_ids = self._resolve_collection_scope(db, collection_id)
         if route == "vector":
-            hits = self._dense_retrieve(normalized, scope_ids, platform=platform_filter)
+            hits = self._filter_hits_to_done_items(db, self._dense_retrieve(normalized, scope_ids, platform=platform_filter))
         t_dense = time.perf_counter() - t0
 
         # Step 3: 构建上下文
@@ -825,7 +851,7 @@ class RagService:
         if collection_id and collection_id not in ("all", ""):
             scope_ids = self._resolve_collection_scope(db, collection_id)
         if route in ("vector", "db_content"):
-            hits = self._dense_retrieve(normalized, scope_ids, platform=platform_filter)
+            hits = self._filter_hits_to_done_items(db, self._dense_retrieve(normalized, scope_ids, platform=platform_filter))
         t_dense = time.perf_counter() - t1
 
         t2 = time.perf_counter()

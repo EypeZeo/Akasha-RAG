@@ -299,6 +299,18 @@ class BatchExportService:
     # -------------------------------------------------------------
     # Excel 导出 (.xlsx)
     # -------------------------------------------------------------
+    @staticmethod
+    def _chunk_for_excel_cell(text: str, limit: int = 30000) -> list[str]:
+        """Split text into pieces that each fit under Excel's ~32767-char
+        per-cell limit, leaving headroom below the hard limit.
+
+        Returns `[""]` for empty input so callers always have at least one
+        chunk to put in the main row.
+        """
+        if not text:
+            return [""]
+        return [text[i : i + limit] for i in range(0, len(text), limit)]
+
     def _export_excel(self, items: list, content_type: str) -> io.BytesIO:
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Font, PatternFill
@@ -333,16 +345,26 @@ class BatchExportService:
             time_str = cache.updated_at.strftime("%Y-%m-%d %H:%M") if cache.updated_at else ""
 
             row_data = [idx, cache.platform_item_id, cache.title, author, url, time_str]
+            # 长文本列（AI 整理 / 原始转写）如果超过单元格上限，按 chunk 拆
+            # 成多段——主行放第一段，需要更多段的追加"延续行"，不静默截断、
+            # 不丢内容，也不引入新列或依赖打包模式。
+            long_text_chunks: list[list[str]] = []
 
             if content_type in ("ai", "both"):
                 try:
                     ai_text = export_ai_organized(cache, generate=False)
                 except Exception:
                     ai_text = ""
-                row_data.append(ai_text)
+                chunks = self._chunk_for_excel_cell(ai_text)
+                row_data.append(chunks[0])
+                long_text_chunks.append(chunks)
 
             if content_type in ("original", "both"):
-                row_data.append(cache.transcript_text or "")
+                chunks = self._chunk_for_excel_cell(cache.transcript_text or "")
+                row_data.append(chunks[0])
+                long_text_chunks.append(chunks)
+
+            long_text_col_start = len(row_data) - len(long_text_chunks)
 
             ws.append(row_data)
             current_row = ws.max_row
@@ -353,6 +375,20 @@ class BatchExportService:
                     c.alignment = align_center
                 else:
                     c.alignment = align_left
+
+            max_chunks = max((len(c) for c in long_text_chunks), default=1)
+            for chunk_idx in range(1, max_chunks):
+                continuation = [""] * len(row_data)
+                continuation[1] = f"{cache.platform_item_id}（续）"
+                for offset, chunks in enumerate(long_text_chunks):
+                    if chunk_idx < len(chunks):
+                        continuation[long_text_col_start + offset] = chunks[chunk_idx]
+                ws.append(continuation)
+                cont_row = ws.max_row
+                for col_num in range(1, len(continuation) + 1):
+                    c = ws.cell(row=cont_row, column=col_num)
+                    c.font = font_body
+                    c.alignment = align_center if col_num in (1, 2, 6) else align_left
 
         ws.column_dimensions["A"].width = 8
         ws.column_dimensions["B"].width = 22
