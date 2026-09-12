@@ -122,6 +122,12 @@ async def sync_favorites(
     except Exception as exc:
         import traceback
         import httpx
+        # DATA-01: sync_from_douyin/sync_from_bilibili may have already
+        # flush()ed partial collection/content/relation changes into this
+        # session before failing. Because this except swallows the error and
+        # returns a normal response, get_db never sees an exception and would
+        # otherwise commit that half-written state on its "no exception" path.
+        db.rollback()
         logger.error("收藏夹同步失败: %s\n%s", exc, traceback.format_exc())
         err_type = type(exc).__name__
         err_msg = str(exc).strip()
