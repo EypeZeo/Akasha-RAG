@@ -20,7 +20,7 @@
 
 ```mermaid
 flowchart LR
-    subgraph 采集
+    subgraph col["采集"]
         DY[抖音收藏夹]
         BILI[哔哩哔哩收藏夹]
     end

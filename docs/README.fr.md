@@ -20,7 +20,7 @@ Transformez vos favoris Douyin (le TikTok chinois) et Bilibili en une seule base
 
 ```mermaid
 flowchart LR
-    subgraph Collecte
+    subgraph col["Collecte"]
         DY[Favoris Douyin]
         BILI[Favoris Bilibili]
     end

@@ -20,7 +20,7 @@ Verwandle deine Douyin- (das chinesische TikTok) und Bilibili-Favoriten in eine 
 
 ```mermaid
 flowchart LR
-    subgraph Erfassung
+    subgraph col["Erfassung"]
         DY[Douyin-Favoriten]
         BILI[Bilibili-Favoriten]
     end

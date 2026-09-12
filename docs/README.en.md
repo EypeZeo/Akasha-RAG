@@ -20,7 +20,7 @@ Turn your Douyin (TikTok China) and Bilibili favorites into one searchable, chat
 
 ```mermaid
 flowchart LR
-    subgraph Collect
+    subgraph col["Collect"]
         DY[Douyin favorites]
         BILI[Bilibili favorites]
     end

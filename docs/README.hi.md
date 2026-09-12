@@ -20,7 +20,7 @@
 
 ```mermaid
 flowchart LR
-    subgraph संग्रह
+    subgraph col["संग्रह"]
         DY[Douyin पसंदीदा]
         BILI[Bilibili पसंदीदा]
     end

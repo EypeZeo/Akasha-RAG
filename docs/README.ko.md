@@ -20,7 +20,7 @@
 
 ```mermaid
 flowchart LR
-    subgraph 수집
+    subgraph col["수집"]
         DY[더우인 즐겨찾기]
         BILI[빌리빌리 즐겨찾기]
     end

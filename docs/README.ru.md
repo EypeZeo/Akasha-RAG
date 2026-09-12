@@ -20,7 +20,7 @@
 
 ```mermaid
 flowchart LR
-    subgraph Сбор
+    subgraph col["Сбор"]
         DY[Избранное Douyin]
         BILI[Избранное Bilibili]
     end

@@ -20,7 +20,7 @@ Douyin（中国版 TikTok）と哔哩哔哩のお気に入りを、まとめて�
 
 ```mermaid
 flowchart LR
-    subgraph 収集
+    subgraph col["収集"]
         DY[Douyin お気に入り]
         BILI[哔哩哔哩 お気に入り]
     end
