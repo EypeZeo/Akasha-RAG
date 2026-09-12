@@ -18,6 +18,7 @@ import os
 import tempfile
 import time
 import urllib.parse
+import weakref
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -63,14 +64,19 @@ class BilibiliClient:
         self._state_path = p
         self._cookies: dict[str, str] = {}
         self._user_info: dict[str, Any] = {}
-        self._clients: dict[int, httpx.AsyncClient] = {}
-        self._semaphores: dict[int, asyncio.Semaphore] = {}
+        # WeakKeyDictionary 而不是 id(loop) -> value：CPython 的 id() 是内存
+        # 地址，事件循环对象被垃圾回收后地址可能被新循环复用，用 int 键的
+        # 普通 dict 会让新循环命中一个绑定在已关闭循环上的 client/信号量。
+        # WeakKeyDictionary 直接以循环对象本身为键，随对象被 GC 自动清除
+        # 条目，从根上不存在这类复用问题。
+        self._clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient]" = weakref.WeakKeyDictionary()
+        self._semaphores: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = weakref.WeakKeyDictionary()
         self._load_state()
 
     def _get_client(self) -> httpx.AsyncClient:
         """Get a client that belongs to the current event loop."""
-        key = id(asyncio.get_running_loop())
-        client = self._clients.get(key)
+        loop = asyncio.get_running_loop()
+        client = self._clients.get(loop)
         if client is None or client.is_closed:
             client = httpx.AsyncClient(
                 timeout=httpx.Timeout(25.0, connect=10.0, read=25.0, write=15.0),
@@ -78,15 +84,15 @@ class BilibiliClient:
                 follow_redirects=True,
                 limits=httpx.Limits(max_keepalive_connections=5, max_connections=15, keepalive_expiry=15.0),
             )
-            self._clients[key] = client
+            self._clients[loop] = client
         return client
 
     def _get_semaphore(self) -> asyncio.Semaphore:
-        key = id(asyncio.get_running_loop())
-        semaphore = self._semaphores.get(key)
+        loop = asyncio.get_running_loop()
+        semaphore = self._semaphores.get(loop)
         if semaphore is None:
             semaphore = asyncio.Semaphore(settings.bilibili_max_concurrency)
-            self._semaphores[key] = semaphore
+            self._semaphores[loop] = semaphore
         return semaphore
 
     async def _request(
@@ -98,7 +104,7 @@ class BilibiliClient:
         **kwargs,
     ) -> httpx.Response:
         """统一请求执行器：提供并发信号量管控、重试机制及连接池自动回收。"""
-        key = id(asyncio.get_running_loop())
+        loop = asyncio.get_running_loop()
         last_exc: Optional[Exception] = None
 
         for attempt in range(1, max_retries + 1):
@@ -127,8 +133,8 @@ class BilibiliClient:
                     url,
                     type(exc).__name__,
                 )
-                if key in self._clients:
-                    old_client = self._clients.pop(key)
+                if loop in self._clients:
+                    old_client = self._clients.pop(loop)
                     if not old_client.is_closed:
                         try:
                             await old_client.aclose()
@@ -145,7 +151,8 @@ class BilibiliClient:
 
     async def aclose(self) -> None:
         """关闭所有事件循环所属的连接池。"""
-        clients, self._clients = list(self._clients.values()), {}
+        clients = list(self._clients.values())
+        self._clients.clear()
         self._semaphores.clear()
         for client in clients:
             if not client.is_closed:
