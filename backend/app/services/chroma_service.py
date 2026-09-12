@@ -170,13 +170,26 @@ class ChromaService:
             for target in self._target_platforms(platform):
                 self._collection_for(target).delete(where={"platform_item_id": {"$in": item_ids}})
 
+    def _delete_collection_or_raise(self, platform: str) -> None:
+        """Delete one platform's collection, tolerating only "already gone".
+
+        A missing collection is the expected, safe-to-ignore case (this is
+        what makes clear_all/clear_platform idempotent/retry-safe). Any other
+        failure -- lock contention, disk I/O, corruption -- must propagate
+        instead of being swallowed, so the caller's follow-up SQL step never
+        runs against a vector store that didn't actually get cleared.
+        """
+        import chromadb.errors
+
+        try:
+            self._client.delete_collection(name=self._collection_name(platform))
+        except chromadb.errors.NotFoundError:
+            pass
+
     def clear_all(self) -> None:
         with _write_lock:
             for platform in SUPPORTED_PLATFORMS:
-                try:
-                    self._client.delete_collection(name=self._collection_name(platform))
-                except Exception:
-                    pass
+                self._delete_collection_or_raise(platform)
                 self._collections[platform] = self._create_collection(platform)
 
     def clear_platform(self, platform: str) -> None:
@@ -188,10 +201,7 @@ class ChromaService:
         """
         self._collection_for(platform)  # raises for an unsupported platform before touching anything
         with _write_lock:
-            try:
-                self._client.delete_collection(name=self._collection_name(platform))
-            except Exception:
-                pass
+            self._delete_collection_or_raise(platform)
             self._collections[platform] = self._create_collection(platform)
 
     def count(self) -> int:
