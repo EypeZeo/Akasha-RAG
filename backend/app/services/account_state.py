@@ -48,13 +48,19 @@ def record_account_state(
     if row.status != status or row.auth_state_ref != (auth_state_ref if active else ""):
         row.status = status
         row.auth_state_ref = auth_state_ref if active else ""
+    # Guard each assignment against the value already stored, same as the
+    # status/auth_state_ref fields above -- otherwise this fires on every
+    # poll (e.g. list_platforms_status every 30s) and issues a redundant
+    # UPDATE each time even when nothing actually changed.
     if not active:
-        row.nickname = ""
-        row.avatar_url = ""
+        if row.nickname:
+            row.nickname = ""
+        if row.avatar_url:
+            row.avatar_url = ""
     else:
-        if nickname:
+        if nickname and row.nickname != nickname[:128]:
             row.nickname = nickname[:128]
-        if safe_avatar_url:
+        if safe_avatar_url and row.avatar_url != safe_avatar_url:
             row.avatar_url = safe_avatar_url
     return row
 
