@@ -463,9 +463,42 @@ def verify(db_path: Optional[Path] = None) -> dict[str, Any]:
         conn.close()
 
 
+def _assert_not_busy(db_path: Path) -> None:
+    """在还原前确认没有其它连接（通常是仍在运行的后端）持有这个数据库。
+
+    SQLite 处于 WAL 模式时没有真正意义上的"独占检测"——`BEGIN IMMEDIATE`
+    只在另一个连接*正在写*时才会冲突，对着一个仅仅打开了空闲读连接的活跃
+    进程会误判为"没人在用"。`PRAGMA wal_checkpoint(TRUNCATE)` 返回的
+    `busy` 标志则更可靠：只要还有别的连接持有任何阻止完整 checkpoint 的
+    锁（读或写），`busy` 就会非零——这正是我们需要的信号，顺带也完成了
+    "还原前先把目标库自己的 WAL 清空"这一步，不是额外开销。
+    """
+    conn = sqlite3.connect(str(db_path))
+    try:
+        busy, _log_frames, _checkpointed = conn.execute(
+            "PRAGMA wal_checkpoint(TRUNCATE)"
+        ).fetchone()
+        if busy:
+            raise RuntimeError(
+                f"{db_path} 似乎仍被其它连接占用（可能后端服务还在运行）。"
+                "请先完全停止后端服务，再执行回滚。"
+            )
+    finally:
+        conn.close()
+
+
 def rollback(db_path: Optional[Path] = None, backup_file: Optional[str] = None) -> dict[str, str]:
     """
     从指定备份文件安全还原 SQLite 数据库与 Chroma 状态
+
+    还原数据库文件时复用和 `backup()` 完全对称的 SQLite Backup API，而不是
+    裸文件复制——WAL 模式下裸复制 `.db` 再删掉 `-wal`/`-shm` 可能丢失已提交
+    但尚未 checkpoint 进主文件的数据；Backup API 在页级别完成拷贝，正确处理
+    源库和目标库各自的 WAL 状态，不需要手动管理这两个 sidecar 文件。
+
+    调用方必须确保后端服务已经停止——本函数只能检测到 SQLite 连接级别的
+    占用，无法检测到一个仅打开了空闲读连接的存活进程；Chroma 目录的整体
+    复制同样假设没有进程在并发写入。
     """
     target_db, chroma_path, backup_dir = (
         get_storage_paths() if db_path is None else (db_path, Path(db_path).parent / "chroma", Path(db_path).parent / "backups")
@@ -483,8 +516,21 @@ def rollback(db_path: Optional[Path] = None, backup_file: Optional[str] = None) 
     if not restore_db.exists():
         raise FileNotFoundError(f"备份文件不存在: {restore_db}")
 
-    # 还原数据库文件
-    shutil.copy2(str(restore_db), str(target_db))
+    if target_db.exists():
+        _assert_not_busy(target_db)
+
+    # 还原数据库文件：用 Backup API 而不是文件复制，见函数 docstring。
+    src_conn = sqlite3.connect(str(restore_db))
+    dst_conn = sqlite3.connect(str(target_db))
+    try:
+        with dst_conn:
+            src_conn.backup(dst_conn)
+        # 还原完成后再 checkpoint 一次，确保目标库不残留会在下次打开时
+        # 重放的 WAL 帧。
+        dst_conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        dst_conn.close()
+        src_conn.close()
     logger.info("数据库已安全回滚至备份: %s -> %s", restore_db, target_db)
 
     # 还原 Chroma 目录（如果存在）
