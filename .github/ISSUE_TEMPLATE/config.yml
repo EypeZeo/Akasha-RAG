@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用文档 / Documentation
+    url: https://github.com/EypeZeo/Akasha-RAG#readme
+    about: 安装、配置、常见问题请先查 README（多语言版本见页首切换）。
+  - name: 提问与讨论 / Questions & Discussion
+    url: https://github.com/EypeZeo/Akasha-RAG/discussions
+    about: 不确定是不是 bug、想问用法或提设想，请在 Discussions 里聊。

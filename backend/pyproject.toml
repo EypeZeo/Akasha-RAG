@@ -1,0 +1,35 @@
+[project]
+name = "akasha-rag"
+version = "1.0.0"
+description = "Akasha-RAG · 多平台收藏夹 RAG 知识库"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "chromadb>=1.5",
+    "dashscope>=1.20",
+    "openai>=1.60",
+    "httpx>=0.28",
+    "yt-dlp>=2025.8",
+    "playwright>=1.50",
+    "pydantic>=2.10",
+    "pydantic-settings>=2.7",
+    "loguru>=0.7",
+    "python-docx>=1.1",
+    "openpyxl>=3.1",
+    "python-pptx>=1.0",
+    "reportlab>=4.2",
+    "qrcode[pil]>=7.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.28",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

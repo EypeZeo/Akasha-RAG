@@ -1,0 +1,472 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #FAF3E8;
+  --color-panel: #FFFBF5;
+  --color-accent: #E8594A;
+  --color-accent-hover: #D04A3C;
+  --color-amber: #D4943A;
+  --color-ink: #2C2416;
+  --color-ink-soft: #5A4F3F;
+  --color-ink-muted: #8B7E6A;
+  --color-border: #E8DDD0;
+  --color-success: #5B8C5A;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', 'Segoe UI Emoji', 'Apple Color Emoji', 'Noto Color Emoji', sans-serif;
+  color: var(--color-ink);
+  background-color: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-ink-muted); }
+
+/* Custom scrollbar for Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+
+/* ==========================================================================
+   UIVerse Inspired High-Precision Design System (Cards, Borders & Gradients)
+   ========================================================================== */
+
+/* Assistant answer — borderless & flat (name kept: @media print + JSX reference it). */
+.modern-ai-card {
+  position: relative;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  transition: none;
+}
+.modern-ai-card::before { content: none; }
+
+/* Streaming answer — barely-there amber wash, no animated border. */
+.modern-streaming-card {
+  position: relative;
+  border-radius: 0.75rem;
+  background: rgba(212, 148, 58, 0.045);
+  box-shadow: none;
+  border: none;
+  transition: none;
+}
+.modern-streaming-card::before { content: none; }
+
+/* thin top shimmer bar on the streaming card — GPU-cheap (only background-position moves) */
+.modern-streaming-card::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+  background-size: 200% 100%;
+  animation: bar-shimmer 2.4s linear infinite;
+  pointer-events: none;
+}
+@keyframes bar-shimmer { to { background-position: -200% 0; } }
+
+.streaming-frame-text {
+  color: var(--color-ink);
+  font-size: 0.9375rem;
+  line-height: 1.75;
+  letter-spacing: normal;
+}
+
+/* blinking caret at the streaming tail */
+.stream-caret {
+  display: inline-block;
+  width: 0.5rem;
+  height: 1.05em;
+  margin-left: 0.15rem;
+  vertical-align: -0.15em;
+  border-radius: 1px;
+  background: var(--color-accent);
+  animation: caret-blink 1s step-end infinite;
+}
+@keyframes caret-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
+
+/* "thinking" — 3 breathing dots */
+.thinking-dots { display: inline-flex; align-items: center; gap: 0.22rem; }
+.thinking-dots > span {
+  width: 0.32rem; height: 0.32rem; border-radius: 9999px;
+  background: currentColor;
+  animation: dot-breathe 1.3s ease-in-out infinite;
+}
+.thinking-dots > span:nth-child(2) { animation-delay: 0.16s; }
+.thinking-dots > span:nth-child(3) { animation-delay: 0.32s; }
+@keyframes dot-breathe {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
+/* User message — flat warm-tinted bubble */
+.modern-user-bubble {
+  background: rgba(232, 89, 74, 0.10);
+  border: 1px solid rgba(232, 89, 74, 0.14);
+  border-radius: 1.125rem 1.125rem 0.375rem 1.125rem;
+  color: var(--color-ink);
+  box-shadow: none;
+  transition: none;
+}
+.modern-user-bubble:hover { transform: none; box-shadow: none; }
+
+/* interrupted answer — fade out the truncation point */
+.interrupted-truncate { position: relative; }
+.interrupted-truncate::after {
+  content: '…';
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--color-ink-muted);
+  opacity: 0.6;
+  font-size: 0.9rem;
+}
+
+/* message entrance + settle */
+@keyframes msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.msg-enter { animation: msg-in 0.22s ease-out both; }
+@keyframes msg-settle { from { transform: scale(0.997); } to { transform: none; } }
+.msg-settle { animation: msg-settle 0.18s ease-out both; }
+@keyframes ui-fade { from { opacity: 0; } to { opacity: 1; } }
+.anim-fade { animation: ui-fade 0.2s ease-out both; }
+@keyframes ui-pop { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: none; } }
+.anim-pop { animation: ui-pop 0.15s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .msg-enter, .msg-settle, .anim-fade, .anim-pop,
+  .thinking-dots > span, .stream-caret,
+  .modern-streaming-card::after {
+    animation: none !important;
+  }
+}
+
+/* Composer region — opaque, no backdrop-filter, soft fade above */
+.chat-composer-region {
+  position: relative;
+  background: var(--color-panel);
+  contain: layout;
+}
+.chat-composer-region::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: -32px;
+  height: 32px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgba(255, 251, 245, 0), var(--color-panel));
+}
+
+.chat-capsule {
+  border: 1px solid var(--color-border);
+  border-radius: 1.75rem;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(44, 36, 22, 0.04), 0 8px 24px -12px rgba(44, 36, 22, 0.12);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.chat-capsule:focus-within {
+  border-color: rgba(232, 89, 74, 0.45);
+  box-shadow: 0 1px 2px rgba(44, 36, 22, 0.04), 0 10px 30px -12px rgba(232, 89, 74, 0.22);
+}
+
+.welcome-suggest-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  background: var(--color-panel);
+  text-align: left;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.welcome-suggest-card:hover {
+  border-color: rgba(232, 89, 74, 0.35);
+  background: #fff;
+}
+
+/* 渐变过渡分割线 - 代替生硬的 1px 实线 */
+.gradient-divider {
+  height: 1px;
+  width: 100%;
+  background: linear-gradient(90deg, transparent 0%, rgba(232, 221, 208, 0.8) 25%, rgba(232, 221, 208, 0.8) 75%, transparent 100%);
+}
+
+.gradient-divider-accent {
+  height: 1px;
+  width: 100%;
+  background: linear-gradient(90deg, transparent 0%, rgba(232, 89, 74, 0.3) 25%, rgba(212, 148, 58, 0.25) 75%, transparent 100%);
+}
+
+/* 渐变过渡分割线 - 代替生硬的 1px 实线 */
+.gradient-divider {
+  height: 1px;
+  width: 100%;
+  background: linear-gradient(90deg, transparent 0%, rgba(232, 221, 208, 0.8) 25%, rgba(232, 221, 208, 0.8) 75%, transparent 100%);
+}
+
+.gradient-divider-accent {
+  height: 1px;
+  width: 100%;
+  background: linear-gradient(90deg, transparent 0%, rgba(232, 89, 74, 0.3) 25%, rgba(212, 148, 58, 0.25) 75%, transparent 100%);
+}
+
+/* Markdown Typography Styles */
+.markdown-body {
+  font-size: 0.925rem;
+  line-height: 1.65;
+  color: var(--color-ink);
+}
+.markdown-body > *:first-child {
+  margin-top: 0 !important;
+}
+.markdown-body > *:last-child {
+  margin-bottom: 0 !important;
+}
+.markdown-body p {
+  margin-bottom: 0.75rem;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+  font-weight: 700;
+  color: var(--color-ink);
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.35;
+}
+.markdown-body h1 { font-size: 1.25rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.3rem; }
+.markdown-body h2 { font-size: 1.15rem; }
+.markdown-body h3 { font-size: 1.05rem; }
+.markdown-body h4 { font-size: 0.95rem; }
+.markdown-body ul {
+  list-style-type: disc;
+  padding-left: 1.35rem;
+  margin-bottom: 0.75rem;
+}
+.markdown-body ol {
+  list-style-type: decimal;
+  padding-left: 1.35rem;
+  margin-bottom: 0.75rem;
+}
+.markdown-body li {
+  margin-bottom: 0.25rem;
+}
+.markdown-body blockquote {
+  border-left: 3px solid var(--color-accent);
+  padding-left: 0.75rem;
+  margin: 0.75rem 0;
+  color: var(--color-ink-soft);
+  background: rgba(232, 89, 74, 0.04);
+  border-radius: 0 0.375rem 0.375rem 0;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+.markdown-body code:not(pre code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  background-color: rgba(44, 36, 22, 0.08);
+  color: var(--color-accent-hover);
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.25rem;
+}
+.markdown-body pre {
+  background-color: #241e17;
+  color: #f5ede0;
+  padding: 0.9rem 1rem;
+  border-radius: 0.75rem;
+  overflow-x: auto;
+  margin: 0;              /* vertical rhythm owned by the CodeBlock wrapper (.my-4) */
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.875rem;
+}
+.markdown-body th, .markdown-body td {
+  border: 1px solid var(--color-border);
+  padding: 0.4rem 0.65rem;
+  text-align: left;
+}
+.markdown-body th {
+  background-color: rgba(0, 0, 0, 0.03);
+  font-weight: 600;
+}
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 1rem 0;
+}
+.markdown-body a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* 隐约可见的微光滚动条（平时微淡隐现，hover或滚动时加深显现） */
+.subtle-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.subtle-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.subtle-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(139, 126, 106, 0.28); /* 隐约可见 */
+  border-radius: 9999px;
+  transition: background-color 0.2s ease;
+}
+.subtle-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 126, 106, 0.7); /* 交互时高亮 */
+}
+.subtle-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139, 126, 106, 0.28) transparent;
+  overscroll-behavior: contain;
+}
+
+/* 高性能输入隔离 */
+.chat-input-isolate {
+  contain: paint layout;
+}
+
+/* 超出内容时展开按钮的呼吸微光提醒 */
+@keyframes expand-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(232, 89, 74, 0.35);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 4px rgba(232, 89, 74, 0.15);
+  }
+}
+.expand-badge-pulse {
+  animation: expand-pulse 2.2s infinite ease-in-out;
+}
+
+/* ==========================================================================
+   Print / PDF Export Mode Stylesheet
+   ========================================================================== */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #111827 !important;
+  }
+
+  /* 隐藏所有界面无关构件与输入框 */
+  header,
+  nav,
+  .no-print,
+  .chat-input-isolate,
+  .gradient-divider,
+  .gradient-divider-accent,
+  button,
+  form,
+  aside,
+  [role="dialog"] {
+    display: none !important;
+  }
+
+  /* 强制撑开整个文档容器，避免由于 flex 限制截断后续问答内容 */
+  html, body, #root, .flex-1, .h-full, .overflow-y-auto,
+  [role="tabpanel"], .absolute {
+    height: auto !important;
+    overflow: visible !important;
+    position: static !important;
+  }
+
+  /* 中和虚拟列表容器（打印时组件已切到全量渲染，但外层样式需复位） */
+  .chat-virtual-list, .chat-virtual-list * {
+    height: auto !important;
+    max-height: none !important;
+    transform: none !important;
+    position: static !important;
+    overflow: visible !important;
+  }
+  .modern-streaming-card::after,
+  .stream-caret,
+  .thinking-dots { display: none !important; }
+
+  /* 隐藏未激活的 Tab 面板（已带 hidden 属性），激活的正常打印 */
+  [role="tabpanel"][hidden] {
+    display: none !important;
+  }
+
+  /* 打印时问答卡片高保真黑白/柔和边框，分页不截断 */
+  .modern-ai-card, .modern-user-bubble {
+    box-shadow: none !important;
+    border: 1px solid #d1d5db !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 1.5rem !important;
+  }
+
+  .modern-ai-card::before, .modern-streaming-card::before {
+    display: none !important;
+  }
+
+  .modern-user-bubble {
+    color: #111827 !important;
+    background: #f3f4f6 !important;
+  }
+}
+
+/* ==========================================================================
+   Sync Button Glowing & Ambient Light Effects
+   ========================================================================== */
+@keyframes sync-pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(232, 89, 74, 0.25), 0 0 18px rgba(212, 148, 58, 0.15);
+    border-color: rgba(232, 89, 74, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(232, 89, 74, 0.55), 0 0 26px rgba(212, 148, 58, 0.35);
+    border-color: rgba(232, 89, 74, 0.85);
+  }
+}
+
+.animate-sync-glow {
+  animation: sync-pulse-glow 2s infinite ease-in-out;
+}
+
+@keyframes sync-shimmer-sweep {
+  0% {
+    transform: translateX(-120%) skewX(-20deg);
+  }
+  100% {
+    transform: translateX(260%) skewX(-20deg);
+  }
+}
+
+.animate-sync-shimmer {
+  animation: sync-shimmer-sweep 2.4s infinite cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+
+

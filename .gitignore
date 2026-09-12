@@ -1,0 +1,57 @@
+# 敏感信息（递归）
+**/.env
+*.pem
+*.key
+*cookies*.txt
+state.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+.pytest_cache/
+
+# Node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# 本地数据 / 运行时产物
+.runtime/
+backend/app/storage/
+app/storage/
+logs/
+exports/
+export_tmp/
+*.db
+*.sqlite3
+*.mp4
+
+# 二改过程留档 / 无关内容（不入公开仓库）
+.codex-backup/
+.codex-validation/
+bilibili-rag-main/
+AUDIT_REPORT.md
+FINAL_UPGRADE_SUMMARY.md
+FRONTEND_FIXES.md
+MODEL_UPGRADE.md
+UPGRADE_COMPLETE.md
+PROJECT_REPORT.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Playwright
+.playwright-mcp/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Local Claude Code preview config
+.claude/launch.json

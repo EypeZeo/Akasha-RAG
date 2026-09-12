@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="akashaOrb" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#E8594A"/>
+      <stop offset="55%" stop-color="#B0526B"/>
+      <stop offset="100%" stop-color="#4C3B6E"/>
+    </linearGradient>
+    <radialGradient id="akashaCore" cx="50%" cy="42%" r="65%">
+      <stop offset="0%" stop-color="#FFF3E4"/>
+      <stop offset="100%" stop-color="#F3D9C0" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <circle cx="50" cy="50" r="47" fill="url(#akashaOrb)"/>
+  <circle cx="50" cy="50" r="47" fill="url(#akashaCore)"/>
+
+  <!-- almond "all-seeing" eye: the Akashic record watching over the archive -->
+  <path d="M12 50 C26 30, 74 30, 88 50 C74 70, 26 70, 12 50 Z"
+        fill="none" stroke="#FFF8F0" stroke-width="3.2" stroke-linejoin="round"/>
+  <circle cx="50" cy="50" r="13" fill="#FFF8F0"/>
+  <circle cx="50" cy="50" r="7.5" fill="#4C3B6E"/>
+  <circle cx="53" cy="47" r="2.4" fill="#FFF8F0"/>
+</svg>

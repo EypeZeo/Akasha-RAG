@@ -1,0 +1,106 @@
+name: 缺陷报告 / Bug report
+description: 报告一个可复现的问题 / Report a reproducible problem
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请尽量填全 —— **报错截图 + `logs/` 日志 + 环境版本**能极大加快定位。
+        Thanks! The more you fill in — **a screenshot, the `logs/` output, and your versions** — the faster this gets fixed.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 提交前确认 / Before you file
+      options:
+        - label: 我已搜索过现有 issue，没有重复 / I searched existing issues and found no duplicate
+          required: true
+        - label: 我已看过 README（含常见问题）/ I read the README (incl. troubleshooting)
+          required: true
+        - label: 我使用的是最新版本，或已确认旧版也有此问题 / I'm on the latest release, or confirmed it also happens there
+          required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: 从启动开始，一步步写到出错为止 / From launch to the failure, step by step
+      placeholder: |
+        1. start.bat 启动
+        2. 扫码登录 → 同步收藏夹
+        3. 点「一键入库」
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果 / Expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果 / Actual
+      description: 贴上完整报错文本 / Paste the full error text
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: Akasha-RAG 版本 / version
+      description: 页面标题旁的徽标，或 `version.txt` 内容 / the badge next to the page title, or `version.txt`
+      placeholder: "0.5.0"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python 版本 / version
+      description: 运行 `python -V`
+      placeholder: "Python 3.12.4"
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: Windows 版本 / version
+      description: 运行 `winver`（或系统信息里的版本号）
+      placeholder: "Windows 11 23H2 (22631.3810)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / Logs（强烈建议 / strongly recommended）
+      description: |
+        粘贴 `logs/error_*.log` 与 `logs/terminal_*.log` 的相关片段；或直接拖拽文件上传。
+        Paste the relevant parts of `logs/error_*.log` and `logs/terminal_*.log`, or drag the files in.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 报错截图 / Screenshots（强烈建议 / strongly recommended）
+      description: 前端报错弹窗、控制台、终端输出等 / the frontend error, the console, the terminal
+    validations:
+      required: false
+
+  - type: textarea
+    id: components
+    attributes:
+      label: 其他组件版本 / Other component versions（可选 / optional）
+      description: |
+        有助于排查下载/转写类问题：
+        `node -v` · `ffmpeg -version` 首行 · `yt-dlp --version` ·
+        `backend/.venv/Scripts/playwright.exe --version` · `.env` 里的 `ASR_MODEL` / `EMBEDDING_MODEL` / `VISION_MODEL`（**不要贴 Key**）
+    validations:
+      required: false
