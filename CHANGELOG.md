@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.1](https://github.com/EypeZeo/Akasha-RAG/compare/v1.0.0...v1.0.1) (2026-09-12)
+
+
+### Bug Fixes
+
+* **docs:** fix Mermaid subgraph syntax and complete the v1.0.0 changelog ([0aa5691](https://github.com/EypeZeo/Akasha-RAG/commit/0aa5691ea649a7ab7bdbcf307152508a160aa4a7))
+
 ## [1.0.0](https://github.com/EypeZeo/Akasha-RAG/releases/tag/v1.0.0) (2026-09-12)
 
 Initial public release of Akasha-RAG.
