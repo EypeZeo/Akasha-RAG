@@ -23,7 +23,7 @@ from typing import Callable, List, Optional
 ProgressCb = Optional[Callable[[int, int, str], None]]
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.entities import FavoriteVideo, VideoCache
 from app.services.markdown_export import export_ai_organized, export_original
@@ -43,18 +43,30 @@ class BatchExportService:
         """
         获取符合导出条件的视频列表（已入库 done 状态）
         """
-        query = select(VideoCache).where(VideoCache.status == "done")
+        # `VideoCache`/`FavoriteVideo` are compat aliases for `IngestionItem`/
+        # `ContentItem` (see entities.py). `VideoCache.platform_item_id` is a
+        # hybrid_property routed through the `content_item` relationship, so
+        # without eager loading, every access below was a lazy-load query per
+        # row -- on top of the separate FavoriteVideo query per row. Eager
+        # load the relationship and reuse it directly as `fv` (they are the
+        # same row via the FK, not a lookup by the non-unique-across-platforms
+        # platform_item_id string, which could collide between platforms).
+        query = (
+            select(VideoCache)
+            .options(selectinload(VideoCache.content_item))
+            .where(VideoCache.status == "done")
+        )
 
         if selected_ids:
-            query = query.where(VideoCache.platform_item_id.in_(selected_ids))
+            query = query.join(VideoCache.content_item).where(
+                FavoriteVideo.remote_item_id.in_(selected_ids)
+            )
 
         caches = db.execute(query).scalars().all()
 
         results = []
         for cache in caches:
-            fv = db.query(FavoriteVideo).filter(
-                FavoriteVideo.platform_item_id == cache.platform_item_id
-            ).first()
+            fv = cache.content_item
 
             if collection_id and collection_id != "all":
                 if not fv or str(fv.collection_id) != str(collection_id):
