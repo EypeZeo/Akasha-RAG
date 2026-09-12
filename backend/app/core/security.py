@@ -16,17 +16,25 @@ from __future__ import annotations
 from fastapi import Header, HTTPException, Request
 
 REQUIRED_CLIENT_HEADER_VALUE = "1"
-# GET/HEAD/OPTIONS 无副作用，且原生浏览器下载/导出（<a>.click() / window.open()）
-# 无法附带自定义请求头——对这些方法强制要求头部只会挡住合法的同源下载，
-# 不会挡住真正的 CSRF（那需要状态变更请求，见模块顶部文档）。
-_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+# "GET 无副作用" 不成立——/api/auth/platforms 和 /api/auth/bilibili/qrcode/poll
+# 都是会写库的 GET，且都是前端 fetch() 轮询的（本来就带这个头，豁免它们没有
+# 任何好处，只会重新打开一个跨源 GET 就能触发写状态的口子）。真正需要豁免的
+# 只有下面这两个：原生浏览器导航（<a>.click() / window.open()）结构上不可能
+# 带自定义头，而它们本身是只读下载，不构成 CSRF 风险。按路径模板（而不是按
+# HTTP 方法整体豁免）精确匹配，避免误伤同样是 GET 但走 fetch() 的其它路由。
+_EXEMPT_GET_ROUTES = frozenset({
+    "/knowledge/export/{platform_item_id}",
+    "/knowledge/export/batch/{task_id}/download",
+})
 
 
 async def require_local_client(
     request: Request, x_akasha_client: str | None = Header(default=None)
 ) -> None:
-    """挂在 api_router 上的全局依赖：状态变更请求缺失或值不对时直接 403。"""
-    if request.method in _SAFE_METHODS:
-        return
+    """挂在 api_router 上的全局依赖：缺失或值不对时直接 403。"""
+    if request.method == "GET":
+        route = request.scope.get("route")
+        if getattr(route, "path", None) in _EXEMPT_GET_ROUTES:
+            return
     if x_akasha_client != REQUIRED_CLIENT_HEADER_VALUE:
         raise HTTPException(status_code=403, detail="Missing or invalid X-Akasha-Client header")
