@@ -2,19 +2,38 @@
 应用配置模块
 
 基于 Pydantic Settings 的环境变量管理。
-所有配置项从 .env 文件和环境变量读取，提供类型验证和默认值。
+所有配置项从环境变量及 Windows DPAPI 保护的本地配置读取，提供类型验证和默认值。
 """
+import os
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
+
+from app.core.secure_storage import read_text
+
+
+def _load_protected_dotenv() -> None:
+    """Expose DPAPI-protected `.env` values to Pydantic for this process only."""
+    raw = read_text(Path.cwd() / ".env")
+    if raw is None:
+        return
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        os.environ.setdefault(name.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_protected_dotenv()
 
 
 class Settings(BaseSettings):
     """
     应用全局配置
 
-    配置优先级：环境变量 > .env 文件 > 默认值
+    配置优先级：环境变量 > DPAPI 保护的 .env > 默认值
     """
 
     # ===== API Key =====

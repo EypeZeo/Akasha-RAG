@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import logging
 import shutil
 import sys
@@ -24,6 +23,7 @@ from typing import Optional
 from playwright.sync_api import sync_playwright
 
 from app.core.config import settings
+from app.core.secure_storage import delete_json, read_json, write_json
 
 logger = logging.getLogger(__name__)
 
@@ -121,11 +121,10 @@ class DouyinCollector:
 
     def _check_saved_login(self) -> bool:
         """检查本地保存的 storage_state 是否包含有效登录凭证"""
-        if not self.storage_state_path.exists():
-            return False
         try:
-            with self.storage_state_path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
+            data = read_json(self.storage_state_path)
+            if data is None:
+                return False
             cookies = data.get("cookies", []) if isinstance(data, dict) else []
             now = time.time()
             has_valid_cookie = False
@@ -301,6 +300,12 @@ class DouyinCollector:
             logger.warning("启动可见窗口异常: %s", exc)
             return False
 
+    def _save_storage_state(self, context) -> None:
+        """Persist Playwright cookies with DPAPI instead of plaintext JSON."""
+        if self._logout_requested.is_set():
+            return
+        write_json(self.storage_state_path, context.storage_state())
+
     def refresh_qrcode(self) -> Optional[str]:
         """刷新当前抖音二维码"""
         if not self._active_page or self.status not in ("pending", "syncing"):
@@ -441,10 +446,8 @@ class DouyinCollector:
                     # 用户手机端确认扫码后 Cookie 已经注入 context，立即保存 storage_state 与 Cookie 文件，
                     # 避免后续抓取过程发生网络波动、或者用户提前关闭弹窗导致登录态丢失！
                     try:
-                        context.storage_state(path=str(self.storage_state_path))
-                        from app.services.media_service import _export_cookiefile
-                        _export_cookiefile()
-                        logger.info("已在扫码成功瞬间立即持久化 storage_state 与 Cookie 文件")
+                        self._save_storage_state(context)
+                        logger.info("已在扫码成功瞬间安全持久化登录凭据")
                     except Exception as err:
                         logger.warning("即刻持久化登录凭据异常: %s", err)
 
@@ -479,9 +482,7 @@ class DouyinCollector:
                         if self._logout_requested.is_set():
                             return
                         try:
-                            context.storage_state(path=str(self.storage_state_path))
-                            from app.services.media_service import _export_cookiefile
-                            _export_cookiefile()
+                            self._save_storage_state(context)
                         except Exception as err:
                             logger.warning("保存登录状态或导出 Cookie 异常: %s", err)
 
@@ -492,7 +493,7 @@ class DouyinCollector:
                         if self._logout_requested.is_set():
                             return
                         try:
-                            context.storage_state(path=str(self.storage_state_path))
+                            self._save_storage_state(context)
                         except Exception:
                             pass
                         self.status = "logged_in"
@@ -821,9 +822,7 @@ class DouyinCollector:
 
                     # 刷新 state.json 与 Cookie 文件
                     try:
-                        context.storage_state(path=str(self.storage_state_path))
-                        from app.services.media_service import _export_cookiefile
-                        _export_cookiefile()
+                        self._save_storage_state(context)
                     except Exception:
                         pass
 
@@ -931,8 +930,7 @@ class DouyinCollector:
 
         errors: list[str] = []
         try:
-            if self.storage_state_path.exists():
-                self.storage_state_path.unlink(missing_ok=True)
+            delete_json(self.storage_state_path)
         except Exception as exc:
             errors.append(f"删除登录态失败: {exc}")
 

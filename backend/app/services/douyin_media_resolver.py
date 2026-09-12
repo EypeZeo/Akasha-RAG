@@ -18,6 +18,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from app.core.config import settings
+from app.core.secure_storage import materialize_json, remove_materialized
 
 logger = logging.getLogger(__name__)
 _TIMEOUT_SECONDS = 30.0
@@ -108,7 +109,7 @@ def _storage_state_path() -> Path | None:
     configured = Path(settings.playwright_user_data_dir)
     for directory in (configured, backend / configured, backend / "app/storage/playwright_user_data"):
         path = directory / "state.json"
-        if path.is_file():
+        if path.is_file() or path.with_name(path.name + ".dpapi").is_file():
             return path
     return None
 
@@ -160,10 +161,14 @@ def resolve_douyin_media(platform_item_id: str) -> dict:
                 **_browser_launch_kwargs(), timeout=remaining_ms(),
             )
             state_path = _storage_state_path()
-            context = browser.new_context(
-                **({"storage_state": str(state_path)} if state_path else {}),
-                locale="zh-CN",
-            )
+            temporary_state = materialize_json(state_path) if state_path else None
+            try:
+                context = browser.new_context(
+                    **({"storage_state": str(temporary_state)} if temporary_state else {}),
+                    locale="zh-CN",
+                )
+            finally:
+                remove_materialized(temporary_state)
             context.set_default_timeout(remaining_ms())
             page = context.new_page()
 

@@ -41,6 +41,9 @@ def test_existing_env_is_preserved_and_valid_keys_pass(tmp_path: Path):
 
     assert result.config_created is False
     assert result.is_ready is True
+    assert not env_path.exists()
+    assert (tmp_path / ".env.dpapi").is_file()
+    assert ensure_and_validate(tmp_path).is_ready is True
     assert main(["--backend-dir", str(tmp_path)]) == 0
 
 

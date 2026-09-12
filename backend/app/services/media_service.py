@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from yt_dlp import YoutubeDL
 
 from app.core.config import settings
+from app.core.secure_storage import read_json
 
 logger = logging.getLogger(__name__)
 _cookie_lock = threading.Lock()
@@ -109,7 +110,7 @@ def _resolve_ffmpeg_path() -> str:
 
 def _find_state_file() -> Path:
     configured = Path(settings.playwright_user_data_dir) / "state.json"
-    if configured.is_file():
+    if configured.is_file() or configured.with_name(configured.name + ".dpapi").is_file():
         return configured
     return Path(__file__).resolve().parent.parent / "storage/playwright_user_data/state.json"
 
@@ -157,7 +158,9 @@ def _export_cookiefile(destination: Path | None = None) -> Path:
     destination = destination or _get_audio_cache_dir() / "douyin_cookies.txt"
     with _cookie_lock:
         try:
-            state = json.loads(_find_state_file().read_text(encoding="utf-8"))
+            state = read_json(_find_state_file())
+            if state is None:
+                raise ValueError("missing state")
             cookies = state.get("cookies", [])
             if not isinstance(cookies, list):
                 raise ValueError("invalid cookies")
