@@ -98,6 +98,34 @@ def test_search_pre_filtering():
     assert "where" not in collection.query.call_args[1]
 
 
+def test_clear_platform_only_recreates_the_target_collection():
+    """BUG-02: 按平台清空只应删除/重建对应平台的 collection，另一个原样保留"""
+    calls = []
+
+    class FakeClient:
+        def delete_collection(self, name):
+            calls.append(("delete", name))
+
+    svc = object.__new__(ChromaService)
+    svc._client = FakeClient()
+    bilibili_collection = SimpleNamespace()
+    svc._collections = {"douyin": SimpleNamespace(), "bilibili": bilibili_collection}
+
+    created = []
+
+    def fake_create(platform):
+        created.append(platform)
+        return SimpleNamespace()
+
+    svc._create_collection = fake_create
+    svc.clear_platform("douyin")
+
+    assert calls == [("delete", "akasha_douyin")]
+    assert created == ["douyin"]
+    # bilibili's collection object is untouched (still the same instance)
+    assert svc._collections["bilibili"] is bilibili_collection
+
+
 def test_cross_platform_search_merges_by_score():
     douyin = SimpleNamespace(count=Mock(return_value=1), query=Mock(return_value={
         "ids": [["dy:0"]], "distances": [[0.2]],

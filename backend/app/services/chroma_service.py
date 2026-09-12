@@ -174,6 +174,21 @@ class ChromaService:
                     pass
                 self._collections[platform] = self._create_collection(platform)
 
+    def clear_platform(self, platform: str) -> None:
+        """Drop and recreate only one platform's collection, leaving the others untouched.
+
+        Delete-then-recreate is idempotent: calling this twice (e.g. a retry
+        after the caller's follow-up SQL step failed) just re-creates an
+        already-empty collection, no error.
+        """
+        self._collection_for(platform)  # raises for an unsupported platform before touching anything
+        with _write_lock:
+            try:
+                self._client.delete_collection(name=self._collection_name(platform))
+            except Exception:
+                pass
+            self._collections[platform] = self._create_collection(platform)
+
     def count(self) -> int:
         return sum(int(self._collection_for(platform).count()) for platform in self._target_platforms(None))
 
