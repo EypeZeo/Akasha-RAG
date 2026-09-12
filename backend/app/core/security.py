@@ -1,7 +1,10 @@
 """
 本地 CSRF 防护
 
-后端没有账号鉴权、只监听 127.0.0.1，唯一现实的攻击面是：用户浏览器里另一个
+后端默认只监听 127.0.0.1。即使用户误以 0.0.0.0 启动，API 层也拒绝非回环
+客户端；局域网访问必须以后续的 HTTPS 配对功能显式开启，不能靠改监听地址绕过。
+
+本地浏览器的另一现实攻击面是：用户浏览器里另一个
 标签页的恶意网页，趁应用运行时向 127.0.0.1:8000 发一个"简单请求"（表单
 POST，或 fetch 的 no-cors 模式）——响应虽然读不到，但副作用已经真实发生
 （清空知识库、强制登出等）。
@@ -12,6 +15,8 @@ POST，或 fetch 的 no-cors 模式）——响应虽然读不到，但副作用
 CORS 预检，天然免疫这类 CSRF，不需要维护 token/session。
 """
 from __future__ import annotations
+
+from ipaddress import ip_address
 
 from fastapi import Header, HTTPException, Request
 
@@ -28,10 +33,30 @@ _EXEMPT_GET_ROUTES = frozenset({
 })
 
 
+def is_loopback_client(request: Request) -> bool:
+    """Fail closed when a manually exposed Uvicorn server receives LAN traffic.
+
+    Proxy forwarding headers are deliberately ignored: this desktop app has no
+    trusted reverse proxy.  ``testclient`` is Starlette's in-process test host,
+    never a routable peer in a real Uvicorn connection.
+    """
+    client = request.client
+    if client is None:
+        return False
+    if client.host == "testclient":
+        return True
+    try:
+        return ip_address(client.host).is_loopback
+    except ValueError:
+        return False
+
+
 async def require_local_client(
     request: Request, x_akasha_client: str | None = Header(default=None)
 ) -> None:
     """挂在 api_router 上的全局依赖：缺失或值不对时直接 403。"""
+    if not is_loopback_client(request):
+        raise HTTPException(status_code=403, detail="Akasha-RAG API accepts loopback clients only")
     if request.method == "GET":
         route = request.scope.get("route")
         if getattr(route, "path", None) in _EXEMPT_GET_ROUTES:
