@@ -5,6 +5,7 @@ import ExportModal from './ExportModal';
 import ApiKeyMissingModal from './ApiKeyMissingModal';
 import { useI18n } from '../i18n';
 import { VIDEOS_PER_PAGE_OPTIONS } from '../utils/settings';
+import { aggregateSyncCounts, getFailedPlatforms } from '../utils/syncSummary';
 import { useWorkspaceStore } from '../store/workspace';
 
 const ACTIVE_EXPORT_KEY = 'akasha:active_export';
@@ -118,7 +119,7 @@ export default function SourcesPanel({
         status: (p.status as ExportTaskState['status']) || 'running',
         progress: p.progress || 0,
         total: p.total || 0,
-        message: p.message || '导出中...',
+        message: t('exporting'),
         result: p.result,
       });
       if (p.status === 'done' || p.status === 'failed') {
@@ -126,16 +127,16 @@ export default function SourcesPanel({
         if (p.status === 'done' && mode === 'browser') triggerBrowserDownload(taskId);
       }
     } catch { /* 网络抖动，下次再试 */ }
-  }, [stopExportPoll, triggerBrowserDownload]);
+  }, [stopExportPoll, triggerBrowserDownload, t]);
 
   const startExportPolling = useCallback((taskId: string, mode: 'local' | 'browser') => {
     stopExportPoll();
     exportDownloadedRef.current = null;
-    setExportTask({ id: taskId, mode, status: 'queued', progress: 0, total: 0, message: '排队中...' });
+    setExportTask({ id: taskId, mode, status: 'queued', progress: 0, total: 0, message: t('exportQueued') });
     try { localStorage.setItem(ACTIVE_EXPORT_KEY, JSON.stringify({ id: taskId, mode })); } catch { /* ignore */ }
     pollExportOnce(taskId, mode);
     exportPollRef.current = setInterval(() => pollExportOnce(taskId, mode), 1500);
-  }, [stopExportPoll, pollExportOnce]);
+  }, [stopExportPoll, pollExportOnce, t]);
 
   const dismissExportCard = useCallback(() => {
     stopExportPoll();
@@ -242,24 +243,16 @@ export default function SourcesPanel({
         await fetchCollections();
         await fetchStats();
         if (expandedId) await fetchVideos(expandedId, videoPage, videoPageSize, platformFilter);
-        let addedV = r.added_videos ?? 0;
-        let removedV = r.removed_videos ?? 0;
-        let addedN = r.added_notes ?? 0;
-        let removedN = r.removed_notes ?? 0;
+        // UI-01: when platform="all", the backend returns BOTH a top-level
+        // aggregate (added_videos, ...) AND a `results[]` breakdown for the
+        // same numbers — summing both double-counts. aggregateSyncCounts()
+        // picks exactly one source depending on the response shape.
+        const { addedVideos: addedV, removedVideos: removedV, addedNotes: addedN, removedNotes: removedN, invalidCount } =
+          aggregateSyncCounts(r);
 
-        if (r.results && Array.isArray(r.results)) {
-          for (const item of r.results) {
-            addedV += item?.added_videos ?? 0;
-            removedV += item?.removed_videos ?? 0;
-            addedN += item?.added_notes ?? 0;
-            removedN += item?.removed_notes ?? 0;
-          }
-        }
-
-        if (r.summary_message) {
-          alert(r.summary_message);
-        } else if (addedV === 0 && removedV === 0 && addedN === 0 && removedN === 0) {
-          alert(t('syncUpToDate'));
+        let successMsg: string;
+        if (addedV === 0 && removedV === 0 && addedN === 0 && removedN === 0 && invalidCount === 0) {
+          successMsg = t('syncUpToDate');
         } else {
           const parts: string[] = [];
           if (addedV > 0 && removedV > 0) {
@@ -278,15 +271,32 @@ export default function SourcesPanel({
             parts.push(t('removeNotes', { count: removedN }));
           }
 
-          alert(`${t('syncSuccessPrefix')}${parts.join('，')}`);
+          if (invalidCount > 0) {
+            parts.push(t('syncInvalidCount', { count: invalidCount }));
+          }
+
+          successMsg = `${t('syncSuccessPrefix')}${parts.join('，')}`;
+        }
+
+        // platform="all" 时一个平台失败、另一个成功仍然算 r.success（真实
+        // 发生的数据没有理由不刷新），但不能让这句"同步完成"的提示掩盖掉
+        // 失败平台——用 platform_results 点名，不猜测、不吞掉。
+        const failedPlatforms = getFailedPlatforms(r);
+        if (failedPlatforms.length > 0) {
+          const platformNames = failedPlatforms
+            .map((p) => (p === 'bilibili' ? t('platformBilibili') : t('platformDouyin')))
+            .join('、');
+          alert(`${successMsg}${t('syncPartialFailureSuffix', { platforms: platformNames })}`);
+        } else {
+          alert(successMsg);
         }
       } else {
-        const msg = r.message?.trim() || '同步失败';
-        alert(msg);
+        console.error('Sync failed:', r.message);
+        alert(t('syncFailed'));
       }
     } catch (e: any) {
-      const msg = e?.message?.trim() || '网络请求失败';
-      alert('同步失败: ' + msg);
+      console.error('Sync failed:', e);
+      alert(t('syncFailed'));
     } finally {
       setSyncing(false);
     }
@@ -330,7 +340,7 @@ export default function SourcesPanel({
     setBuilding(true);
     setBuildTaskId(taskId);
     if (!restoring) setBuildProgress(0);
-    setBuildMessage(restoring ? '正在恢复入库进度...' : `准备启动${typeLabel}入库流水线...`);
+    setBuildMessage(restoring ? t('ingestRestoring') : t('ingestStarting', { type: typeLabel }));
     try {
       localStorage.setItem(ACTIVE_BUILD_KEY, JSON.stringify({ task_id: taskId, typeLabel }));
     } catch { /* ignore */ }
@@ -351,14 +361,14 @@ export default function SourcesPanel({
       buildMissesRef.current = 0;
       setBuildProgress(p.progress || 0);
       if (p.total) setBuildTotal(p.total);
-      if (p.message) setBuildMessage(p.message);
+      if (p.message) setBuildMessage(t('ingesting'));
       if (p.status === 'done' || p.status === 'failed' || p.status === 'cancelled') {
         stopBuildPoll();
         if (p.status === 'done') {
           setBuildProgress(p.total || 0);
-          setBuildMessage(`🎉 ${typeLabel}入库已全部完成！`);
+          setBuildMessage(t('ingestCompleted', { type: typeLabel }));
         } else if (p.status === 'cancelled') {
-          setBuildMessage('已取消入库（正在处理中的项目会结束当前步骤）');
+          setBuildMessage(t('ingestCancelled'));
         }
         setTimeout(() => {
           finishBuild();
@@ -370,7 +380,7 @@ export default function SourcesPanel({
     };
     tick();
     buildPollRef.current = setInterval(tick, 1500);
-  }, [stopBuildPoll, finishBuild, onBuildDone, fetchStats, expandedId, videoPage, videoPageSize]);
+  }, [stopBuildPoll, finishBuild, onBuildDone, fetchStats, expandedId, videoPage, videoPageSize, t]);
 
   // F5 刷新后恢复未完成的入库任务
   useEffect(() => {
@@ -379,20 +389,21 @@ export default function SourcesPanel({
       const raw = localStorage.getItem(ACTIVE_BUILD_KEY);
       if (raw) saved = JSON.parse(raw);
     } catch { /* ignore */ }
-    if (saved?.task_id) startBuildPolling(saved.task_id, saved.typeLabel || '内容', true);
+    if (saved?.task_id) startBuildPolling(saved.task_id, saved.typeLabel || t('categoryContent'), true);
     return () => stopBuildPoll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [startBuildPolling, t]);
 
   const handleCancelBuild = async () => {
     if (!buildTaskId || cancelling) return;
     setCancelling(true);
     try {
       await api.cancelSync(buildTaskId);
-      setBuildMessage('正在取消...');
+      setBuildMessage(t('cancelling'));
     } catch (e: any) {
       setCancelling(false);
-      alert('取消失败: ' + e.message);
+      console.error('Cancel ingest failed:', e);
+      alert(t('operationFailed'));
     }
   };
 
@@ -406,7 +417,7 @@ export default function SourcesPanel({
     const isAll = scope === 'all';
     const initialTotal = isAll ? (stats?.video_cache?.pending ?? 0) : selectedIds!.length;
     setBuildTotal(initialTotal);
-    const typeLabel = contentType === 'video' ? '短视频' : (contentType === 'note' ? '图文' : '内容');
+    const typeLabel = contentType === 'video' ? t('shortVideo') : (contentType === 'note' ? t('imageNote') : t('categoryContent'));
     try {
       const r = await api.syncKnowledge({
         scope: isAll ? 'all' : 'selected',
@@ -419,10 +430,12 @@ export default function SourcesPanel({
         if (r.pending_count) setBuildTotal(r.pending_count);
         startBuildPolling(r.task_id, typeLabel);
       } else if (r.message) {
-        alert(r.message);
+        console.error('Ingest failed:', r.message);
+        alert(t('operationFailed'));
       }
     } catch (e: any) {
-      alert('入库失败: ' + e.message);
+      console.error('Ingest failed:', e);
+      alert(t('operationFailed'));
     }
   };
 
@@ -487,33 +500,35 @@ export default function SourcesPanel({
   };
 
   const handleDelete = async (platformItemId: string, platform: string) => {
-    if (!confirm('确定要删除这个视频的入库数据吗？\n\n删除后可重新入库。')) return;
+    if (!confirm(t('deleteIngestConfirm'))) return;
     try {
       await api.deleteVideo(platformItemId, platform);
       fetchStats();
       if (expandedId) fetchVideos(expandedId, videoPage, videoPageSize);
     } catch (e: any) {
-      alert('删除失败: ' + e.message);
+      console.error('Delete ingested data failed:', e);
+      alert(t('operationFailed'));
     }
   };
 
   const handleClearAll = async () => {
-    const scopeMsg = expandedId && expandedId !== 'all' ? '当前选中收藏夹' : '全部收藏夹';
-    if (!confirm(`⚠️ 危险操作：确定要一键清空【${scopeMsg}】的所有入库数据吗？\n\n- 向量索引将被重置\n- 转写缓存将被清空\n- 所有视频重置为就绪状态，可随时重新一键入库`)) return;
+    const scopeMsg = expandedId && expandedId !== 'all' ? t('clearScopeCurrent') : t('clearScopeAll');
+    if (!confirm(t('clearKnowledgeConfirm', { scope: scopeMsg }))) return;
 
     setClearing(true);
     try {
       const r = await api.clearAllKnowledge(expandedId && expandedId !== 'all' ? expandedId : undefined, platformFilter);
       if (r.success) {
-        alert(`已成功清空并重置 ${r.reset_count} 条入库记录！`);
+        alert(t('clearKnowledgeSuccess', { count: r.reset_count }));
         await fetchStats();
         if (expandedId) fetchVideos(expandedId, 1, videoPageSize);
         onBuildDone();
       } else {
-        alert('清空失败');
+        alert(t('operationFailed'));
       }
     } catch (e: any) {
-      alert('清空失败: ' + e.message);
+      console.error('Clear ingested data failed:', e);
+      alert(t('operationFailed'));
     } finally {
       setClearing(false);
     }
@@ -749,12 +764,12 @@ export default function SourcesPanel({
                     <div className="flex items-center gap-1.5 truncate flex-1">
                       {col.platform === 'bilibili' && (
                         <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-pink-50 text-pink-600 border border-pink-200/60 flex-shrink-0">
-                          B站
+                          {t('platformBilibili')}
                         </span>
                       )}
                       {col.platform === 'douyin' && (
                         <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-black/5 text-[var(--color-ink-soft)] border border-black/10 flex-shrink-0">
-                          抖音
+                          {t('platformDouyin')}
                         </span>
                       )}
                       <span className="text-sm font-semibold text-[var(--color-ink)] truncate">{displayTitle}</span>
@@ -780,7 +795,7 @@ export default function SourcesPanel({
                                 ? 'bg-white shadow-2xs text-accent font-bold'
                                 : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]'
                             }`}
-                            title={`当前分页（第 ${videoPage} 页）已加载 ${expandedVideos.length} 条内容`}
+                            title={t('paginationLoaded', { page: videoPage, count: expandedVideos.length })}
                           >
                             {t('total')} ({expandedVideos.length})
                           </button>
@@ -855,7 +870,7 @@ export default function SourcesPanel({
                                     : 'bg-black/5 text-[var(--color-ink-soft)] border border-black/10'
                                 }`}
                               >
-                                {v.platform === 'bilibili' ? 'B站' : '抖音'}
+                                {v.platform === 'bilibili' ? t('platformBilibili') : t('platformDouyin')}
                               </span>
 
                               {/* 视频/图文微标 */}
@@ -925,7 +940,7 @@ export default function SourcesPanel({
                                 v.status === 'failed' ? 'bg-red-50 text-red-600 border border-red-200 font-semibold' :
                                 'bg-black/5 text-[var(--color-ink-muted)]'
                               }`}
-                              title={v.status === 'failed' ? (v.error_message || '提取失败：未获取到实质正文内容（已拒绝仅标题入库）') : undefined}
+                              title={v.status === 'failed' ? t('contentExtractionFailed') : undefined}
                             >
                               {v.status === 'done' ? t('itemIngested') : v.status === 'pending' ? t('itemPending') : v.status === 'failed' ? t('itemFailed') : v.status}
                             </span>
@@ -1168,13 +1183,13 @@ export default function SourcesPanel({
                   onClick={async () => {
                     try {
                       const result = await api.resetFailedVideos();
-                      if (!result.success) alert(result.message || '当前任务仍在执行，请稍后重置');
+                      if (!result.success) alert(t('taskStillRunning'));
                       else {
                         fetchStats();
                         if (expandedId) fetchVideos(expandedId, videoPage, videoPageSize);
                       }
                     }
-                    catch (e: any) { alert('重置失败: ' + e.message); }
+                    catch (e: any) { console.error('Reset failed:', e); alert(t('operationFailed')); }
                   }}
                   className="group w-full py-2 rounded-xl text-xs font-medium text-accent border border-accent/30 hover:bg-accent-light transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
                 >

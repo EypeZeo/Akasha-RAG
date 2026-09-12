@@ -4,9 +4,17 @@
 
 const BASE = '/api';
 
+/**
+ * Sent on every request so the backend's local-CSRF guard (app/core/security.py)
+ * can tell this apart from a cross-origin page's "simple request" — browsers
+ * cannot attach a custom header without first passing a CORS preflight, which
+ * only this app's own origin can pass.
+ */
+const CLIENT_HEADERS = { 'X-Akasha-Client': '1' };
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${url}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...CLIENT_HEADERS },
     ...options,
   });
   if (!res.ok) {
@@ -147,6 +155,8 @@ export async function syncFavorites(platform: string = 'douyin'): Promise<{
   synced_total?: number;
   message?: string;
   results?: any[];
+  partial?: boolean;
+  platform_results?: Record<string, { success: boolean; message?: string }>;
 }> {
   return request(`/favorites/sync?platform=${platform}`, { method: 'POST' });
 }
@@ -307,7 +317,11 @@ export async function exportBatchStart(
     method: 'POST',
     body: JSON.stringify(params),
   });
-  if (!data.success) throw new Error(data.message || '导出提交失败');
+  // The thrown message is only ever console.error()'d by the caller (see
+  // ExportModal.tsx) — the UI always shows a stable, localized string
+  // regardless of what this says. Keep the backend's specific reason here
+  // so that diagnostic path is actually useful instead of a fixed string.
+  if (!data.success) throw new Error(data.message || 'Export submission failed (no server message)');
   return data;
 }
 
@@ -419,7 +433,7 @@ export async function* chatAskStream(
 
   const res = await fetch(`${BASE}/chat/ask/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...CLIENT_HEADERS },
     body: JSON.stringify({
       query,
       session_id: sessionId ?? null,

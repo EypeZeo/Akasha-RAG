@@ -14,7 +14,7 @@ from app.services.bilibili.client import bilibili_client
 
 @pytest.fixture
 def client():
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-Akasha-Client": "1"}) as c:
         yield c
 
 

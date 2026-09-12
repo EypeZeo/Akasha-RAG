@@ -3,8 +3,12 @@ RAG 服务模块测试
 
 测试查询路由、答案清洗、提示词构建等核心逻辑。
 """
+from unittest.mock import Mock
+
 import pytest
+from app.services import rag_service as rag_module
 from app.services.rag_service import (
+    RagService,
     _is_greeting,
     _is_list_query,
     _is_summary_query,
@@ -22,8 +26,19 @@ class TestQueryRouting:
         assert _is_greeting("你好") is True
         assert _is_greeting("在吗") is True
         assert _is_greeting("hello") is True
+        assert _is_greeting("hi") is True
+        assert _is_greeting("Hi, can you help?") is True
         assert _is_greeting("我是谁") is False
         assert _is_greeting("介绍一下AI技术") is False
+
+    def test_greeting_detection_does_not_misfire_on_english_substrings(self):
+        """BUG-01: "hi" 子串误判——这些问题里的 hi 都不是独立单词，不应被判成问候语"""
+        assert _is_greeting("which video mentions python?") is False
+        assert _is_greeting("this is a question") is False
+        assert _is_greeting("history of the project") is False
+        assert _is_greeting("machine learning basics") is False
+        assert _is_greeting("what is the architecture") is False
+        assert _is_greeting("shipping details") is False
 
     def test_list_query_detection(self):
         """测试列表类查询识别"""
@@ -109,3 +124,34 @@ class TestAnswerSanitization:
         result = _sanitize_answer("第一行\n第二行\n```\nraw|code|line\n```\n收尾", False)
         assert "raw|code|line" in result       # 代码里的竖线不被当表格
         assert "```" in result
+
+
+class TestDenseRetrieveEmptyScope:
+    """BUG-03: 空 scope（收藏夹存在但没有内容）必须直接返回空，不能退化成全库检索"""
+
+    def test_empty_scope_short_circuits_before_embedding_or_search(self, monkeypatch):
+        fake_embed = Mock(side_effect=AssertionError("不应该为空 scope 计算 embedding"))
+        fake_chroma = Mock()
+        fake_chroma.search.side_effect = AssertionError("不应该为空 scope 调用向量检索")
+        monkeypatch.setattr(rag_module, "embedding_client", Mock(embed_text=fake_embed))
+        monkeypatch.setattr(rag_module, "get_chroma_service", lambda: fake_chroma)
+
+        service = RagService()
+        result = service._dense_retrieve("随便问点什么", scope_ids=set())
+
+        assert result == []
+        fake_embed.assert_not_called()
+        fake_chroma.search.assert_not_called()
+
+    def test_none_scope_still_searches_normally(self, monkeypatch):
+        fake_embed = Mock(return_value=[0.1] * 8)
+        fake_chroma = Mock()
+        fake_chroma.search.return_value = [{"platform_item_id": "x"}]
+        monkeypatch.setattr(rag_module, "embedding_client", Mock(embed_text=fake_embed))
+        monkeypatch.setattr(rag_module, "get_chroma_service", lambda: fake_chroma)
+
+        service = RagService()
+        result = service._dense_retrieve("随便问点什么", scope_ids=None)
+
+        assert result == [{"platform_item_id": "x"}]
+        fake_chroma.search.assert_called_once()

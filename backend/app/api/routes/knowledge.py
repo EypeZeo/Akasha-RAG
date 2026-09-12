@@ -303,6 +303,7 @@ async def clear_all_knowledge(
     from sqlalchemy import update as sql_update
     from app.services.chroma_service import get_chroma_service
 
+    chroma_cleared = False
     try:
         chroma = get_chroma_service()
         if body.collection_id and body.collection_id != "all":
@@ -333,16 +334,39 @@ async def clear_all_knowledge(
                 db.commit()
             return {"success": True, "reset_count": len(vids)}
         else:
-            # 清空全部
-            chroma.clear_all()
-            result = db.execute(
-                sql_update(VideoCache)
-                .values(status="pending", transcript_text="", summary="", error_message="")
+            # 清空全部，或按平台清空一个平台
+            #
+            # Chroma 与 SQLite 是两个独立存储，没有共同事务；顺序必须是先清
+            # 向量库、再改数据库行，且两步都设计成幂等/可重试：
+            # - 先清 Chroma：万一后面 SQL 那步失败，重试时重新执行"删了再建"
+            #   的空集合操作不会报错，行为和第一次调用完全一样。
+            # - 后清 SQL：如果反过来先改数据库状态、Chroma 清空失败，用户会
+            #   看到"已重置为待入库"，但向量库里还留着旧内容——下次重建会在
+            #   残留向量之上叠加，比"提示清空没做完、可以重试"更糟。
+            target_platform = body.platform if body.platform and body.platform != "all" else None
+            if target_platform:
+                chroma.clear_platform(target_platform)
+            else:
+                chroma.clear_all()
+            chroma_cleared = True
+
+            update_stmt = sql_update(VideoCache).values(
+                status="pending", transcript_text="", summary="", error_message=""
             )
+            if target_platform:
+                scoped_content_ids = select(ContentItem.id).where(ContentItem.platform == target_platform)
+                update_stmt = update_stmt.where(VideoCache.content_item_id.in_(scoped_content_ids))
+            result = db.execute(update_stmt)
             db.commit()
             return {"success": True, "reset_count": result.rowcount}
 
     except Exception as exc:
         logger.exception("清空入库数据失败")
         db.rollback()
-        return {"success": False, "message": str(exc)}
+        return {
+            "success": False,
+            "message": str(exc),
+            # 告诉调用方向量库那一步是否已经成功——重试是安全的，
+            # 不会因为"已经清过一次"而报错或产生副作用。
+            "chroma_cleared": chroma_cleared,
+        }

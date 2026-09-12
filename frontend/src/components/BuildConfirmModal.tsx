@@ -320,7 +320,7 @@ export default function BuildConfirmModal({
                           : 'bg-black/5 text-[var(--color-ink-soft)] border border-black/10'
                       }`}
                     >
-                      {v.platform === 'bilibili' ? 'B站' : '抖音'}
+                      {v.platform === 'bilibili' ? t('platformBilibili') : t('platformDouyin')}
                     </span>
                     <span
                       className={`text-[9px] px-1.5 py-0.2 rounded font-medium flex-shrink-0 select-none ${

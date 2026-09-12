@@ -10,6 +10,21 @@ export interface ExportMessage {
   latency_ms?: number;
 }
 
+export interface ChatExportLabels {
+  locale: string;
+  heading: string;
+  topic: string;
+  exportedAt: string;
+  messageCount: string;
+  you: string;
+  assistant: string;
+  system: string;
+  latency: string;
+  sources: string;
+  match: string;
+  footer: string;
+}
+
 /**
  * 触发浏览器文件下载
  */
@@ -36,37 +51,37 @@ function getTimestampStr(): string {
 /**
  * 导出为 Markdown (.md)
  */
-export function exportChatToMarkdown(messages: ExportMessage[], sessionTitle: string = '会话记录') {
-  const safeTitle = sessionTitle.replace(/[\\/:*?"<>|]/g, '_').trim() || '会话记录';
-  const now = new Date().toLocaleString('zh-CN');
+export function exportChatToMarkdown(messages: ExportMessage[], sessionTitle: string, labels: ChatExportLabels) {
+  const safeTitle = sessionTitle.replace(/[\\/:*?"<>|]/g, '_').trim() || labels.heading;
+  const now = new Date().toLocaleString(labels.locale);
 
-  let md = `# 🧠 Akasha-RAG 智能知识库问答记录\n\n`;
-  md += `> **会话主题**：${sessionTitle}  \n`;
-  md += `> **导出时间**：${now}  \n`;
-  md += `> **总消息数**：${messages.length} 条\n\n`;
+  let md = `# ${labels.heading}\n\n`;
+  md += `> **${labels.topic}**: ${sessionTitle}  \n`;
+  md += `> **${labels.exportedAt}**: ${now}  \n`;
+  md += `> **${labels.messageCount}**: ${messages.length}\n\n`;
   md += `---\n\n`;
 
   messages.forEach((msg, idx) => {
     if (msg.role === 'user') {
-      md += `### 👤 我 (${idx + 1})\n\n`;
+      md += `### 👤 ${labels.you} (${idx + 1})\n\n`;
       md += `${msg.content}\n\n`;
     } else if (msg.role === 'assistant') {
-      md += `### 🧠 Akasha-RAG AI (${idx + 1})\n\n`;
+      md += `### 🧠 ${labels.assistant} (${idx + 1})\n\n`;
       if (msg.latency_ms) {
-        md += `*响应耗时: ${(msg.latency_ms / 1000).toFixed(2)}s*\n\n`;
+        md += `*${labels.latency}: ${(msg.latency_ms / 1000).toFixed(2)}s*\n\n`;
       }
       md += `${msg.content}\n\n`;
 
       if (msg.sources && msg.sources.length > 0) {
-        md += `#### 📎 参考知识库来源：\n`;
+        md += `#### 📎 ${labels.sources}:\n`;
         msg.sources.forEach((s, sIdx) => {
-          const score = s.score ? ` (匹配度: ${(s.score * 100).toFixed(0)}%)` : '';
+          const score = s.score ? ` (${labels.match}: ${(s.score * 100).toFixed(0)}%)` : '';
           md += `- [${sIdx + 1}] [${s.title}](${s.url})${score}\n`;
         });
         md += `\n`;
       }
     } else if (msg.role === 'system') {
-      md += `> ⚠️ **系统提示**：${msg.content}\n\n`;
+      md += `> ⚠️ **${labels.system}**: ${msg.content}\n\n`;
     }
     md += `---\n\n`;
   });
@@ -77,15 +92,15 @@ export function exportChatToMarkdown(messages: ExportMessage[], sessionTitle: st
 /**
  * 导出为高保真 Word 文档 (.doc)
  */
-export function exportChatToWord(messages: ExportMessage[], sessionTitle: string = '会话记录') {
-  const safeTitle = sessionTitle.replace(/[\\/:*?"<>|]/g, '_').trim() || '会话记录';
-  const now = new Date().toLocaleString('zh-CN');
+export function exportChatToWord(messages: ExportMessage[], sessionTitle: string, labels: ChatExportLabels) {
+  const safeTitle = sessionTitle.replace(/[\\/:*?"<>|]/g, '_').trim() || labels.heading;
+  const now = new Date().toLocaleString(labels.locale);
 
   let htmlBody = `
   <div style="font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif; max-width: 800px; margin: 0 auto; color: #2C2416; line-height: 1.7;">
     <div style="border-bottom: 2px solid #E8594A; padding-bottom: 12px; margin-bottom: 24px;">
-      <h1 style="color: #E8594A; font-size: 24px; margin: 0 0 8px 0;">🧠 Akasha-RAG 智能知识库会话纪要</h1>
-      <p style="color: #8B7E6A; font-size: 13px; margin: 0;">会话主题：<b>${sessionTitle}</b> &nbsp;|&nbsp; 导出时间：${now}</p>
+      <h1 style="color: #E8594A; font-size: 24px; margin: 0 0 8px 0;">${labels.heading}</h1>
+      <p style="color: #8B7E6A; font-size: 13px; margin: 0;">${labels.topic}: <b>${escapeHtml(sessionTitle)}</b> &nbsp;|&nbsp; ${labels.exportedAt}: ${now}</p>
     </div>
   `;
 
@@ -94,7 +109,7 @@ export function exportChatToWord(messages: ExportMessage[], sessionTitle: string
       htmlBody += `
       <div style="margin-bottom: 18px; text-align: right;">
         <div style="display: inline-block; text-align: left; background-color: #FEECEB; border: 1px solid #F8C3BE; border-radius: 12px; padding: 10px 16px; max-width: 85%;">
-          <div style="font-size: 11px; font-weight: bold; color: #D04A3C; margin-bottom: 4px;">👤 我的提问 (${idx + 1})</div>
+          <div style="font-size: 11px; font-weight: bold; color: #D04A3C; margin-bottom: 4px;">👤 ${labels.you} (${idx + 1})</div>
           <div style="font-size: 14px; color: #2C2416; white-space: pre-wrap;">${escapeHtml(msg.content)}</div>
         </div>
       </div>
@@ -102,10 +117,10 @@ export function exportChatToWord(messages: ExportMessage[], sessionTitle: string
     } else if (msg.role === 'assistant') {
       let sourcesHtml = '';
       if (msg.sources && msg.sources.length > 0) {
-        sourcesHtml += `<div style="margin-top: 14px; padding-top: 10px; border-top: 1px dashed #E8DDD0; font-size: 12px; color: #5A4F3F;"><b>📎 参考来源：</b><ul style="margin: 6px 0; padding-left: 20px;">`;
+        sourcesHtml += `<div style="margin-top: 14px; padding-top: 10px; border-top: 1px dashed #E8DDD0; font-size: 12px; color: #5A4F3F;"><b>📎 ${labels.sources}:</b><ul style="margin: 6px 0; padding-left: 20px;">`;
         msg.sources.forEach((s, sIdx) => {
           const score = s.score ? ` (${(s.score * 100).toFixed(0)}%)` : '';
-          sourcesHtml += `<li>[${sIdx + 1}] <a href="${s.url}" style="color: #E8594A; text-decoration: underline;">${escapeHtml(s.title)}</a>${score}</li>`;
+          sourcesHtml += `<li>[${sIdx + 1}] <a href="${safeExportUrl(s.url)}" style="color: #E8594A; text-decoration: underline;">${escapeHtml(s.title)}</a>${score}</li>`;
         });
         sourcesHtml += `</ul></div>`;
       }
@@ -114,8 +129,8 @@ export function exportChatToWord(messages: ExportMessage[], sessionTitle: string
       <div style="margin-bottom: 24px;">
         <div style="background-color: #FFFFFF; border: 1px solid #E8DDD0; border-radius: 14px; padding: 16px 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
           <div style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; color: #5A4F3F; border-bottom: 1px solid #F0E8DE; padding-bottom: 8px; margin-bottom: 12px;">
-            <span>🧠 AI 知识库总结回复 (${idx + 1})</span>
-            ${msg.latency_ms ? `<span style="font-weight: normal; color: #8B7E6A;">响应耗时: ${(msg.latency_ms / 1000).toFixed(2)}s</span>` : ''}
+            <span>🧠 ${labels.assistant} (${idx + 1})</span>
+            ${msg.latency_ms ? `<span style="font-weight: normal; color: #8B7E6A;">${labels.latency}: ${(msg.latency_ms / 1000).toFixed(2)}s</span>` : ''}
           </div>
           <div style="font-size: 14px; color: #2C2416; white-space: pre-wrap; line-height: 1.8;">${escapeHtml(msg.content)}</div>
           ${sourcesHtml}
@@ -127,7 +142,7 @@ export function exportChatToWord(messages: ExportMessage[], sessionTitle: string
 
   htmlBody += `
     <div style="text-align: center; margin-top: 36px; padding-top: 16px; border-top: 1px solid #E8DDD0; font-size: 11px; color: #8B7E6A;">
-      本文档由 Akasha-RAG 本地知识库助手自动导出
+      ${labels.footer}
     </div>
   </div>
   `;
@@ -150,17 +165,17 @@ export function exportChatToWord(messages: ExportMessage[], sessionTitle: string
 /**
  * 导出为纯文本 (.txt)
  */
-export function exportChatToText(messages: ExportMessage[], sessionTitle: string = '会话记录') {
-  const safeTitle = sessionTitle.replace(/[\\/:*?"<>|]/g, '_').trim() || '会话记录';
-  const now = new Date().toLocaleString('zh-CN');
+export function exportChatToText(messages: ExportMessage[], sessionTitle: string, labels: ChatExportLabels) {
+  const safeTitle = sessionTitle.replace(/[\\/:*?"<>|]/g, '_').trim() || labels.heading;
+  const now = new Date().toLocaleString(labels.locale);
 
-  let text = `Akasha-RAG 会话记录\n主题: ${sessionTitle}\n导出时间: ${now}\n${'='.repeat(40)}\n\n`;
+  let text = `${labels.heading}\n${labels.topic}: ${sessionTitle}\n${labels.exportedAt}: ${now}\n${'='.repeat(40)}\n\n`;
 
   messages.forEach((msg, idx) => {
-    const roleName = msg.role === 'user' ? '我' : msg.role === 'assistant' ? 'Akasha-RAG AI' : '系统';
+    const roleName = msg.role === 'user' ? labels.you : msg.role === 'assistant' ? labels.assistant : labels.system;
     text += `[${idx + 1}] ${roleName}:\n${msg.content}\n\n`;
     if (msg.sources && msg.sources.length > 0) {
-      text += `参考来源:\n`;
+      text += `${labels.sources}:\n`;
       msg.sources.forEach((s, sIdx) => {
         text += `  [${sIdx + 1}] ${s.title} (${s.url})\n`;
       });
@@ -182,4 +197,13 @@ function escapeHtml(str: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function safeExportUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? escapeHtml(url.href) : '#';
+  } catch {
+    return '#';
+  }
 }

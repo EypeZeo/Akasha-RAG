@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { readSetting, writeSetting } from './settings';
+import { act, render } from '@testing-library/react';
+import { createElement } from 'react';
+import { readSetting, useThemeSetting, writeSetting } from './settings';
 
 const OPTS = [5, 10, 20, 0] as const;
 
@@ -36,5 +38,29 @@ describe('readSetting', () => {
     expect(readSetting('ui.pos', positions, 'left')).toBe('top');
     localStorage.setItem('akasha:ui.pos', 'diagonal');
     expect(readSetting('ui.pos', positions, 'left')).toBe('left');
+  });
+});
+
+describe('useThemeSetting', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    delete document.documentElement.dataset.theme;
+  });
+
+  it('applies and persists a whitelisted theme on the document root', () => {
+    let chooseTheme: ((theme: 'dawn' | 'midnight' | 'ocean' | 'forest') => void) | undefined;
+
+    function Probe() {
+      const [, setTheme] = useThemeSetting();
+      chooseTheme = setTheme;
+      return null;
+    }
+
+    render(createElement(Probe));
+    expect(document.documentElement.dataset.theme).toBe('dawn');
+
+    act(() => chooseTheme?.('midnight'));
+    expect(document.documentElement.dataset.theme).toBe('midnight');
+    expect(localStorage.getItem('akasha:ui.theme')).toBe('midnight');
   });
 });

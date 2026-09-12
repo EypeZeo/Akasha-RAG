@@ -38,10 +38,12 @@ export default function ExportModal({ onClose, onExportStarted, collectionId, co
       } else if (res.busy) {
         setError(t('exportPickWait'));
       } else if (res.message) {
-        setError(res.message);
+        console.error('Directory picker failed:', res.message);
+        setError(t('exportFailedRetry'));
       }
     } catch (e: any) {
-      setError(t('exportOpenDirFailed') + (e.message || ''));
+      console.error('Directory picker failed:', e);
+      setError(t('exportOpenDirFailed'));
     } finally {
       setPicking(false);
     }
@@ -69,7 +71,8 @@ export default function ExportModal({ onClose, onExportStarted, collectionId, co
       onExportStarted(res.task_id, res.mode);
       onClose();
     } catch (e: any) {
-      setError(e.message || t('exportFailedRetry'));
+      console.error('Export submission failed:', e);
+      setError(t('exportFailedRetry'));
     } finally {
       setExporting(false);
     }

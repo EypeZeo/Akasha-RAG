@@ -50,12 +50,18 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
         setBiliStatus('pending');
         setBiliMessage(t('scanWithBiliApp'));
       } else {
+        // The UI always shows a stable, localized string here regardless of
+        // what the backend said — mixing in a raw backend/vendor message
+        // would break i18n and can leak internal detail. The specific
+        // reason still goes to the console for anyone actually debugging.
+        console.error('Bilibili QR generation failed:', res);
         setBiliStatus('failed');
-        setBiliMessage(res.message || t('loginFailed'));
+        setBiliMessage(t('loginFailed'));
       }
-    } catch (e: any) {
+    } catch (e) {
+      console.error('Bilibili QR generation failed:', e);
       setBiliStatus('failed');
-      setBiliMessage(e.message || t('networkError'));
+      setBiliMessage(t('networkError'));
     }
   }, [t]);
 
@@ -91,8 +97,11 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
             setBiliMessage(t('bilibiliQrWaitingScan'));
           }
         }
-      } catch {
-        /* network error retry */
+      } catch (e) {
+        // Transient network blips during polling are expected and retried
+        // automatically every 1.5s — logging keeps them visible without
+        // interrupting the flow with a UI message on every tick.
+        console.warn('Bilibili QR poll failed, will retry:', e);
       }
     }, 1500);
 
@@ -124,11 +133,12 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
         setDyMessage(t('scanWithDouyinApp'));
       } else {
         setDyStatus('pending');
-        setDyMessage(res.message || t('scanWithDouyinApp'));
+        setDyMessage(t('scanWithDouyinApp'));
       }
-    } catch (e: any) {
+    } catch (e) {
+      console.error('Douyin QR generation failed:', e);
       setDyStatus('failed');
-      setDyMessage(e.message || t('networkError'));
+      setDyMessage(t('networkError'));
     }
   }, [t]);
 
@@ -142,9 +152,11 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
         setDyStatus('pending');
         setDyMessage(t('scanWithDouyinApp'));
       } else {
+        console.warn('Douyin QR refresh returned no image, falling back to a fresh QR:', res);
         await loadDouyinQr();
       }
-    } catch {
+    } catch (e) {
+      console.warn('Douyin QR refresh failed, falling back to a fresh QR:', e);
       await loadDouyinQr();
     }
   };
@@ -171,7 +183,7 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
         }
         if (s.status === 'syncing') {
           setDyStatus('syncing');
-          setDyMessage(s.message || t('loginSyncing'));
+          setDyMessage(t('loginSyncing'));
         } else if (s.status === 'logged_in') {
           setDyStatus('success');
           setDyMessage(t('loginSuccessDone'));
@@ -179,11 +191,11 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
           setTimeout(onSuccess, 900);
         } else if (s.status === 'failed') {
           setDyStatus('failed');
-          setDyMessage(s.message || t('loginFailed'));
+          setDyMessage(t('loginFailed'));
           if (dyPollRef.current) clearInterval(dyPollRef.current);
         }
-      } catch {
-        /* ignore network error */
+      } catch (e) {
+        console.warn('Douyin login-status poll failed, will retry:', e);
       }
     }, 1500);
 
@@ -217,7 +229,9 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
     if (platform === 'douyin' && (dyStatus === 'pending' || dyStatus === 'loading')) {
       try {
         await api.loginCancel();
-      } catch {}
+      } catch (e) {
+        console.warn('Douyin login-cancel on close failed (best-effort):', e);
+      }
     }
     // 若扫码已确认并进入同步或已完成，通知父页面立即更新平台状态
     if (dyStatus === 'syncing' || dyStatus === 'success' || biliStatus === 'success') {
@@ -229,7 +243,9 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
   const switchPlatform = async (target: 'douyin' | 'bilibili') => {
     if (target === platform) return;
     if (platform === 'douyin' && (dyStatus === 'pending' || dyStatus === 'loading')) {
-      try { await api.loginCancel(); } catch {}
+      try { await api.loginCancel(); } catch (e) {
+        console.warn('Douyin login-cancel on platform switch failed (best-effort):', e);
+      }
     }
     if (biliPollRef.current) {
       clearInterval(biliPollRef.current);
@@ -298,7 +314,7 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
               : t('loginDouyin')
           ) : (
             biliStatus === 'success'
-              ? (biliUser?.nickname ? `🎉 欢迎，${biliUser.nickname}` : t('bilibiliLoginSuccess'))
+              ? (biliUser?.nickname ? t('welcomeBilibiliUser', { nickname: biliUser.nickname }) : t('bilibiliLoginSuccess'))
               : biliStatus === 'scanned'
               ? t('bilibiliQrScanned')
               : biliStatus === 'expired'
@@ -367,7 +383,7 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
                   </div>
                   <div className="flex flex-col items-center gap-1">
                     <span className="text-xs font-bold text-accent">{t('loginSyncing')}</span>
-                    <span className="text-[11px] text-[var(--color-ink-muted)]">正在同步收藏夹与视频数据…</span>
+                    <span className="text-[11px] text-[var(--color-ink-muted)]">{t('syncingFavoritesAndVideos')}</span>
                   </div>
                 </div>
               )}
@@ -414,7 +430,7 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
               {dyStatus === 'pending' && !dyQrImg && (
                 <div className="flex flex-col items-center gap-3 text-center">
                   <span className="w-8 h-8 rounded-full border-3 border-accent/20 border-t-accent animate-spin" />
-                  <span className="text-xs font-medium text-[var(--color-ink-soft)]">正在生成登录二维码…</span>
+                  <span className="text-xs font-medium text-[var(--color-ink-soft)]">{t('generatingLoginQr')}</span>
                 </div>
               )}
             </>
@@ -508,7 +524,7 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
           dyStatus === 'syncing' ? (
             <div className="w-full flex items-center justify-center gap-2 text-xs text-accent bg-accent-light/50 p-3 rounded-xl border border-accent/20">
               <span className="w-2 h-2 rounded-full bg-accent animate-ping" />
-              <span>扫码已确认，正在后台同步数据，可随时关闭窗口</span>
+              <span>{t('loginSyncMayClose')}</span>
             </div>
           ) : (
             <div className="w-full flex flex-col gap-1.5 text-xs text-[var(--color-ink-soft)] bg-black/[0.02] p-3 rounded-xl border border-black/5">

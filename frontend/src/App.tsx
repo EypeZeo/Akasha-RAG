@@ -2,12 +2,16 @@ import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import LandingPage from './pages/LandingPage';
 import LoginModal from './components/LoginModal';
 import * as api from './api';
+import { useI18n } from './i18n';
+import { useThemeSetting } from './utils/settings';
 
 // Landing is the common cold-start route.  Keep the full workspace out of its
 // module graph, but avoid fine-grained chunks that are brittle on local update.
 const Workspace = lazy(() => import('./pages/Workspace'));
 
 export default function App() {
+  const { t } = useI18n();
+  const [theme, setTheme] = useThemeSetting();
   const [loggedIn, setLoggedIn] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
   const [loginBusy, setLoginBusy] = useState(false);
@@ -29,10 +33,14 @@ export default function App() {
 
   // Poll login status
   useEffect(() => {
+    // LoginModal performs its own short-interval QR polling. Avoid a second
+    // platform-status request stream while it is open; otherwise idle polling
+    // is deliberately slow to keep the local backend quiet.
+    if (showLogin) return;
     checkLoginStatus();
-    const timer = setInterval(checkLoginStatus, loggedIn ? 30000 : 5000);
+    const timer = setInterval(checkLoginStatus, 30000);
     return () => clearInterval(timer);
-  }, [checkLoginStatus, loggedIn]);
+  }, [checkLoginStatus, showLogin]);
 
   const handleLogin = useCallback(async () => {
     if (loginBusy) return;
@@ -51,11 +59,11 @@ export default function App() {
       setShowLogin(true);
     } catch (e: any) {
       console.error(e);
-      alert('启动登录服务异常: ' + (e.message || '请检查后端服务'));
+      alert(t('loginServiceStartFailed'));
     } finally {
       setLoginBusy(false);
     }
-  }, [loginBusy]);
+  }, [loginBusy, t]);
 
   const handleLoginSuccess = useCallback(() => {
     setShowLogin(false);
@@ -66,14 +74,15 @@ export default function App() {
     try {
       const result = await api.logoutAll();
       if (!result.success) {
-        alert('部分平台退出失败，请在设置中重试。');
+        alert(t('partialLogoutFailed'));
       }
     } catch (error: any) {
-      alert('退出登录失败: ' + (error.message || '请检查后端服务'));
+      console.error(error);
+      alert(t('operationFailed'));
       return;
     }
     await checkLoginStatus();
-  }, [checkLoginStatus]);
+  }, [checkLoginStatus, t]);
 
   if (!loggedIn) {
     return (
@@ -94,7 +103,7 @@ export default function App() {
 
   return (
     <Suspense fallback={<LandingPage onStartLogin={() => {}} busy />}>
-      <Workspace onLogout={handleLogout} onAccountsChanged={checkLoginStatus} />
+      <Workspace onLogout={handleLogout} onAccountsChanged={checkLoginStatus} theme={theme} onThemeChange={setTheme} />
     </Suspense>
   );
 }

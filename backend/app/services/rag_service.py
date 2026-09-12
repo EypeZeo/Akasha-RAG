@@ -36,15 +36,22 @@ logger = logging.getLogger(__name__)
 # 静态工具函数
 # ==================================================================
 
-_GREETING_KEYWORDS = [
-    "你好", "在吗", "hi", "hello", "你是谁", "谢谢", "早上好", "晚安",
-]
+# 中文短语无天然词边界，子串匹配本身误判率低，保留原逻辑。
+_GREETING_KEYWORDS_CJK = ["你好", "在吗", "你是谁", "谢谢", "早上好", "晚安"]
+
+# BUG-01: 纯 ASCII 问候词若也用子串匹配，"hi" 会命中 this/which/history/
+# machine/architecture 等大量英文单词的一部分，把这些问题整个误判为问候语、
+# 跳过检索。改成 \b 单词边界匹配，只有独立出现的 "hi"/"hello" 才算数。
+_GREETING_KEYWORDS_ASCII = ["hi", "hello"]
+_GREETING_ASCII_RE = re.compile(r"\b(?:" + "|".join(_GREETING_KEYWORDS_ASCII) + r")\b")
 
 
 def _is_greeting(query: str) -> bool:
     """判断是否为问候语"""
     low = query.lower().strip()
-    return any(kw in low for kw in _GREETING_KEYWORDS)
+    if any(kw in low for kw in _GREETING_KEYWORDS_CJK):
+        return True
+    return bool(_GREETING_ASCII_RE.search(low))
 
 
 def _is_list_query(query: str) -> bool:
@@ -206,6 +213,13 @@ class RagService:
         :param top_k: 返回数量
         :return: 检索结果列表
         """
+        # BUG-03: `scope_ids is not None` 表示"限定到某个收藏夹"，空集合
+        # 表示"该收藏夹里没有内容"，必须直接返回空——不能用真值判断
+        # （`if scope_ids:`），那会把"空集合"和"None/不限范围"混为一谈，
+        # 导致检索悄悄退化成全库搜索。
+        if scope_ids is not None and not scope_ids:
+            return []
+
         k = top_k or settings.retrieval_top_k
         query_vector = embedding_client.embed_text(query)
         chroma = get_chroma_service()
@@ -219,8 +233,8 @@ class RagService:
             lambda_mult=settings.retrieval_mmr_lambda,
         )
 
-        # 按收藏夹范围过滤
-        if scope_ids:
+        # 按收藏夹范围过滤（同样必须用 is not None，理由同上）
+        if scope_ids is not None:
             hits = [h for h in hits if h["platform_item_id"] in scope_ids]
         return hits[:k]
 

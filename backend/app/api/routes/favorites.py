@@ -62,16 +62,27 @@ async def sync_favorites(
         else:
             results = []
             r1, r2 = None, None
+            platform_results: dict[str, dict] = {}
             try:
                 r1 = await favorites_service.sync_from_douyin(db)
                 results.append(r1)
+                platform_results["douyin"] = {"success": True}
             except Exception as e:
+                # 两个平台共用同一个 db session/事务。save_snapshot_to_db()
+                # 可能已经 flush() 了部分尚未提交的写入才抛异常；这里必须
+                # 立刻 rollback，否则这些半成品会挂在事务里，被下面 B 站
+                # 同步成功后自己的 db.commit() 一并提交上去。
+                db.rollback()
                 logger.warning("全部同步时抖音失败: %s", e)
+                platform_results["douyin"] = {"success": False, "message": str(e)}
             try:
                 r2 = await favorites_service.sync_from_bilibili(db)
                 results.append(r2)
+                platform_results["bilibili"] = {"success": True}
             except Exception as e:
+                db.rollback()
                 logger.warning("全部同步时B站失败: %s", e)
+                platform_results["bilibili"] = {"success": False, "message": str(e)}
 
             parts = []
             total_synced = 0
@@ -108,8 +119,13 @@ async def sync_favorites(
             inv_str = f"，已失效视频 {total_invalid} 个无法同步" if total_invalid > 0 else ""
             summary_msg = f"{prefix}{mid}{inv_str}，同步已完成。"
 
+            any_succeeded = any(v["success"] for v in platform_results.values())
+            partial = not all(v["success"] for v in platform_results.values())
+
             return {
-                "success": True,
+                "success": any_succeeded,
+                "partial": partial,
+                "platform_results": platform_results,
                 "results": results,
                 "videos_total": total_synced,
                 "invalid_count": total_invalid,
@@ -122,6 +138,12 @@ async def sync_favorites(
     except Exception as exc:
         import traceback
         import httpx
+        # DATA-01: sync_from_douyin/sync_from_bilibili may have already
+        # flush()ed partial collection/content/relation changes into this
+        # session before failing. Because this except swallows the error and
+        # returns a normal response, get_db never sees an exception and would
+        # otherwise commit that half-written state on its "no exception" path.
+        db.rollback()
         logger.error("收藏夹同步失败: %s\n%s", exc, traceback.format_exc())
         err_type = type(exc).__name__
         err_msg = str(exc).strip()

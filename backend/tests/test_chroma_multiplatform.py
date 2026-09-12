@@ -63,6 +63,18 @@ def test_bilibili_multipart_chunk_id_format_and_scoping():
     }
 
 
+def test_search_with_empty_scope_returns_nothing_without_querying():
+    """BUG-03: 空 scope（收藏夹存在但没有内容）必须直接返回空，不能退化成全库检索"""
+    collection = SimpleNamespace(count=Mock(return_value=10), query=Mock())
+    svc = make_service(collection)
+
+    res = svc.search(query_vector=[0.1] * 8, top_k=5, scope_ids=set())
+
+    assert res == []
+    collection.query.assert_not_called()
+    collection.count.assert_not_called()
+
+
 def test_search_pre_filtering():
     """验证 search 方法在 Chroma 层注入 where 条件进行前置过滤"""
     collection = SimpleNamespace(
@@ -96,6 +108,34 @@ def test_search_pre_filtering():
     # 平台已由集合隔离，where 不再冗余携带 platform。
     collection.query.assert_called_once()
     assert "where" not in collection.query.call_args[1]
+
+
+def test_clear_platform_only_recreates_the_target_collection():
+    """BUG-02: 按平台清空只应删除/重建对应平台的 collection，另一个原样保留"""
+    calls = []
+
+    class FakeClient:
+        def delete_collection(self, name):
+            calls.append(("delete", name))
+
+    svc = object.__new__(ChromaService)
+    svc._client = FakeClient()
+    bilibili_collection = SimpleNamespace()
+    svc._collections = {"douyin": SimpleNamespace(), "bilibili": bilibili_collection}
+
+    created = []
+
+    def fake_create(platform):
+        created.append(platform)
+        return SimpleNamespace()
+
+    svc._create_collection = fake_create
+    svc.clear_platform("douyin")
+
+    assert calls == [("delete", "akasha_douyin")]
+    assert created == ["douyin"]
+    # bilibili's collection object is untouched (still the same instance)
+    assert svc._collections["bilibili"] is bilibili_collection
 
 
 def test_cross_platform_search_merges_by_score():

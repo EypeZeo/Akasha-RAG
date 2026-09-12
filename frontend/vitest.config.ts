@@ -7,6 +7,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     globals: true,
-    include: ['src/**/*.test.{ts,tsx}'],
+    // scripts/*.test.mjs covers plain-Node build/CI scripts (e.g. the theme
+    // contrast checker) that must stay runnable via `node scripts/x.mjs`
+    // with no build step, so their logic lives outside src/ as .mjs.
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
   },
 });
