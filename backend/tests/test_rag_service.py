@@ -126,6 +126,33 @@ class TestAnswerSanitization:
         assert "```" in result
 
 
+class TestDbContentPromptSurvivesSanitization:
+    """BUG-07: db_content 提示词要求的输出格式必须是 _sanitize_answer 之后
+    真的还在的东西，不能承诺一个马上被剥离的 Markdown 结构。"""
+
+    def test_prompt_does_not_ask_for_markdown_headings(self):
+        service = RagService()
+        system, _user, _is_structured = service._build_prompts(
+            "db_content", "总结一下", context="内容片段", history=""
+        )
+        assert "## " not in system
+
+    def test_plain_text_section_label_survives_sanitization(self):
+        answer = (
+            "TL;DR：\n"
+            "- 核心结论一\n"
+            "- 核心结论二\n\n"
+            "共同主题：\n"
+            "都提到了效率\n\n"
+            "各视频要点：\n"
+            "视频A讲了X [来源: 视频A]"
+        )
+        result = _sanitize_answer(answer, True)
+        assert "TL;DR：" in result
+        assert "共同主题：" in result
+        assert "各视频要点：" in result
+
+
 class TestDenseRetrieveEmptyScope:
     """BUG-03: 空 scope（收藏夹存在但没有内容）必须直接返回空，不能退化成全库检索"""
 
