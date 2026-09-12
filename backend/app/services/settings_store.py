@@ -18,9 +18,13 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
-from app.core.secure_storage import read_json, write_json
+from app.core.secure_storage import read_json, storage_signature, write_json
 
 _LOCK = threading.Lock()
+# (signature, parsed value) of the last _read(). Guarded by _LOCK, which
+# every public function here already holds for its whole read-modify-write
+# span, so no separate lock is needed for the cache itself.
+_cache: tuple[tuple[bool, int], ApiSettings] | None = None
 
 
 class ChatProvider(BaseModel):
@@ -47,17 +51,25 @@ def _store_path() -> Path:
 
 
 def _read() -> ApiSettings:
+    global _cache
     path = _store_path()
+    signature = storage_signature(path)
+    if _cache is not None and _cache[0] == signature:
+        return _cache[1].model_copy(deep=True)
     try:
         data = read_json(path)
-        return ApiSettings.model_validate(data) if data is not None else ApiSettings()
+        parsed = ApiSettings.model_validate(data) if data is not None else ApiSettings()
     except Exception:
-        return ApiSettings()
+        parsed = ApiSettings()
+    _cache = (signature, parsed)
+    return parsed.model_copy(deep=True)
 
 
 def _write(data: ApiSettings) -> None:
+    global _cache
     path = _store_path()
     write_json(path, data.model_dump(mode="json"))
+    _cache = None
 
 
 def get_dashscope_key() -> str:

@@ -111,6 +111,20 @@ def read_json(path: Path) -> Any | None:
     return value
 
 
+def storage_signature(path: Path) -> tuple[bool, int]:
+    """`(exists, mtime_ns)` of whichever file `read_json(path)` would actually
+    read (the protected file if present, else a legacy plaintext file) --
+    lets a caller cheaply detect "has this changed since I last read it"
+    without re-reading/decrypting the content.
+    """
+    protected_path = _encrypted_path(path)
+    target = protected_path if protected_path.is_file() else path
+    try:
+        return True, target.stat().st_mtime_ns
+    except FileNotFoundError:
+        return False, 0
+
+
 def delete_json(path: Path) -> None:
     path.unlink(missing_ok=True)
     _encrypted_path(path).unlink(missing_ok=True)
