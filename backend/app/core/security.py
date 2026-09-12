@@ -13,12 +13,20 @@ CORS 预检，天然免疫这类 CSRF，不需要维护 token/session。
 """
 from __future__ import annotations
 
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
 
 REQUIRED_CLIENT_HEADER_VALUE = "1"
+# GET/HEAD/OPTIONS 无副作用，且原生浏览器下载/导出（<a>.click() / window.open()）
+# 无法附带自定义请求头——对这些方法强制要求头部只会挡住合法的同源下载，
+# 不会挡住真正的 CSRF（那需要状态变更请求，见模块顶部文档）。
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 
-async def require_local_client(x_akasha_client: str | None = Header(default=None)) -> None:
-    """挂在 api_router 上的全局依赖：缺失或值不对时直接 403。"""
+async def require_local_client(
+    request: Request, x_akasha_client: str | None = Header(default=None)
+) -> None:
+    """挂在 api_router 上的全局依赖：状态变更请求缺失或值不对时直接 403。"""
+    if request.method in _SAFE_METHODS:
+        return
     if x_akasha_client != REQUIRED_CLIENT_HEADER_VALUE:
         raise HTTPException(status_code=403, detail="Missing or invalid X-Akasha-Client header")
