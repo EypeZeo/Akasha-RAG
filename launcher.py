@@ -278,7 +278,7 @@ class UnifiedLauncher:
 
         if not node_modules.exists():
             self.log_message("[SETUP]", _t("installing_frontend_deps"), YELLOW)
-            subprocess.run([npm_cmd, "install"], cwd=str(FRONTEND_DIR), check=True)
+            subprocess.run([npm_cmd, "ci", "--no-audit", "--no-fund"], cwd=str(FRONTEND_DIR), check=True)
 
         # 优先直接以 Node 执行 Vite 二进制脚本，绕过 npm.cmd 批处理包装层，彻底杜绝 Windows CMD '终止批处理操作吗' 弹窗
         vite_bin = node_modules / "vite" / "bin" / "vite.js"

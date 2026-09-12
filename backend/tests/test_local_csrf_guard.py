@@ -8,8 +8,14 @@ GET 但会写状态（/api/auth/platforms、/api/auth/bilibili/qrcode/poll）或
 只是普通 fetch() 轮询（导出进度）的路由都不在豁免范围内（详见
 app/core/security.py 模块文档）。
 """
-from fastapi.testclient import TestClient
+import asyncio
 
+import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+from starlette.requests import Request
+
+from app.core.security import require_local_client
 from app.main import app
 
 
@@ -86,3 +92,10 @@ def test_root_health_check_is_not_gated():
     with TestClient(app) as c:
         resp = c.get("/")
     assert resp.status_code == 200
+
+
+def test_non_loopback_client_is_rejected_even_with_the_browser_header():
+    request = Request({"type": "http", "method": "POST", "path": "/api/favorites/sync", "headers": [], "client": ("192.168.1.10", 50000)})
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(require_local_client(request, x_akasha_client="1"))
+    assert caught.value.status_code == 403
