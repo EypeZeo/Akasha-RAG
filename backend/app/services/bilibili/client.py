@@ -56,12 +56,12 @@ class BilibiliClient:
     }
 
     def __init__(self) -> None:
-        p = Path(settings.bilibili_state_path)
-        if not p.is_absolute():
-            candidate = Path(__file__).resolve().parent.parent.parent / p
-            if candidate.exists() or not p.exists():
-                p = candidate
-        self._state_path = p
+        # Relative like `api_settings_path`: resolved against the process CWD
+        # (`backend/` for every entry point), not manually climbed from
+        # `__file__` — that previously produced `backend/app/app/storage/...`,
+        # one `app/` segment too many. See settings_store.py's `_store_path()`
+        # for the same convention.
+        self._state_path = Path(settings.bilibili_state_path)
         self._cookies: dict[str, str] = {}
         self._user_info: dict[str, Any] = {}
         # WeakKeyDictionary 而不是 id(loop) -> value：CPython 的 id() 是内存

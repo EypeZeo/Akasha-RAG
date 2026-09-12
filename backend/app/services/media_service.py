@@ -115,9 +115,12 @@ def _find_state_file() -> Path:
 
 
 def _get_audio_cache_dir() -> Path:
+    # Relative like `api_settings_path`/`bilibili_state_path`: resolved
+    # against the process CWD (`backend/` for every entry point), not
+    # manually climbed from `__file__` — that style is what produced the
+    # off-by-one `backend/app/app/...` path in bilibili/client.py (BUG-16).
+    # See settings_store.py's `_store_path()` for the same convention.
     path = Path(settings.audio_cache_dir)
-    if not path.is_absolute():
-        path = Path(__file__).resolve().parents[2] / path
     path.mkdir(parents=True, exist_ok=True)
     return path
 
