@@ -185,7 +185,6 @@ class DouyinCollector:
         """构建浏览器启动参数，默认无头纯后台静默运行"""
         args = [
             "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
         ]
         executable = _find_project_chromium_executable()
         if executable:
