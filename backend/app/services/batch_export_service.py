@@ -180,20 +180,23 @@ class BatchExportService:
         if not items:
             raise ValueError("没有可导出的入库视频内容，请先执行入库")
 
-        # AI 整理预热 + 进度推进（之后各 _export_* 命中缓存）
-        self._prewarm_ai_summaries(db, items, content_type, progress_cb)
-
         written_files = []
 
         if pack_mode == "single":
+            # export_batch() below does its own prewarm; calling it here too
+            # would just re-run the same per-item loop (and double-fire
+            # progress_cb) since the summaries are already cached by then.
             buffer, filename, _ = self.export_batch(
-                db, collection_id, selected_ids, content_type, export_format, "single"
+                db, collection_id, selected_ids, content_type, export_format, "single", progress_cb=progress_cb
             )
             out_file = target_path / filename
             with open(out_file, "wb") as f:
                 f.write(buffer.getvalue())
             written_files.append(str(out_file.name))
         else:
+            # AI 整理预热 + 进度推进（之后各 _export_* 命中缓存）——多文件模式
+            # 不经过 export_batch()，预热只能在这里做一次。
+            self._prewarm_ai_summaries(db, items, content_type, progress_cb)
             # 多文件模式：直接将各篇文件分别写入目标目录
             if export_format == "markdown":
                 for idx, (cache, fv) in enumerate(items, 1):
