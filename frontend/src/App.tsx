@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import LandingPage from './pages/LandingPage';
-import LoginModal from './components/LoginModal';
 import * as api from './api';
 import { useI18n } from './i18n';
 import { useThemeSetting } from './utils/settings';
@@ -8,6 +7,20 @@ import { useThemeSetting } from './utils/settings';
 // Landing is the common cold-start route.  Keep the full workspace out of its
 // module graph, but avoid fine-grained chunks that are brittle on local update.
 const Workspace = lazy(() => import('./pages/Workspace'));
+const loadLoginModal = () => import('./components/LoginModal');
+const LoginModal = lazy(loadLoginModal);
+
+function LoginModalLoading() {
+  return (
+    <div
+      aria-busy="true"
+      aria-live="polite"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/20"
+    >
+      <span className="h-8 w-8 animate-spin rounded-full border-2 border-white border-t-transparent" />
+    </div>
+  );
+}
 
 export default function App() {
   const { t } = useI18n();
@@ -65,6 +78,10 @@ export default function App() {
     }
   }, [loginBusy, t]);
 
+  const prefetchLoginModal = useCallback(() => {
+    void loadLoginModal();
+  }, []);
+
   const handleLoginSuccess = useCallback(() => {
     setShowLogin(false);
     setLoggedIn(true);
@@ -87,22 +104,24 @@ export default function App() {
   if (!loggedIn) {
     return (
       <>
-        <LandingPage onStartLogin={handleLogin} busy={loginBusy} />
+        <LandingPage onStartLogin={handleLogin} onLoginIntent={prefetchLoginModal} busy={loginBusy} />
         {showLogin && (
-          <LoginModal
-            onClose={() => {
-              setShowLogin(false);
-              checkLoginStatus();
-            }}
-            onSuccess={handleLoginSuccess}
-          />
+          <Suspense fallback={<LoginModalLoading />}>
+            <LoginModal
+              onClose={() => {
+                setShowLogin(false);
+                checkLoginStatus();
+              }}
+              onSuccess={handleLoginSuccess}
+            />
+          </Suspense>
         )}
       </>
     );
   }
 
   return (
-    <Suspense fallback={<LandingPage onStartLogin={() => {}} busy />}>
+    <Suspense fallback={<LandingPage onStartLogin={() => {}} onLoginIntent={() => {}} busy />}>
       <Workspace onLogout={handleLogout} onAccountsChanged={checkLoginStatus} theme={theme} onThemeChange={setTheme} />
     </Suspense>
   );

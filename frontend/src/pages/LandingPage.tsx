@@ -1,8 +1,8 @@
 import { useI18n } from '../i18n';
 
-interface Props { onStartLogin: () => void; busy: boolean; }
+interface Props { onStartLogin: () => void; onLoginIntent: () => void; busy: boolean; }
 
-export default function LandingPage({ onStartLogin, busy }: Props) {
+export default function LandingPage({ onStartLogin, onLoginIntent, busy }: Props) {
   const { t } = useI18n();
 
   return (
@@ -17,6 +17,8 @@ export default function LandingPage({ onStartLogin, busy }: Props) {
         </div>
         <button
           onClick={onStartLogin}
+          onPointerEnter={onLoginIntent}
+          onFocus={onLoginIntent}
           disabled={busy}
           className="px-5 py-2 rounded-full bg-accent hover:bg-accent-hover text-white text-xs font-semibold shadow-sm transition-all hover:shadow-md disabled:opacity-60 disabled:cursor-wait cursor-pointer"
         >
@@ -40,6 +42,8 @@ export default function LandingPage({ onStartLogin, busy }: Props) {
 
         <button
           onClick={onStartLogin}
+          onPointerEnter={onLoginIntent}
+          onFocus={onLoginIntent}
           disabled={busy}
           className="px-10 py-4 rounded-full bg-gradient-to-r from-accent to-accent-hover text-white font-bold text-base
                      shadow-lg shadow-accent/25 hover:shadow-xl hover:shadow-accent/30
