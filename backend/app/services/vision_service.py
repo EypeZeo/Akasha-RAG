@@ -17,12 +17,15 @@ from pathlib import Path
 from typing import List, Optional
 
 import dashscope
-from dashscope import MultiModalConversation
 import requests
+from dashscope import MultiModalConversation
 
 from app.core.config import settings
+from app.core.external_urls import safe_platform_image_url
 
 logger = logging.getLogger(__name__)
+_MAX_IMAGE_BYTES = 10 * 1024 * 1024
+_MAX_IMAGE_REDIRECTS = 3
 
 
 class VisionService:
@@ -51,6 +54,51 @@ class VisionService:
                 except Exception:
                     pass
         return {}
+
+    def _download_trusted_image(self, image_url: str, headers: dict[str, str]) -> bytes | None:
+        """Download one allowlisted image without following an unchecked redirect."""
+        current_url = safe_platform_image_url("douyin", image_url)
+        for _ in range(_MAX_IMAGE_REDIRECTS + 1):
+            if not current_url:
+                return None
+            try:
+                response = requests.get(
+                    current_url,
+                    headers=headers,
+                    timeout=(5, 20),
+                    allow_redirects=False,
+                    stream=True,
+                )
+            except requests.RequestException:
+                return None
+            try:
+                if response.is_redirect or response.is_permanent_redirect:
+                    redirect_url = urllib.parse.urljoin(current_url, response.headers.get("Location", ""))
+                    current_url = safe_platform_image_url(
+                        "douyin", redirect_url
+                    )
+                    continue
+                if response.status_code != 200:
+                    return None
+                try:
+                    declared_size = int(response.headers.get("Content-Length", "0"))
+                except ValueError:
+                    return None
+                if declared_size > _MAX_IMAGE_BYTES:
+                    return None
+                chunks: list[bytes] = []
+                received = 0
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if not chunk:
+                        continue
+                    received += len(chunk)
+                    if received > _MAX_IMAGE_BYTES:
+                        return None
+                    chunks.append(chunk)
+                return b"".join(chunks)
+            finally:
+                response.close()
+        return None
 
     def fetch_note_image_urls(self, platform_item_id: str, fallback_cover: Optional[str] = None) -> List[str]:
         """
@@ -93,8 +141,9 @@ class VisionService:
                                     if isinstance(obj, dict):
                                         if "url_list" in obj and isinstance(obj["url_list"], list):
                                             for u in obj["url_list"]:
-                                                if isinstance(u, str) and ("tos-cn" in u or "douyinpic" in u or "byteimg" in u):
-                                                    found.append(u)
+                                                safe_url = safe_platform_image_url("douyin", u)
+                                                if safe_url:
+                                                    found.append(safe_url)
                                                     break
                                         for v in obj.values():
                                             found.extend(find_image_urls(v))
@@ -133,9 +182,10 @@ class VisionService:
                             # 去掉尺寸后缀（~c5_1080x1080 等）后去重，避免同图多分辨率重复
                             dedup_key = re.sub(r"[~_]c5[^/]*$", "", cleaned)
                             dedup_key = re.sub(r"_\d{2,4}x\d{2,4}", "", dedup_key)
-                            if dedup_key not in seen:
+                            safe_url = safe_platform_image_url("douyin", u)
+                            if safe_url and dedup_key not in seen:
                                 seen.add(dedup_key)
-                                urls.append(u)
+                                urls.append(safe_url)
                         urls = urls[:24]
 
                     if urls:
@@ -143,8 +193,10 @@ class VisionService:
             except Exception as e:
                 logger.warning("请求页面解析失败 [%s -> %s]: %s", platform_item_id, target_url, e)
 
-        if not urls and fallback_cover:
-            urls.append(fallback_cover)
+        if not urls:
+            safe_fallback = safe_platform_image_url("douyin", fallback_cover)
+            if safe_fallback:
+                urls.append(safe_fallback)
 
         logger.info("图文笔记 [%s] 提取到 %d 张候选图片", platform_item_id, len(urls))
         return urls
@@ -169,7 +221,11 @@ class VisionService:
 
         # 多下候选、按魔数校验后取前 8 张真图喂 Qwen-VL（HTML 扫描来的候选常混入非图资源）
         MAX_VISION_IMAGES = 8
-        candidate_urls = image_urls[:16]
+        candidate_urls = [
+            safe_url
+            for url in image_urls[:16]
+            if (safe_url := safe_platform_image_url("douyin", url))
+        ]
         extracted_sections = []
 
         headers = {
@@ -182,20 +238,17 @@ class VisionService:
 
         def fetch_single_image(item: tuple[int, str]) -> tuple[int, Optional[str]]:
             idx, img_url = item
-            resp = None
+            content = None
             for attempt in range(2):
-                try:
-                    resp = requests.get(img_url, headers=headers, timeout=(5, 20))
+                content = self._download_trusted_image(img_url, headers)
+                if content is not None:
                     break
-                except requests.RequestException as e:
-                    if attempt == 1:
-                        logger.warning("下载图片失败 [%d]: %s", idx, e)
-                        return idx, None
+            if content is None:
+                logger.warning("下载图片失败 [%d]", idx)
+                return idx, None
             try:
-                if resp is None or resp.status_code != 200 or len(resp.content) < 800:
+                if len(content) < 800:
                     return idx, None
-
-                content = resp.content
                 # 严格基于二进制魔数校验合法图片格式，杜绝将 JS/HTML 传入 DashScope
                 mime = None
                 if content.startswith(b"\xff\xd8\xff"):

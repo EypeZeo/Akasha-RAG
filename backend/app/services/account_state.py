@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from app.core.external_urls import safe_platform_image_url
 from app.models.entities import SourceAccount
 
 
@@ -24,6 +25,7 @@ def record_account_state(
 ) -> SourceAccount | None:
     platform = platform.strip().lower()
     status = "active" if active else "revoked"
+    safe_avatar_url = safe_platform_image_url(platform, avatar_url) if active else ""
     row = db.scalar(
         select(SourceAccount).where(
             SourceAccount.platform == platform,
@@ -39,7 +41,7 @@ def record_account_state(
             auth_state_ref=auth_state_ref if active else "",
             status=status,
             nickname=nickname[:128] if active else "",
-            avatar_url=avatar_url[:1024] if active else "",
+            avatar_url=safe_avatar_url,
         )
         db.add(row)
         return row
@@ -52,8 +54,8 @@ def record_account_state(
     else:
         if nickname:
             row.nickname = nickname[:128]
-        if avatar_url:
-            row.avatar_url = avatar_url[:1024]
+        if safe_avatar_url:
+            row.avatar_url = safe_avatar_url
     return row
 
 

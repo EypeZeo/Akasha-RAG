@@ -10,14 +10,21 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import List, Optional
+from typing import Annotated, List, Literal, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from app.core.logging import LOG_DIR, VALID_LEVELS, log_manager
 
 router = APIRouter(prefix="/system", tags=["系统管理"])
+
+LogType = Literal["all", "error", "terminal"]
+_LOG_FILE_PATTERNS: dict[LogType, str] = {
+    "all": "all_*.log",
+    "error": "error_*.log",
+    "terminal": "terminal_*.log",
+}
 
 # 目录选择框互斥：同一时刻只允许一个原生对话框在等待
 _pick_dir_lock = threading.Lock()
@@ -153,7 +160,10 @@ async def pick_directory(body: PickDirectoryRequest = PickDirectoryRequest()):
 
 
 @router.get("/logs")
-async def get_recent_logs(lines: int = 100, log_type: str = "all"):
+async def get_recent_logs(
+    lines: Annotated[int, Query(ge=1, le=1000)] = 100,
+    log_type: LogType = "all",
+):
     """
     读取最新的本地日志片段，用于前端控制台或排错调试
 
@@ -161,8 +171,10 @@ async def get_recent_logs(lines: int = 100, log_type: str = "all"):
     :param log_type: "all" | "error" | "terminal"
     """
     try:
-        pattern = f"{log_type}_*.log"
-        matching_files = sorted(LOG_DIR.glob(pattern), reverse=True)
+        # Do not derive a glob from a request value.  Apart from being an
+        # accidental file-disclosure primitive, a future log type containing
+        # ``..`` or ``**`` would make the boundary of LOG_DIR unclear.
+        matching_files = sorted(LOG_DIR.glob(_LOG_FILE_PATTERNS[log_type]), reverse=True)
         if not matching_files:
             return {"success": True, "lines": [], "file": None}
 
@@ -208,4 +220,3 @@ async def clean_audio_cache_endpoint(body: CleanAudioCacheRequest = CleanAudioCa
         max_size_mb=body.max_size_mb,
     )
     return {"success": True, "result": res}
-

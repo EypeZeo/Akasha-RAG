@@ -8,6 +8,7 @@ import logging
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from app.core.external_urls import safe_platform_image_url
 from app.db.session import get_db
 from app.services.account_state import record_account_state
 from app.services.bilibili.client import bilibili_client
@@ -18,9 +19,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["认证"])
 
 
-def _display_profile(row, nickname: str, avatar_url: str) -> tuple[str, str]:
+def _display_profile(platform: str, row, nickname: str, avatar_url: str) -> tuple[str, str]:
     """Use fresh provider data when available, otherwise keep safe local cache."""
-    return nickname or (row.nickname if row else ""), avatar_url or (row.avatar_url if row else "")
+    display_avatar = avatar_url or (row.avatar_url if row else "")
+    return nickname or (row.nickname if row else ""), safe_platform_image_url(platform, display_avatar)
 
 
 # ==================================================================
@@ -54,10 +56,10 @@ async def list_platforms_status(db: Session = Depends(get_db)):
     else:
         bili_account = None
     dy_nickname, dy_avatar = _display_profile(
-        dy_account, dy_profile.get("nickname", ""), dy_profile.get("avatar_url", "")
+        "douyin", dy_account, dy_profile.get("nickname", ""), dy_profile.get("avatar_url", "")
     )
     bili_nickname, bili_avatar = _display_profile(
-        bili_account, bili_status.nickname, bili_status.avatar_url
+        "bilibili", bili_account, bili_status.nickname, bili_status.avatar_url
     )
 
     return {
@@ -232,7 +234,7 @@ async def bilibili_qrcode_poll(
             "message": result.message,
             "account_id": result.account_id,
             "nickname": result.nickname,
-            "avatar_url": result.avatar_url,
+            "avatar_url": safe_platform_image_url("bilibili", result.avatar_url),
         }
     except Exception as exc:
         logger.exception("轮询 B站 二维码状态失败")
@@ -249,7 +251,7 @@ async def bilibili_status():
             "is_logged_in": status.is_logged_in,
             "account_id": status.account_id,
             "nickname": status.nickname,
-            "avatar_url": status.avatar_url,
+            "avatar_url": safe_platform_image_url("bilibili", status.avatar_url),
             "message": status.error_message,
         }
     except Exception as exc:
