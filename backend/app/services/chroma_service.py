@@ -92,6 +92,11 @@ class ChromaService:
                lambda_mult: float = 0.55) -> list[dict]:
         if top_k <= 0:
             return []
+        # BUG-03: an empty (but not None) scope means "this collection has no
+        # content" and must return nothing — `if scope_ids:` treats an empty
+        # set the same as "no filter" and silently searches the whole store.
+        if scope_ids is not None and not scope_ids:
+            return []
         candidates: list[dict] = []
         n_fetch = max(fetch_k, top_k * 3)
         for target in self._target_platforms(platform):
@@ -101,12 +106,12 @@ class ChromaService:
                 continue
             query_kw = {"query_embeddings": [query_vector], "n_results": min(n_fetch, count),
                         "include": ["metadatas", "distances", "documents"]}
-            if scope_ids:
+            if scope_ids is not None:
                 query_kw["where"] = {"platform_item_id": {"$in": list(scope_ids)}}
             try:
                 result = collection.query(**query_kw)
             except Exception as exc:
-                if not scope_ids:
+                if scope_ids is None:
                     raise
                 logger.warning("Chroma 平台范围检索异常，使用后置过滤: %s", exc)
                 query_kw.pop("where", None)
@@ -120,7 +125,7 @@ class ChromaService:
                     continue
                 item_id = metadata.get("platform_item_id") or metadata.get("remote_item_id")
                 chunk_id = ids[idx] if idx < len(ids) else metadata.get("chunk_id")
-                if not item_id or not chunk_id or (scope_ids and item_id not in scope_ids):
+                if not item_id or not chunk_id or (scope_ids is not None and item_id not in scope_ids):
                     continue
                 source_platform = str(metadata.get("platform", target))
                 url = metadata.get("canonical_url") or (f"https://www.bilibili.com/video/{item_id}" if source_platform == "bilibili" else f"https://www.douyin.com/video/{item_id}")

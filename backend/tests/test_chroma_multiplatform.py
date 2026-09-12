@@ -63,6 +63,18 @@ def test_bilibili_multipart_chunk_id_format_and_scoping():
     }
 
 
+def test_search_with_empty_scope_returns_nothing_without_querying():
+    """BUG-03: 空 scope（收藏夹存在但没有内容）必须直接返回空，不能退化成全库检索"""
+    collection = SimpleNamespace(count=Mock(return_value=10), query=Mock())
+    svc = make_service(collection)
+
+    res = svc.search(query_vector=[0.1] * 8, top_k=5, scope_ids=set())
+
+    assert res == []
+    collection.query.assert_not_called()
+    collection.count.assert_not_called()
+
+
 def test_search_pre_filtering():
     """验证 search 方法在 Chroma 层注入 where 条件进行前置过滤"""
     collection = SimpleNamespace(
