@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     注意：qwen-vl-* 系列即将下线，请使用 qwen3.x 系列
     """
 
+    vision_request_timeout_seconds: float = Field(default=30.0, ge=5.0, le=120.0)
+    """单次 Qwen-VL 调用的请求超时（秒）；SDK 默认 300s 对逐图循环里的单次调用来说太长"""
+
     # ===== 检索参数 =====
     retrieval_top_k: int = Field(default=8, ge=1, le=50)
     """最终返回的检索结果数量"""
