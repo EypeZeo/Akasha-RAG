@@ -78,10 +78,40 @@ def test_all_platform_sync_does_not_leak_failed_platforms_partial_write(db_and_c
     resp = client.post("/api/favorites/sync", params={"platform": "all"})
 
     assert resp.status_code == 200
-    assert resp.json()["success"] is True
+    body = resp.json()
+    assert body["success"] is True
+    # The overall request "succeeded" (bilibili's real, committed data should
+    # still be reflected in the UI) but callers must be told this was only a
+    # partial success, per-platform, rather than reusing the same "sync
+    # complete" response shape a full success gets.
+    assert body["partial"] is True
+    assert body["platform_results"]["douyin"]["success"] is False
+    assert body["platform_results"]["bilibili"]["success"] is True
 
     with factory() as db:
         items = db.query(ContentItem).all()
         # Only bilibili's committed row should exist; douyin's flushed-then
         # -abandoned row must not have survived B站's later commit.
         assert [item.remote_item_id for item in items] == ["bili-ok"]
+
+
+async def _blow_up_no_flush(db):
+    raise RuntimeError("模拟 B 站同步失败")
+
+
+def test_all_platform_sync_reports_full_failure_when_both_platforms_fail(db_and_client, monkeypatch):
+    client, factory = db_and_client
+    monkeypatch.setattr(favorites_service, "sync_from_douyin", _flush_then_blow_up)
+    monkeypatch.setattr(favorites_service, "sync_from_bilibili", _blow_up_no_flush)
+
+    resp = client.post("/api/favorites/sync", params={"platform": "all"})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is False
+    assert body["partial"] is True
+    assert body["platform_results"]["douyin"]["success"] is False
+    assert body["platform_results"]["bilibili"]["success"] is False
+
+    with factory() as db:
+        assert db.query(ContentItem).count() == 0

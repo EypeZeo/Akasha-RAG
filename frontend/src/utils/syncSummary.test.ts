@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { aggregateSyncCounts } from './syncSummary';
+import { aggregateSyncCounts, getFailedPlatforms } from './syncSummary';
 
 describe('aggregateSyncCounts', () => {
   it('UI-01: does not double-count when both a top-level aggregate and results[] are present', () => {
@@ -66,5 +66,26 @@ describe('aggregateSyncCounts', () => {
   it('tolerates null/undefined entries inside results[]', () => {
     const r = { results: [null, { added_videos: 1 }, undefined] };
     expect(aggregateSyncCounts(r).addedVideos).toBe(1);
+  });
+});
+
+describe('getFailedPlatforms', () => {
+  it('returns an empty list when there is no platform_results field', () => {
+    expect(getFailedPlatforms({})).toEqual([]);
+  });
+
+  it('returns an empty list when every platform succeeded', () => {
+    const r = { platform_results: { douyin: { success: true }, bilibili: { success: true } } };
+    expect(getFailedPlatforms(r)).toEqual([]);
+  });
+
+  it('names the platform that failed without hiding a partial success', () => {
+    const r = { platform_results: { douyin: { success: false, message: 'boom' }, bilibili: { success: true } } };
+    expect(getFailedPlatforms(r)).toEqual(['douyin']);
+  });
+
+  it('names every platform when all of them failed', () => {
+    const r = { platform_results: { douyin: { success: false }, bilibili: { success: false } } };
+    expect(getFailedPlatforms(r).sort()).toEqual(['bilibili', 'douyin']);
   });
 });

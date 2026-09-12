@@ -5,7 +5,7 @@ import ExportModal from './ExportModal';
 import ApiKeyMissingModal from './ApiKeyMissingModal';
 import { useI18n } from '../i18n';
 import { VIDEOS_PER_PAGE_OPTIONS } from '../utils/settings';
-import { aggregateSyncCounts } from '../utils/syncSummary';
+import { aggregateSyncCounts, getFailedPlatforms } from '../utils/syncSummary';
 import { useWorkspaceStore } from '../store/workspace';
 
 const ACTIVE_EXPORT_KEY = 'akasha:active_export';
@@ -250,8 +250,9 @@ export default function SourcesPanel({
         const { addedVideos: addedV, removedVideos: removedV, addedNotes: addedN, removedNotes: removedN, invalidCount } =
           aggregateSyncCounts(r);
 
+        let successMsg: string;
         if (addedV === 0 && removedV === 0 && addedN === 0 && removedN === 0 && invalidCount === 0) {
-          alert(t('syncUpToDate'));
+          successMsg = t('syncUpToDate');
         } else {
           const parts: string[] = [];
           if (addedV > 0 && removedV > 0) {
@@ -274,7 +275,20 @@ export default function SourcesPanel({
             parts.push(t('syncInvalidCount', { count: invalidCount }));
           }
 
-          alert(`${t('syncSuccessPrefix')}${parts.join('，')}`);
+          successMsg = `${t('syncSuccessPrefix')}${parts.join('，')}`;
+        }
+
+        // platform="all" 时一个平台失败、另一个成功仍然算 r.success（真实
+        // 发生的数据没有理由不刷新），但不能让这句"同步完成"的提示掩盖掉
+        // 失败平台——用 platform_results 点名，不猜测、不吞掉。
+        const failedPlatforms = getFailedPlatforms(r);
+        if (failedPlatforms.length > 0) {
+          const platformNames = failedPlatforms
+            .map((p) => (p === 'bilibili' ? t('platformBilibili') : t('platformDouyin')))
+            .join('、');
+          alert(`${successMsg}${t('syncPartialFailureSuffix', { platforms: platformNames })}`);
+        } else {
+          alert(successMsg);
         }
       } else {
         console.error('Sync failed:', r.message);

@@ -6,6 +6,11 @@
  * source 求和，绝不能两个都加，否则数字会翻倍。
  */
 
+export interface PlatformResult {
+  success: boolean;
+  message?: string;
+}
+
 export interface SyncResultLike {
   added_videos?: number;
   removed_videos?: number;
@@ -19,6 +24,8 @@ export interface SyncResultLike {
     removed_notes?: number;
     invalid_count?: number;
   } | null | undefined> | null;
+  partial?: boolean;
+  platform_results?: Record<string, PlatformResult> | null;
 }
 
 export interface SyncCounts {
@@ -48,4 +55,13 @@ export function aggregateSyncCounts(r: SyncResultLike): SyncCounts {
     removedNotes: r.removed_notes ?? 0,
     invalidCount: r.invalid_count ?? 0,
   };
+}
+
+/** 返回 `platform_results` 里同步失败的平台 key（如 `['douyin']`），用于
+ * 在"部分平台失败"时点名，而不是让顶层 `success` 掩盖掉这个信息。 */
+export function getFailedPlatforms(r: SyncResultLike): string[] {
+  if (!r.platform_results) return [];
+  return Object.entries(r.platform_results)
+    .filter(([, v]) => v && v.success === false)
+    .map(([platform]) => platform);
 }

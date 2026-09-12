@@ -155,6 +155,8 @@ export async function syncFavorites(platform: string = 'douyin'): Promise<{
   synced_total?: number;
   message?: string;
   results?: any[];
+  partial?: boolean;
+  platform_results?: Record<string, { success: boolean; message?: string }>;
 }> {
   return request(`/favorites/sync?platform=${platform}`, { method: 'POST' });
 }
