@@ -621,6 +621,11 @@ class DouyinCollector:
         # 执行 JS 调用 Webpack collects 模块
         result = page.evaluate("""
             async (targetMid) => {
+                // 固定递增退避（不是可配置项，就是这三个字面量常量）：3 次
+                // 尝试之间的 2 个间隔，仅在还有下一次尝试时才等待——最后一次
+                // 失败后直接跳出循环报错，不再白等一次。抛异常和拿到非零
+                // statusCode 走同一条退避判断，不再只有 catch 里才等待。
+                const RETRY_DELAYS_MS = [500, 1000];
                 const chunks = window.webpackChunkdouyin_web;
                 if (!Array.isArray(chunks)) return {ok:false, error:"no_webpack"};
                 const req = chunks.push([[Symbol("c")], {}, r => r]);
@@ -657,7 +662,10 @@ class DouyinCollector:
                             r = await listFn({cursor, offset:30});
                             if (r && r.statusCode === 0) break;
                         } catch(e) {
-                            await new Promise(res => setTimeout(res, 800));
+                            r = null;
+                        }
+                        if (retry < 2) {
+                            await new Promise(res => setTimeout(res, RETRY_DELAYS_MS[retry]));
                         }
                     }
                     if (!r || r.statusCode !== 0) {
@@ -686,7 +694,10 @@ class DouyinCollector:
                                 vr = await videoFn({collectsId:cid, cursor:cCur, offset:20});
                                 if (vr && vr.statusCode === 0) break;
                             } catch(e) {
-                                await new Promise(res => setTimeout(res, 800));
+                                vr = null;
+                            }
+                            if (retry < 2) {
+                                await new Promise(res => setTimeout(res, RETRY_DELAYS_MS[retry]));
                             }
                         }
                         if (!vr || vr.statusCode !== 0) break;
