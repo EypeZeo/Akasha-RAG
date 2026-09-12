@@ -4,7 +4,7 @@ Bilibili API 客户端封装
 设计要点：
 1. 信号量并发控制：限制针对 B 站的上行并发数 (bilibili_max_concurrency)
 2. 连接池与会话复用：复用单个 AsyncClient 降低握手开销
-3. 状态原子持久化：保存/加载 SESSDATA、bili_jct、DedeUserID 等到 bilibili_state.json
+3. 状态原子持久化：保存/加载 SESSDATA、bili_jct、DedeUserID 等到 DPAPI 保护的本地状态文件
 4. 支持二维码登录、收藏夹拉取、分P解析与音视频提取
 """
 from __future__ import annotations
@@ -12,10 +12,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
-import json
 import logging
 import os
-import tempfile
 import time
 import urllib.parse
 import weakref
@@ -26,6 +24,7 @@ import httpx
 import qrcode
 
 from app.core.config import settings
+from app.core.secure_storage import delete_json, read_json, write_json
 from app.services.adapters.base import AuthStatus, QRCodeInfo, QRCheckResult
 from app.services.bilibili.wbi import wbi_signer
 
@@ -165,8 +164,8 @@ class BilibiliClient:
     def _load_state(self) -> None:
         """从状态文件中读取保存的凭据与用户信息"""
         try:
-            if self._state_path.exists():
-                data = json.loads(self._state_path.read_text(encoding="utf-8"))
+            data = read_json(self._state_path)
+            if data is not None:
                 self._cookies = data.get("cookies", {})
                 self._user_info = data.get("user_info", {})
                 logger.debug("已载入 Bilibili 登录态: mid=%s", self._user_info.get("mid"))
@@ -178,24 +177,12 @@ class BilibiliClient:
     def _save_state(self) -> None:
         """原子写入状态文件"""
         try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
                 "cookies": self._cookies,
                 "user_info": self._user_info,
                 "updated_at": int(time.time()),
             }
-            # 原子写: 先写临时文件，再原子重命名
-            tmp_fd, tmp_path = tempfile.mkstemp(
-                dir=str(self._state_path.parent), prefix="bili_state_", suffix=".tmp"
-            )
-            try:
-                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                    json.dump(payload, f, ensure_ascii=False, indent=2)
-                os.replace(tmp_path, self._state_path)
-            except Exception:
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
-                raise
+            write_json(self._state_path, payload)
         except Exception as exc:
             logger.error("保存 Bilibili 状态文件失败: %s", exc)
 
@@ -204,8 +191,7 @@ class BilibiliClient:
         self._cookies = {}
         self._user_info = {}
         try:
-            if self._state_path.exists():
-                self._state_path.unlink(missing_ok=True)
+            delete_json(self._state_path)
         except Exception as exc:
             logger.warning("删除 Bilibili 状态文件失败: %s", exc)
 
@@ -605,4 +591,3 @@ class BilibiliClient:
 
 # 全局客户端实例
 bilibili_client = BilibiliClient()
-

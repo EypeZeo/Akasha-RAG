@@ -6,6 +6,8 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.core.secure_storage import protect_text, read_text
+
 
 REQUIRED_API_KEYS = ("DASHSCOPE_API_KEY", "DEEPSEEK_API_KEY")
 CONFIGURATION_REQUIRED_EXIT_CODE = 20
@@ -23,7 +25,10 @@ class PreflightResult:
 
 def _read_dotenv(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
+    raw = read_text(path)
+    if raw is None:
+        return values
+    for raw_line in raw.lstrip("\ufeff").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -47,7 +52,12 @@ def ensure_and_validate(backend_dir: Path) -> PreflightResult:
     example_path = backend_dir / ".env.example"
     created = False
 
-    if not env_path.exists():
+    protected_env_path = env_path.with_name(env_path.name + ".dpapi")
+    if env_path.exists() and protected_env_path.exists():
+        raise ValueError(
+            f"Both plaintext and protected configuration exist. Remove {protected_env_path} before editing {env_path}."
+        )
+    if not env_path.exists() and not protected_env_path.exists():
         if not example_path.is_file():
             raise FileNotFoundError(f"Missing configuration template: {example_path}")
         shutil.copyfile(example_path, env_path)
@@ -55,6 +65,8 @@ def ensure_and_validate(backend_dir: Path) -> PreflightResult:
 
     values = _read_dotenv(env_path)
     missing = tuple(name for name in REQUIRED_API_KEYS if is_placeholder_api_key(values.get(name)))
+    if not missing and env_path.exists():
+        protect_text(env_path)
     return PreflightResult(config_created=created, missing_keys=missing)
 
 
@@ -67,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         result = ensure_and_validate(backend_dir)
-    except (OSError, UnicodeError) as exc:
+    except (OSError, UnicodeError, ValueError) as exc:
         print(f"[CONFIG] Unable to prepare {env_path}: {exc}")
         return CONFIGURATION_REQUIRED_EXIT_CODE
 

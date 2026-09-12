@@ -70,7 +70,7 @@ npm install
 
 ### 配置
 
-第一次运行时，如果 `backend/.env` 还不存在，启动器会自动从 `.env.example` 帮你创建一份；然后你需要填两个 Key，服务才会正常启动。启动器只会提示"缺了哪个变量名""文件在哪"，不会把你填的密钥打印出来。
+第一次运行时，如果 `backend/.env` 还不存在，启动器会自动从 `.env.example` 帮你创建一份；然后你需要填两个 Key，服务才会正常启动。启动器只会提示"缺了哪个变量名""文件在哪"，不会把你填的密钥打印出来。Windows 上首次通过校验后，启动器会用当前 Windows 账号的 DPAPI 将它转换为 `backend/.env.dpapi` 并删除明文 `.env`；该文件不能在其他 Windows 账号或电脑上解密。
 
 ```powershell
 cd backend
@@ -78,6 +78,8 @@ cd backend
 #   DASHSCOPE_API_KEY=你的阿里云百炼 API Key   （用于语音转写 + 向量化 + 图片识别）
 #   DEEPSEEK_API_KEY=你的 DeepSeek API Key      （用于 AI 对话）
 ```
+
+以后要修改这些配置时，先退出应用，删除 `backend/.env.dpapi`，再新建或编辑 `backend/.env`，下一次启动会重新校验并加密。不要同时保留两个文件。
 
 如果你的网络访问不了这些下载地址，可以设置 `AKASHA_RUNTIME_MIRROR=你的镜像根地址` 走镜像下载；镜像只是换个地方下载安装包本身，校验用的哈希值永远从官方地址获取，不会因为换了镜像就少一层安全检查。
 
@@ -122,7 +124,7 @@ start.bat
 | 导出 | python-docx / openpyxl / python-pptx / reportlab |
 | 前端 | React 19 + Vite 6 + TypeScript + Tailwind CSS 3 |
 
-模型可以在 `.env` 里通过 `ASR_MODEL` / `EMBEDDING_MODEL` / `VISION_MODEL` 三个变量切换。
+模型可以在 `.env`（启动后会受 DPAPI 保护）里通过 `ASR_MODEL` / `EMBEDDING_MODEL` / `VISION_MODEL` 三个变量切换。
 换了 Embedding 模型之后，记得在前端点一下「清空入库」（或调用 `POST /api/knowledge/clear-all`）重建索引，
 不然新旧向量对不上，检索结果会不准。
 

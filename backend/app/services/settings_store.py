@@ -1,9 +1,8 @@
 """Locally-stored, editable-at-runtime API settings: DashScope key + saved chat providers.
 
 Kept out of the SQLite database and out of `.env`: the Settings UI needs to add,
-edit, and switch these without an app restart. Mirrors the `bilibili_state.json`
-precedent for storing real credential material in a local JSON file under
-`app/storage/` (atomic tempfile-then-replace write, never touched by git).
+edit, and switch these without an app restart.  On Windows it is stored with
+DPAPI under `app/storage/`, bound to the current Windows account.
 
 `.env`'s `DASHSCOPE_API_KEY` / `DEEPSEEK_API_KEY` remain a valid way to configure
 the app (documented in the README) and are used as the fallback when nothing has
@@ -11,9 +10,6 @@ been saved here yet, so existing `.env`-only setups keep working unchanged.
 """
 from __future__ import annotations
 
-import json
-import os
-import tempfile
 import threading
 import uuid
 from pathlib import Path
@@ -22,6 +18,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
+from app.core.secure_storage import read_json, write_json
 
 _LOCK = threading.Lock()
 
@@ -51,26 +48,16 @@ def _store_path() -> Path:
 
 def _read() -> ApiSettings:
     path = _store_path()
-    if not path.is_file():
-        return ApiSettings()
     try:
-        return ApiSettings.model_validate(json.loads(path.read_text(encoding="utf-8")))
+        data = read_json(path)
+        return ApiSettings.model_validate(data) if data is not None else ApiSettings()
     except Exception:
         return ApiSettings()
 
 
 def _write(data: ApiSettings) -> None:
     path = _store_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), prefix="api_settings_", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(data.model_dump_json(indent=2))
-        os.replace(tmp_path, path)
-    except Exception:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-        raise
+    write_json(path, data.model_dump(mode="json"))
 
 
 def get_dashscope_key() -> str:
