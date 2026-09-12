@@ -8,9 +8,14 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+import time
 from typing import Callable, Optional
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
+
+_TERMINAL_STATUSES = ("done", "failed", "cancelled")
 
 
 class Worker:
@@ -84,6 +89,7 @@ class Worker:
         :param kwargs: 关键字参数
         :raises queue.Full: 队列已满且超时
         """
+        self._purge_stale_tasks()
         with self._lock:
             self._tasks[task_id] = {
                 "status": "queued",
@@ -91,6 +97,7 @@ class Worker:
                 "total": progress_total,
                 "message": progress_message,
                 "cancelled": False,
+                "created_at": time.time(),
             }
         try:
             self._queue.put((task_id, func, args, kwargs), timeout=timeout)
@@ -147,6 +154,19 @@ class Worker:
     def blocked_platforms(self) -> set[str]:
         with self._lock:
             return set(self._blocked_platforms)
+
+    def _purge_stale_tasks(self) -> None:
+        """清理已到终态且超过保留期的任务记录，仍在运行/排队的任务不受影响。"""
+        ttl = settings.worker_task_retention_minutes * 60
+        now = time.time()
+        with self._lock:
+            stale = [
+                tid
+                for tid, task in self._tasks.items()
+                if task.get("status") in _TERMINAL_STATUSES and now - task.get("created_at", now) > ttl
+            ]
+            for tid in stale:
+                self._tasks.pop(tid, None)
 
     def has_active_tasks(self) -> bool:
         """包含排队任务，防止重置操作覆盖仍在执行的入库状态。"""

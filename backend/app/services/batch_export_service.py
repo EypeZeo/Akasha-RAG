@@ -23,7 +23,7 @@ from typing import Callable, List, Optional
 ProgressCb = Optional[Callable[[int, int, str], None]]
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.models.entities import FavoriteVideo, VideoCache
 from app.services.markdown_export import export_ai_organized, export_original
@@ -43,18 +43,30 @@ class BatchExportService:
         """
         获取符合导出条件的视频列表（已入库 done 状态）
         """
-        query = select(VideoCache).where(VideoCache.status == "done")
+        # `VideoCache`/`FavoriteVideo` are compat aliases for `IngestionItem`/
+        # `ContentItem` (see entities.py). `VideoCache.platform_item_id` is a
+        # hybrid_property routed through the `content_item` relationship, so
+        # without eager loading, every access below was a lazy-load query per
+        # row -- on top of the separate FavoriteVideo query per row. Eager
+        # load the relationship and reuse it directly as `fv` (they are the
+        # same row via the FK, not a lookup by the non-unique-across-platforms
+        # platform_item_id string, which could collide between platforms).
+        query = (
+            select(VideoCache)
+            .options(selectinload(VideoCache.content_item))
+            .where(VideoCache.status == "done")
+        )
 
         if selected_ids:
-            query = query.where(VideoCache.platform_item_id.in_(selected_ids))
+            query = query.join(VideoCache.content_item).where(
+                FavoriteVideo.remote_item_id.in_(selected_ids)
+            )
 
         caches = db.execute(query).scalars().all()
 
         results = []
         for cache in caches:
-            fv = db.query(FavoriteVideo).filter(
-                FavoriteVideo.platform_item_id == cache.platform_item_id
-            ).first()
+            fv = cache.content_item
 
             if collection_id and collection_id != "all":
                 if not fv or str(fv.collection_id) != str(collection_id):
@@ -168,20 +180,23 @@ class BatchExportService:
         if not items:
             raise ValueError("没有可导出的入库视频内容，请先执行入库")
 
-        # AI 整理预热 + 进度推进（之后各 _export_* 命中缓存）
-        self._prewarm_ai_summaries(db, items, content_type, progress_cb)
-
         written_files = []
 
         if pack_mode == "single":
+            # export_batch() below does its own prewarm; calling it here too
+            # would just re-run the same per-item loop (and double-fire
+            # progress_cb) since the summaries are already cached by then.
             buffer, filename, _ = self.export_batch(
-                db, collection_id, selected_ids, content_type, export_format, "single"
+                db, collection_id, selected_ids, content_type, export_format, "single", progress_cb=progress_cb
             )
             out_file = target_path / filename
             with open(out_file, "wb") as f:
                 f.write(buffer.getvalue())
             written_files.append(str(out_file.name))
         else:
+            # AI 整理预热 + 进度推进（之后各 _export_* 命中缓存）——多文件模式
+            # 不经过 export_batch()，预热只能在这里做一次。
+            self._prewarm_ai_summaries(db, items, content_type, progress_cb)
             # 多文件模式：直接将各篇文件分别写入目标目录
             if export_format == "markdown":
                 for idx, (cache, fv) in enumerate(items, 1):

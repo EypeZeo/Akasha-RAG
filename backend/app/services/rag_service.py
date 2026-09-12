@@ -306,6 +306,25 @@ class RagService:
             )
         return ""
 
+    def _retrieve_hits_for_route(
+        self,
+        route: str,
+        query: str,
+        db: Session,
+        scope_ids: set[str] | None,
+        platform: str | None,
+    ) -> list[dict]:
+        """给定路由决定是否要做向量检索——`answer()`/`answer_stream()` 共用
+        这一段，避免两处各自维护一份、悄悄漂移出不一致的行为（BUG-08）。
+
+        `db_content` 和 `vector` 一样做检索：有命中就走 `_compress_chunks`
+        语义压缩，`_build_context` 在没有命中时会自动退回 `_db_content_context`
+        的纯 DB 内容拼接，两条路由共用检索不会丢失任何一边原有的能力。
+        """
+        if route in ("vector", "db_content"):
+            return self._filter_hits_to_done_items(db, self._dense_retrieve(query, scope_ids, platform=platform))
+        return []
+
     @staticmethod
     def _filter_hits_to_done_items(db: Session, hits: list[dict]) -> list[dict]:
         """丢弃"整体尚未 done"的条目残留在 Chroma 里的向量命中。
@@ -568,15 +587,18 @@ class RagService:
             return system, user, is_structured
 
         if route == "db_content":
+            # 用纯文本标签而不是 Markdown 标题（## ...）——_sanitize_answer
+            # 会无条件剥离所有 #/*/_ 标记（BUG-07），提示词只应该要求模型
+            # 输出真正会保留下来的格式，不能承诺一个后处理马上会抹掉的结构。
             system = (
                 "你是收藏夹知识库助手。用户要求对知识库内容做归纳总结。\n\n"
-                "请按以下格式输出：\n"
-                "## TL;DR\n"
+                "请按以下格式输出（用纯文本标签，不要用 Markdown 标题符号 # 或加粗 **）：\n"
+                "TL;DR：\n"
                 "先用 3 条 bullet 给出最核心的结论，每条不超过 30 字。\n\n"
-                "## 共同主题\n"
+                "共同主题：\n"
                 "从所有内容中提炼跨视频的共性关键词（不超过 5 个），"
                 "说明为什么这些是共同主题。\n\n"
-                "## 各视频要点\n"
+                "各视频要点：\n"
                 "逐视频列出核心观点，每个要点后标注 [来源: 标题]。"
                 "如果某个视频的内容与用户问的话题无关，直接跳过不写。\n\n"
                 "约束：\n"
@@ -664,14 +686,12 @@ class RagService:
 
         # Step 2: 检索（支持平台与收藏夹筛选）
         t0 = time.perf_counter()
-        hits: list[dict] = []
         platform_filter = platform if platform and platform not in ("all", "") else None
         # 解析收藏夹范围 → remote_item_id 集合（vector 与 db_* 路由都遵守）
         scope_ids: set[str] | None = None
         if collection_id and collection_id not in ("all", ""):
             scope_ids = self._resolve_collection_scope(db, collection_id)
-        if route == "vector":
-            hits = self._filter_hits_to_done_items(db, self._dense_retrieve(normalized, scope_ids, platform=platform_filter))
+        hits = self._retrieve_hits_for_route(route, normalized, db, scope_ids, platform_filter)
         t_dense = time.perf_counter() - t0
 
         # Step 3: 构建上下文
@@ -845,13 +865,11 @@ class RagService:
         t_route = time.perf_counter() - t0
 
         t1 = time.perf_counter()
-        hits: list[dict] = []
         platform_filter = platform if platform and platform not in ("all", "") else None
         scope_ids: set[str] | None = None
         if collection_id and collection_id not in ("all", ""):
             scope_ids = self._resolve_collection_scope(db, collection_id)
-        if route in ("vector", "db_content"):
-            hits = self._filter_hits_to_done_items(db, self._dense_retrieve(normalized, scope_ids, platform=platform_filter))
+        hits = self._retrieve_hits_for_route(route, normalized, db, scope_ids, platform_filter)
         t_dense = time.perf_counter() - t1
 
         t2 = time.perf_counter()

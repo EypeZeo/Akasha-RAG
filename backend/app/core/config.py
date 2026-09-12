@@ -134,6 +134,9 @@ class Settings(BaseSettings):
     export_tmp_retention_minutes: int = Field(default=60, ge=5, le=1440)
     """浏览器模式批量导出产物在 export_tmp/ 的保留时长（分钟），过期后台清理"""
 
+    worker_task_retention_minutes: int = Field(default=60, ge=5, le=1440)
+    """入库 worker 已到终态（done/failed/cancelled）的任务记录保留时长（分钟），过期后台清理；仍在运行的任务不受影响"""
+
     # ===== 音频缓存生命周期管理 =====
     audio_cache_dir: str = "app/storage/audio_cache"
     """音频下载缓存目录"""

@@ -6,6 +6,10 @@ RAG 服务模块测试
 from unittest.mock import Mock
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.db.base import Base
 from app.services import rag_service as rag_module
 from app.services.rag_service import (
     RagService,
@@ -124,6 +128,80 @@ class TestAnswerSanitization:
         result = _sanitize_answer("第一行\n第二行\n```\nraw|code|line\n```\n收尾", False)
         assert "raw|code|line" in result       # 代码里的竖线不被当表格
         assert "```" in result
+
+
+class TestDbContentPromptSurvivesSanitization:
+    """BUG-07: db_content 提示词要求的输出格式必须是 _sanitize_answer 之后
+    真的还在的东西，不能承诺一个马上被剥离的 Markdown 结构。"""
+
+    def test_prompt_does_not_ask_for_markdown_headings(self):
+        service = RagService()
+        system, _user, _is_structured = service._build_prompts(
+            "db_content", "总结一下", context="内容片段", history=""
+        )
+        assert "## " not in system
+
+    def test_plain_text_section_label_survives_sanitization(self):
+        answer = (
+            "TL;DR：\n"
+            "- 核心结论一\n"
+            "- 核心结论二\n\n"
+            "共同主题：\n"
+            "都提到了效率\n\n"
+            "各视频要点：\n"
+            "视频A讲了X [来源: 视频A]"
+        )
+        result = _sanitize_answer(answer, True)
+        assert "TL;DR：" in result
+        assert "共同主题：" in result
+        assert "各视频要点：" in result
+
+
+class TestDbContentRoutingIsUnifiedAcrossAskAndStream:
+    """BUG-08: /ask 与 /ask/stream 对 db_content 路由的检索行为不能各走一套。"""
+
+    def test_retrieve_hits_for_route_does_dense_retrieval_for_vector_and_db_content(self, monkeypatch):
+        service = RagService()
+        fake_hits = [{"platform_item_id": "x", "content_item_id": 1}]
+        monkeypatch.setattr(service, "_dense_retrieve", Mock(return_value=fake_hits))
+        monkeypatch.setattr(service, "_filter_hits_to_done_items", lambda db, hits: hits)
+
+        for route in ("vector", "db_content"):
+            result = service._retrieve_hits_for_route(route, "q", db=None, scope_ids=None, platform=None)
+            assert result == fake_hits
+
+    def test_retrieve_hits_for_route_skips_retrieval_for_other_routes(self, monkeypatch):
+        service = RagService()
+        dense = Mock(side_effect=AssertionError("should not retrieve for this route"))
+        monkeypatch.setattr(service, "_dense_retrieve", dense)
+
+        for route in ("direct", "db_list"):
+            assert service._retrieve_hits_for_route(route, "q", db=None, scope_ids=None, platform=None) == []
+        dense.assert_not_called()
+
+    def test_ask_and_ask_stream_call_the_shared_retrieval_helper_identically(self, monkeypatch):
+        """端到端级别的接线测试：同一个 db_content 场景下，非流式与流式接口
+        必须都调用同一个共享方法、传相同的参数——不能一个悄悄多检索一次。"""
+        engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+        Base.metadata.create_all(engine)
+        factory = sessionmaker(engine, expire_on_commit=False)
+
+        recorded_calls = []
+
+        def _fake_retrieve(self, route, query, db, scope_ids, platform):
+            recorded_calls.append(route)
+            return []
+
+        monkeypatch.setattr(rag_module, "get_chroma_service", lambda: Mock(count=lambda: 5))
+        monkeypatch.setattr(rag_module.llm_client, "chat", lambda **kw: "回答内容")
+        monkeypatch.setattr(RagService, "_retrieve_hits_for_route", _fake_retrieve)
+
+        service = RagService()
+        with factory() as db:
+            service.answer(db, "总结一下", session_id=None)
+            list(service.answer_stream(db, "总结一下", session_id=None))
+
+        assert recorded_calls == ["db_content", "db_content"]
 
 
 class TestDenseRetrieveEmptyScope:

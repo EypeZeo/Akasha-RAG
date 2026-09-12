@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app._version import get_version
@@ -87,6 +87,31 @@ def test_count_videos_by_kind_uses_duration_not_platform(db):
 
     v_bili, n_bili = favorites_service.count_videos_by_kind(db, ALL_COLLECTION_ID, platform="bilibili")
     assert (v_bili, n_bili) == (1, 1)  # B站也可能有 note，绝不恒为 0
+
+
+def test_count_videos_by_kind_issues_a_single_query(db):
+    """PERF-12: video/note 计数必须是一次条件聚合查询，不是两次独立 COUNT。"""
+    db.add_all([
+        FavoriteVideo(platform="douyin", platform_item_id=f"v{i}", title=f"t{i}", duration=10, is_active=True)
+        for i in range(5)
+    ] + [
+        FavoriteVideo(platform="douyin", platform_item_id=f"n{i}", title=f"n{i}", duration=0, is_active=True)
+        for i in range(3)
+    ])
+    db.commit()
+
+    engine = db.get_bind()
+    query_log = []
+    listener = lambda *a: query_log.append(a[2])
+    event.listen(engine, "before_cursor_execute", listener)
+    try:
+        video_count, note_count = favorites_service.count_videos_by_kind(db, ALL_COLLECTION_ID)
+    finally:
+        event.remove(engine, "before_cursor_execute", listener)
+
+    assert (video_count, note_count) == (5, 3)
+    select_queries = [q for q in query_log if q.strip().upper().startswith("SELECT")]
+    assert len(select_queries) == 1
 
 
 @pytest.mark.asyncio

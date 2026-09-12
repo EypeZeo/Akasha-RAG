@@ -15,7 +15,7 @@ import json
 import logging
 from typing import Optional
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import case, desc, func, select
 from sqlalchemy.orm import Session
 
 from app.models.entities import (
@@ -465,12 +465,24 @@ class FavoritesService:
         # A content item remains active while it is in at least one active
         # collection; removing the final membership must hide it from RAG.
         db.flush()
+        item_ids = [item.id for item in existing_item_map.values()]
+        active_link_counts: dict[int, int] = {}
+        if item_ids:
+            active_link_counts = dict(
+                db.execute(
+                    select(
+                        CollectionItemRelation.content_item_id,
+                        func.count(),
+                    )
+                    .where(
+                        CollectionItemRelation.content_item_id.in_(item_ids),
+                        CollectionItemRelation.is_active.is_(True),
+                    )
+                    .group_by(CollectionItemRelation.content_item_id)
+                ).all()
+            )
         for item in existing_item_map.values():
-            active_links = db.scalar(select(func.count()).select_from(CollectionItemRelation).where(
-                CollectionItemRelation.content_item_id == item.id,
-                CollectionItemRelation.is_active.is_(True),
-            )) or 0
-            item.is_active = active_links > 0
+            item.is_active = active_link_counts.get(item.id, 0) > 0
 
         # 4. 同步 IngestionItem 表
         existing_ingestions = (
@@ -676,10 +688,8 @@ class FavoritesService:
         判据与全代码库一致：duration > 0 为视频，duration == 0 / NULL 为图文。
         返回 (video_count, note_count)。
         """
-        is_note = (ContentItem.duration == 0) | (ContentItem.duration.is_(None))
-
         if collection_id == ALL_COLLECTION_ID:
-            base = select(func.count(ContentItem.id)).where(ContentItem.is_active.is_(True))
+            base = select(ContentItem.id, ContentItem.duration).where(ContentItem.is_active.is_(True))
             if platform and platform != "all":
                 base = base.where(ContentItem.platform == platform)
         else:
@@ -693,7 +703,7 @@ class FavoritesService:
             if col_pk is None:
                 return 0, 0
             base = (
-                select(func.count(ContentItem.id))
+                select(ContentItem.id, ContentItem.duration)
                 .join(
                     CollectionItemRelation,
                     CollectionItemRelation.content_item_id == ContentItem.id,
@@ -705,8 +715,18 @@ class FavoritesService:
                 )
             )
 
-        note_count = int(db.scalar(base.where(is_note)) or 0)
-        video_count = int(db.scalar(base.where(~is_note)) or 0)
+        # One conditional-aggregate query instead of two separate COUNTs
+        # over the same base filter (same pattern as list_pending_items).
+        subq = base.subquery()
+        is_note = (subq.c.duration == 0) | (subq.c.duration.is_(None))
+        row = db.execute(
+            select(
+                func.sum(case((is_note, 1), else_=0)),
+                func.sum(case((~is_note, 1), else_=0)),
+            )
+        ).one()
+        note_count = int(row[0] or 0)
+        video_count = int(row[1] or 0)
         return video_count, note_count
 
     @staticmethod
