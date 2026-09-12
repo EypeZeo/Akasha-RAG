@@ -465,12 +465,24 @@ class FavoritesService:
         # A content item remains active while it is in at least one active
         # collection; removing the final membership must hide it from RAG.
         db.flush()
+        item_ids = [item.id for item in existing_item_map.values()]
+        active_link_counts: dict[int, int] = {}
+        if item_ids:
+            active_link_counts = dict(
+                db.execute(
+                    select(
+                        CollectionItemRelation.content_item_id,
+                        func.count(),
+                    )
+                    .where(
+                        CollectionItemRelation.content_item_id.in_(item_ids),
+                        CollectionItemRelation.is_active.is_(True),
+                    )
+                    .group_by(CollectionItemRelation.content_item_id)
+                ).all()
+            )
         for item in existing_item_map.values():
-            active_links = db.scalar(select(func.count()).select_from(CollectionItemRelation).where(
-                CollectionItemRelation.content_item_id == item.id,
-                CollectionItemRelation.is_active.is_(True),
-            )) or 0
-            item.is_active = active_links > 0
+            item.is_active = active_link_counts.get(item.id, 0) > 0
 
         # 4. 同步 IngestionItem 表
         existing_ingestions = (
