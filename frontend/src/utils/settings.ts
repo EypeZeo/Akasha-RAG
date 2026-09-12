@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * Persisted UI settings.
@@ -19,6 +19,40 @@ export type ActivityBarPosition = (typeof ACTIVITY_BAR_POSITIONS)[number];
 export const DEFAULT_COLLECTIONS_PER_PAGE = 8;
 export const DEFAULT_VIDEOS_PER_PAGE = 20;
 export const DEFAULT_ACTIVITY_BAR_POSITION: ActivityBarPosition = 'left';
+
+export const THEME_OPTIONS = ['dawn', 'midnight', 'ocean', 'forest'] as const;
+export type ThemeId = (typeof THEME_OPTIONS)[number];
+export const DEFAULT_THEME: ThemeId = 'dawn';
+
+function applyTheme(theme: ThemeId): void {
+  try {
+    document.documentElement.dataset.theme = theme;
+  } catch {
+    /* rendering can be unavailable during non-browser tests */
+  }
+}
+
+/** Persist the visual theme and apply it to the document root immediately. */
+export function useThemeSetting(): [ThemeId, (theme: ThemeId) => void] {
+  const [theme, setThemeState] = useState<ThemeId>(() => {
+    const initial = readSetting('ui.theme', THEME_OPTIONS, DEFAULT_THEME);
+    applyTheme(initial);
+    return initial;
+  });
+
+  useEffect(() => {
+    applyTheme(theme);
+  }, [theme]);
+
+  const setTheme = useCallback((next: ThemeId) => {
+    const safe = THEME_OPTIONS.includes(next) ? next : DEFAULT_THEME;
+    if (safe === theme) return;
+    setThemeState(safe);
+    writeSetting('ui.theme', safe);
+  }, [theme]);
+
+  return [theme, setTheme];
+}
 
 export function readSetting<T extends string | number>(
   key: string,

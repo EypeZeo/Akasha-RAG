@@ -5,14 +5,83 @@
 :root {
   --color-bg: #FAF3E8;
   --color-panel: #FFFBF5;
-  --color-accent: #E8594A;
-  --color-accent-hover: #D04A3C;
+  --color-accent: #B9473D;
+  --color-accent-hover: #94352E;
   --color-amber: #D4943A;
   --color-ink: #2C2416;
   --color-ink-soft: #5A4F3F;
-  --color-ink-muted: #8B7E6A;
+  --color-ink-muted: #756957;
   --color-border: #E8DDD0;
   --color-success: #5B8C5A;
+  --color-panel-solid: #FFFBF5;
+  --color-on-accent: #FFFFFF;
+  --theme-glow: rgba(232, 89, 74, 0.13);
+}
+
+/* Theme system: token-first so existing components inherit a coherent look
+   without duplicate view trees or JavaScript-driven animation. */
+:root[data-theme='dawn'] {
+  --color-bg: #FAF3E8;
+  --color-panel: #FFFBF5;
+  --color-panel-solid: #FFFBF5;
+  --color-on-accent: #FFFFFF;
+  --color-accent: #B9473D;
+  --color-accent-hover: #94352E;
+  --color-amber: #D4943A;
+  --color-ink: #2C2416;
+  --color-ink-soft: #5A4F3F;
+  --color-ink-muted: #756957;
+  --color-border: #E8DDD0;
+  --color-success: #5B8C5A;
+  --theme-glow: rgba(232, 89, 74, 0.13);
+}
+
+:root[data-theme='midnight'] {
+  --color-bg: #0D1222;
+  --color-panel: #151C31;
+  --color-panel-solid: #19213A;
+  --color-on-accent: #0D1222;
+  --color-accent: #9EB2FF;
+  --color-accent-hover: #C5D1FF;
+  --color-amber: #63D7C4;
+  --color-ink: #ECF1FF;
+  --color-ink-soft: #C0CBE6;
+  --color-ink-muted: #8E9AB8;
+  --color-border: #2B385B;
+  --color-success: #78D7A6;
+  --theme-glow: rgba(139, 167, 255, 0.18);
+}
+
+:root[data-theme='ocean'] {
+  --color-bg: #EAF6F7;
+  --color-panel: #F8FEFE;
+  --color-panel-solid: #FFFFFF;
+  --color-on-accent: #FFFFFF;
+  --color-accent: #087E8B;
+  --color-accent-hover: #056572;
+  --color-amber: #F29E4C;
+  --color-ink: #12323A;
+  --color-ink-soft: #3D6269;
+  --color-ink-muted: #5A7B80;
+  --color-border: #C9E1E3;
+  --color-success: #328C6B;
+  --theme-glow: rgba(8, 126, 139, 0.13);
+}
+
+:root[data-theme='forest'] {
+  --color-bg: #F0F3EA;
+  --color-panel: #FBFCF8;
+  --color-panel-solid: #FFFFFF;
+  --color-on-accent: #FFFFFF;
+  --color-accent: #456B52;
+  --color-accent-hover: #30503A;
+  --color-amber: #B87C48;
+  --color-ink: #26362A;
+  --color-ink-soft: #4B6150;
+  --color-ink-muted: #637568;
+  --color-border: #D5DDD1;
+  --color-success: #4D835B;
+  --theme-glow: rgba(69, 107, 82, 0.14);
 }
 
 * {
@@ -30,6 +99,53 @@ body {
   color: var(--color-ink);
   background-color: var(--color-bg);
   -webkit-font-smoothing: antialiased;
+  transition: color 180ms ease, background-color 180ms ease;
+}
+
+:root[data-theme='midnight'] .bg-white,
+:root[data-theme='midnight'] [class*='bg-white/'] {
+  background-color: var(--color-panel-solid) !important;
+}
+
+:root[data-theme='midnight'] .text-gray-400,
+:root[data-theme='midnight'] .text-gray-600 {
+  color: var(--color-ink-muted) !important;
+}
+
+:root[data-theme='midnight'] .bg-gray-50\/50,
+:root[data-theme='midnight'] .bg-gray-50 {
+  background-color: var(--color-panel-solid) !important;
+}
+
+:root[data-theme='midnight'] .text-blue-600,
+:root[data-theme='midnight'] .text-blue-700 { color: #B6C8FF !important; }
+:root[data-theme='midnight'] .text-purple-600,
+:root[data-theme='midnight'] .text-purple-700 { color: #D6C4FF !important; }
+:root[data-theme='midnight'] .text-pink-600 { color: #FFB8D2 !important; }
+:root[data-theme='midnight'] .text-red-500,
+:root[data-theme='midnight'] .text-red-600 { color: #FFB8B2 !important; }
+:root[data-theme='midnight'] .text-amber-600,
+:root[data-theme='midnight'] .text-amber-700 { color: #FFD18A !important; }
+:root[data-theme='midnight'] .text-green-600,
+:root[data-theme='midnight'] .text-green-700 { color: #9EE3BD !important; }
+:root[data-theme='midnight'] [class*='bg-blue-50'],
+:root[data-theme='midnight'] [class*='bg-purple-50'],
+:root[data-theme='midnight'] [class*='bg-pink-50'],
+:root[data-theme='midnight'] [class*='bg-red-50'],
+:root[data-theme='midnight'] [class*='bg-amber-50'],
+:root[data-theme='midnight'] [class*='bg-amber-100'],
+:root[data-theme='midnight'] [class*='bg-green-50'] {
+  background-color: color-mix(in srgb, var(--color-panel-solid) 82%, var(--color-accent)) !important;
+}
+
+:root[data-theme='midnight'] .bg-accent.text-white,
+:root[data-theme='midnight'] [class*='from-accent'].text-white {
+  color: var(--color-on-accent) !important;
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 3px;
 }
 
 /* Scrollbar */
@@ -153,8 +269,11 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .msg-enter, .msg-settle, .anim-fade, .anim-pop,
   .thinking-dots > span, .stream-caret,
-  .modern-streaming-card::after {
+  .modern-streaming-card::after,
+  .theme-option-orb,
+  body {
     animation: none !important;
+    transition: none !important;
   }
 }
 
@@ -176,7 +295,7 @@ body {
 .chat-capsule {
   border: 1px solid var(--color-border);
   border-radius: 1.75rem;
-  background: #fff;
+  background: var(--color-panel-solid);
   box-shadow: 0 1px 2px rgba(44, 36, 22, 0.04), 0 8px 24px -12px rgba(44, 36, 22, 0.12);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -198,8 +317,32 @@ body {
 }
 .welcome-suggest-card:hover {
   border-color: rgba(232, 89, 74, 0.35);
-  background: #fff;
+  background: var(--color-panel-solid);
 }
+
+.theme-option {
+  min-height: 4.75rem;
+  isolation: isolate;
+  background: var(--color-panel-solid);
+}
+.theme-option-orb {
+  position: absolute;
+  width: 5.25rem;
+  height: 5.25rem;
+  right: -1.65rem;
+  bottom: -2.4rem;
+  border-radius: 9999px;
+  filter: blur(0.2px);
+  opacity: 0.9;
+  transition: transform 180ms ease;
+}
+.theme-option:hover .theme-option-orb { transform: scale(1.12); }
+.theme-option-dawn .theme-option-orb { background: radial-gradient(circle at 30% 30%, #F6BF76, #E8594A 58%, transparent 60%); }
+.theme-option-midnight { background: #151C31; }
+.theme-option-midnight .theme-option-orb { background: radial-gradient(circle at 30% 30%, #B7C8FF, #4B5FAD 58%, transparent 60%); }
+.theme-option-midnight .text-\[var\(--color-ink\)\] { color: #ECF1FF; }
+.theme-option-ocean .theme-option-orb { background: radial-gradient(circle at 30% 30%, #83DCE4, #087E8B 58%, transparent 60%); }
+.theme-option-forest .theme-option-orb { background: radial-gradient(circle at 30% 30%, #B6C98A, #456B52 58%, transparent 60%); }
 
 /* 渐变过渡分割线 - 代替生硬的 1px 实线 */
 .gradient-divider {
@@ -467,6 +610,3 @@ body {
 .animate-sync-shimmer {
   animation: sync-shimmer-sweep 2.4s infinite cubic-bezier(0.4, 0, 0.2, 1);
 }
-
-
-

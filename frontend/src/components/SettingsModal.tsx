@@ -6,6 +6,8 @@ import {
   VIDEOS_PER_PAGE_OPTIONS,
   ACTIVITY_BAR_POSITIONS,
   type ActivityBarPosition,
+  THEME_OPTIONS,
+  type ThemeId,
 } from '../utils/settings';
 
 interface SettingsModalProps {
@@ -20,6 +22,8 @@ interface SettingsModalProps {
   onVideosPerPageChange: (n: number) => void;
   activityBarPosition: ActivityBarPosition;
   onActivityBarPositionChange: (p: ActivityBarPosition) => void;
+  theme: ThemeId;
+  onThemeChange: (theme: ThemeId) => void;
   cacheMb: number | null;
   cacheCleaning: boolean;
   onCleanCache: () => Promise<void>;
@@ -91,6 +95,8 @@ export default function SettingsModal({
   onVideosPerPageChange,
   activityBarPosition,
   onActivityBarPositionChange,
+  theme,
+  onThemeChange,
   cacheMb,
   cacheCleaning,
   onCleanCache,
@@ -145,7 +151,8 @@ export default function SettingsModal({
       setDashscopeInput('');
       await fetchApiSettings();
     } catch (e: any) {
-      alert('保存失败: ' + e.message);
+      console.error(e);
+      alert(t('operationFailed'));
     } finally {
       setSavingDashscope(false);
     }
@@ -179,7 +186,8 @@ export default function SettingsModal({
       setShowProviderForm(false);
       await fetchApiSettings();
     } catch (e: any) {
-      alert('保存失败: ' + e.message);
+      console.error(e);
+      alert(t('operationFailed'));
     } finally {
       setSavingProvider(false);
     }
@@ -224,13 +232,14 @@ export default function SettingsModal({
     setLoggingOutPlatform('douyin');
     try {
       const result = await api.logout();
-      if (!result.success) throw new Error(result.message || '退出失败');
+      if (!result.success) throw new Error('logout failed');
       setPlatforms(prev => prev.map(item => item.platform === 'douyin'
         ? { ...item, is_logged_in: false, status: 'idle', nickname: '', avatar_url: '' }
         : item));
       onAccountsChanged?.();
     } catch (e: any) {
-      alert('退出抖音登录失败: ' + e.message);
+      console.error(e);
+      alert(t('operationFailed'));
     } finally {
       setLoggingOutPlatform(null);
     }
@@ -240,13 +249,14 @@ export default function SettingsModal({
     setLoggingOutPlatform('bilibili');
     try {
       const result = await api.bilibiliLogout();
-      if (!result.success) throw new Error(result.message || '退出失败');
+      if (!result.success) throw new Error('logout failed');
       setPlatforms(prev => prev.map(item => item.platform === 'bilibili'
         ? { ...item, is_logged_in: false, status: 'idle', nickname: '', avatar_url: '' }
         : item));
       onAccountsChanged?.();
     } catch (e: any) {
-      alert('退出B站登录失败: ' + e.message);
+      console.error(e);
+      alert(t('operationFailed'));
     } finally {
       setLoggingOutPlatform(null);
     }
@@ -321,7 +331,7 @@ export default function SettingsModal({
                     ? 'bg-green-50 text-green-700 border border-green-300 shadow-[0_0_10px_rgba(34,197,94,0.25)]'
                     : 'text-[var(--color-ink-soft)] bg-black/4 hover:bg-black/7 hover:text-[var(--color-ink)] border border-transparent shadow-2xs cursor-pointer active:scale-95'
                 }`}
-                title="刷新账号状态"
+                title={t('refreshAccountStatus')}
               >
                 {loadingPlatforms && (
                   <span
@@ -335,7 +345,7 @@ export default function SettingsModal({
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
                       <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
-                    <span className="font-semibold tracking-wide">检查中...</span>
+                    <span className="font-semibold tracking-wide">{t('checkingAccountStatus')}</span>
                     <span className="relative flex h-2 w-2 ml-0.5">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75" />
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
@@ -346,7 +356,7 @@ export default function SettingsModal({
                     <svg className="w-3.5 h-3.5 text-green-600 shrink-0" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                     </svg>
-                    <span className="font-semibold text-green-700">状态已更新</span>
+                    <span className="font-semibold text-green-700">{t('accountStatusUpdated')}</span>
                   </>
                 ) : (
                   <>
@@ -364,7 +374,7 @@ export default function SettingsModal({
                       <path d="M3 22v-6h6" />
                       <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
                     </svg>
-                    <span>刷新账号状态</span>
+                    <span>{t('refreshAccountStatus')}</span>
                   </>
                 )}
               </button>
@@ -407,7 +417,7 @@ export default function SettingsModal({
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
                                 <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                               </svg>
-                              <span>正在退出…</span>
+                              <span>{t('loggingOut')}</span>
                             </>
                           ) : (
                             t('logout')
@@ -468,7 +478,7 @@ export default function SettingsModal({
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
                                 <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                               </svg>
-                              <span>正在退出…</span>
+                              <span>{t('loggingOut')}</span>
                             </>
                           ) : (
                             t('logout')
@@ -656,6 +666,39 @@ export default function SettingsModal({
                   >
                     <div>{item.label}</div>
                     <div className="text-[10px] text-[var(--color-ink-muted)] opacity-75">{item.name}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Interface theme: concise visual swatches keep the choice understandable. */}
+          <div className="rounded-xl border border-[var(--color-border)] p-4 bg-white/60 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-base">🎨</span>
+              <div>
+                <h3 className="text-sm font-bold text-[var(--color-ink)]">{t('themeTitle')}</h3>
+                <p className="text-xs text-[var(--color-ink-muted)]">{t('themeDesc')}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+              {THEME_OPTIONS.map(item => {
+                const active = theme === item;
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => onThemeChange(item)}
+                    aria-pressed={active}
+                    className={`theme-option theme-option-${item} relative overflow-hidden rounded-xl border p-2.5 text-left transition-all cursor-pointer ${
+                      active
+                        ? 'border-accent ring-2 ring-accent/25 shadow-sm'
+                        : 'border-[var(--color-border)] hover:border-accent/45'
+                    }`}
+                  >
+                    <span className="theme-option-orb" aria-hidden="true" />
+                    <span className="relative block text-xs font-semibold text-[var(--color-ink)]">{t(`theme${item[0].toUpperCase()}${item.slice(1)}`)}</span>
+                    {active && <span className="relative mt-1 block text-[10px] text-accent">✓</span>}
                   </button>
                 );
               })}

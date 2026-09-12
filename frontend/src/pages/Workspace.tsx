@@ -15,14 +15,17 @@ import {
   DEFAULT_COLLECTIONS_PER_PAGE,
   DEFAULT_VIDEOS_PER_PAGE,
   DEFAULT_ACTIVITY_BAR_POSITION,
+  type ThemeId,
 } from '../utils/settings';
 
 interface Props {
   onLogout: () => void;
   onAccountsChanged?: () => void;
+  theme: ThemeId;
+  onThemeChange: (theme: ThemeId) => void;
 }
 
-export default function Workspace({ onLogout, onAccountsChanged }: Props) {
+export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeChange }: Props) {
   const { t } = useI18n();
   const activeTab = useWorkspaceStore(s => s.activeTab);
   const setActiveTab = useWorkspaceStore(s => s.setActiveTab);
@@ -104,7 +107,8 @@ export default function Workspace({ onLogout, onAccountsChanged }: Props) {
         setLogLevel(res.current_level);
       }
     } catch (e: any) {
-      alert('更新日志级别失败: ' + e.message);
+      console.error(e);
+      alert(t('operationFailed'));
     }
   };
 
@@ -138,7 +142,8 @@ export default function Workspace({ onLogout, onAccountsChanged }: Props) {
         fetchCacheStats();
       }
     } catch (e: any) {
-      alert('清理缓存失败: ' + e.message);
+      console.error(e);
+      alert(t('operationFailed'));
     } finally {
       setCacheCleaning(false);
     }
@@ -147,9 +152,10 @@ export default function Workspace({ onLogout, onAccountsChanged }: Props) {
   const handleOpenLogs = async () => {
     try {
       const r = await api.openLocalFolder('logs');
-      if (!r.success) alert(r.message || '打开日志目录失败');
+      if (!r.success) alert(t('operationFailed'));
     } catch (e: any) {
-      alert('打开日志目录失败: ' + e.message);
+      console.error(e);
+      alert(t('operationFailed'));
     }
   };
 
@@ -204,7 +210,7 @@ export default function Workspace({ onLogout, onAccountsChanged }: Props) {
               <span>{t('notLoggedIn')}</span>
             ) : (
               <>
-                <span>已登录平台 {loggedPlatforms.length}/2</span>
+                <span>{t('loggedInPlatforms', { count: loggedPlatforms.length, total: 2 })}</span>
                 {loggedPlatforms.map(platform => (
                   <img
                     key={platform.platform}
@@ -300,6 +306,8 @@ export default function Workspace({ onLogout, onAccountsChanged }: Props) {
         onVideosPerPageChange={setVideosPerPage}
         activityBarPosition={activityBarPosition}
         onActivityBarPositionChange={setActivityBarPosition}
+        theme={theme}
+        onThemeChange={onThemeChange}
         cacheMb={cacheMb}
         cacheCleaning={cacheCleaning}
         onCleanCache={handleCleanCache}
@@ -313,11 +321,11 @@ export default function Workspace({ onLogout, onAccountsChanged }: Props) {
       {showLogoutConfirm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 backdrop-blur-xs p-4" onClick={() => setShowLogoutConfirm(false)}>
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl border border-[var(--color-border)]" onClick={event => event.stopPropagation()}>
-            <h2 className="text-base font-bold text-[var(--color-ink)]">退出全部平台？</h2>
-            <p className="mt-2 text-xs leading-5 text-[var(--color-ink-soft)]">将退出当前已登录的平台，并清除本地授权凭证。收藏与已入库知识不会删除。</p>
+            <h2 className="text-base font-bold text-[var(--color-ink)]">{t('logoutAllTitle')}</h2>
+            <p className="mt-2 text-xs leading-5 text-[var(--color-ink-soft)]">{t('logoutAllDescription')}</p>
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => setShowLogoutConfirm(false)} className="px-3 py-1.5 text-xs rounded-lg border border-[var(--color-border)] text-[var(--color-ink-soft)]">{t('cancel')}</button>
-              <button onClick={() => { setShowLogoutConfirm(false); onLogout(); }} className="px-3 py-1.5 text-xs rounded-lg bg-red-500 text-white">退出全部</button>
+              <button onClick={() => { setShowLogoutConfirm(false); onLogout(); }} className="px-3 py-1.5 text-xs rounded-lg bg-red-500 text-white">{t('logoutAll')}</button>
             </div>
           </div>
         </div>

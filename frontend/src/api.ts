@@ -315,7 +315,11 @@ export async function exportBatchStart(
     method: 'POST',
     body: JSON.stringify(params),
   });
-  if (!data.success) throw new Error('Export submission failed');
+  // The thrown message is only ever console.error()'d by the caller (see
+  // ExportModal.tsx) — the UI always shows a stable, localized string
+  // regardless of what this says. Keep the backend's specific reason here
+  // so that diagnostic path is actually useful instead of a fixed string.
+  if (!data.success) throw new Error(data.message || 'Export submission failed (no server message)');
   return data;
 }
 

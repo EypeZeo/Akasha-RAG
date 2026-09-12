@@ -8,7 +8,7 @@ import 'highlight.js/styles/github-dark.css';
 import * as api from '../api';
 import ExecutionTrace from './ExecutionTrace';
 import ChatSessionDrawer from './ChatSessionDrawer';
-import { exportChatToMarkdown, exportChatToWord, exportChatToText } from '../utils/chatExport';
+import { exportChatToMarkdown, exportChatToWord, exportChatToText, type ChatExportLabels } from '../utils/chatExport';
 import { useI18n } from '../i18n';
 import { useWorkspaceStore, type Platform } from '../store/workspace';
 import { safeHref } from '../utils/url';
@@ -100,7 +100,7 @@ function findSourcesForCitation(title: string, sources?: api.SourceItem[], fallb
 }
 
 function CitationBadge({ index, title, sources, allSources = [], messageKey }: CitationBadgeProps) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const [showTooltip, setShowTooltip] = useState(false);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -414,11 +414,11 @@ function CollapsibleSources({ sources, messageKey }: { sources: api.SourceItem[]
                   </span>
                   {(s.platform === 'bilibili' || s.url?.includes('bilibili.com')) ? (
                     <span className="text-[9px] px-1 py-0.2 rounded font-semibold bg-pink-50 text-pink-600 border border-pink-200/60 flex-shrink-0">
-                      B站
+                      {t('platformBilibili')}
                     </span>
                   ) : (
                     <span className="text-[9px] px-1 py-0.2 rounded font-semibold bg-black/5 text-[var(--color-ink-soft)] border border-black/10 flex-shrink-0">
-                      抖音
+                      {t('platformDouyin')}
                     </span>
                   )}
                   <span className="text-xs text-[var(--color-ink-soft)] group-hover:text-accent font-medium truncate transition-colors">
@@ -660,7 +660,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
 });
 
 export default function ChatPanel({ collectionId, platform, statsRefreshKey, activeSessionId, onSelectSession, active = true, onOpenSettings }: Props) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const scopePlatform = useWorkspaceStore(s => s.selectedPlatform);
   const setSelectedPlatform = useWorkspaceStore(s => s.setSelectedPlatform);
   const setSelectedCollectionId = useWorkspaceStore(s => s.setSelectedCollectionId);
@@ -878,21 +878,36 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const getExportLabels = (): ChatExportLabels => ({
+    locale: lang === 'zh' ? 'zh-CN' : lang,
+    heading: t('exportFileHeading'),
+    topic: t('exportTopic'),
+    exportedAt: t('exportTime'),
+    messageCount: t('exportMessageCount'),
+    you: t('exportYou'),
+    assistant: t('exportAssistant'),
+    system: t('exportSystem'),
+    latency: t('exportLatency'),
+    sources: t('exportSources'),
+    match: t('exportMatch'),
+    footer: t('exportFooter'),
+  });
+
   const handleExportMd = () => {
-    const title = sessionId ? `会话_${sessionId}` : 'Akasha-RAG_问答会话';
-    exportChatToMarkdown(messages, title);
+    const title = sessionId ? `${t('sessionPrefix')}_${sessionId}` : t('sessionFileTitle');
+    exportChatToMarkdown(messages, title, getExportLabels());
     setShowExportMenu(false);
   };
 
   const handleExportDoc = () => {
-    const title = sessionId ? `会话_${sessionId}` : 'Akasha-RAG_问答会话';
-    exportChatToWord(messages, title);
+    const title = sessionId ? `${t('sessionPrefix')}_${sessionId}` : t('sessionFileTitle');
+    exportChatToWord(messages, title, getExportLabels());
     setShowExportMenu(false);
   };
 
   const handleExportTxt = () => {
-    const title = sessionId ? `会话_${sessionId}` : 'Akasha-RAG_问答会话';
-    exportChatToText(messages, title);
+    const title = sessionId ? `${t('sessionPrefix')}_${sessionId}` : t('sessionFileTitle');
+    exportChatToText(messages, title, getExportLabels());
     setShowExportMenu(false);
   };
 
@@ -1117,7 +1132,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
         } else if (event._event === 'error') {
           patchAsst(() => ({
             clientKey: asstKey, role: 'system',
-            content: event.message || '生成回答时发生错误', isStreaming: false,
+            content: t('chatGenerationFailed'), isStreaming: false,
           }));
         }
       }
@@ -1133,7 +1148,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
       }
       patchAsst(() => ({
         clientKey: asstKey, role: 'system',
-        content: `请求失败: ${err.message || '网络连接中断'}，请稍后重试。`, isStreaming: false,
+        content: t('chatRequestFailed'), isStreaming: false,
       }));
     } finally {
       // 只有仍是当前代才做收尾，避免清掉后一个请求的状态
@@ -1157,7 +1172,11 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
   const kbReady = (kbStats?.done ?? 0) > 0;
   const scopeHint = collectionId !== 'all' ? `（${t('searchCollectionOnly')}）` : '';
   const emptySubtitle = kbReady
-    ? `已入库 ${kbStats!.done} 条内容${kbStats!.note ? `（含 ${kbStats!.note} 篇图文）` : ''}，直接问我${scopeHint}`
+    ? t('kbReadyWithCount', {
+        done: kbStats!.done,
+        notes: kbStats!.note ? t('kbNotesIncluded', { count: kbStats!.note }) : '',
+        scope: scopeHint,
+      })
     : t('welcomeDesc');
   const promptChips = [
     t('promptSummary'),
@@ -1491,7 +1510,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
             <div className="flex items-center justify-end gap-3 px-3 pt-1.5 text-[11px] text-[var(--color-ink-muted)]">
               {input.length > 50 && (
                 <span className="font-mono opacity-80">
-                  {input.length.toLocaleString()} · {input.split('\n').length}
+                  {t('inputStats', { characters: input.length.toLocaleString(), lines: input.split('\n').length })}
                 </span>
               )}
               {messages.length > 0 && (
@@ -1518,7 +1537,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
               <div className="flex items-center gap-2.5">
                 <span className="text-base font-bold text-[var(--color-ink)]">📝 {t('expandedTitle')}</span>
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-accent/10 text-accent font-mono font-medium">
-                  {input.length.toLocaleString()} 字符 · {input.split('\n').length} 行
+                  {t('inputStats', { characters: input.length.toLocaleString(), lines: input.split('\n').length })}
                 </span>
               </div>
 
