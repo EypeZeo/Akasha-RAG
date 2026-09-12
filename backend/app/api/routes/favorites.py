@@ -66,11 +66,17 @@ async def sync_favorites(
                 r1 = await favorites_service.sync_from_douyin(db)
                 results.append(r1)
             except Exception as e:
+                # 两个平台共用同一个 db session/事务。save_snapshot_to_db()
+                # 可能已经 flush() 了部分尚未提交的写入才抛异常；这里必须
+                # 立刻 rollback，否则这些半成品会挂在事务里，被下面 B 站
+                # 同步成功后自己的 db.commit() 一并提交上去。
+                db.rollback()
                 logger.warning("全部同步时抖音失败: %s", e)
             try:
                 r2 = await favorites_service.sync_from_bilibili(db)
                 results.append(r2)
             except Exception as e:
+                db.rollback()
                 logger.warning("全部同步时B站失败: %s", e)
 
             parts = []

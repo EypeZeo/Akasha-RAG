@@ -56,3 +56,32 @@ def test_sync_failure_rolls_back_partial_writes(db_and_client, monkeypatch):
         # The flush()ed row must not have survived — get_db must not have
         # committed it after the route swallowed the exception.
         assert db.query(ContentItem).count() == 0
+
+
+async def _bilibili_success(db):
+    """模拟真实同步：正常完成并像 save_snapshot_to_db 一样自行 commit。"""
+    db.add(ContentItem(platform="bilibili", remote_item_id="bili-ok"))
+    db.commit()
+    return {"videos_total": 1, "invalid_count": 0, "added_videos": 1, "removed_videos": 0}
+
+
+def test_all_platform_sync_does_not_leak_failed_platforms_partial_write(db_and_client, monkeypatch):
+    """
+    platform=all 时两个平台共用同一个 db session。抖音 flush 后抛异常，
+    B 站随后成功并 commit——如果抖音那次失败没有立刻 rollback，B 站的
+    commit 会把抖音的半成品一起提交上去（这正是 GPT 复核实测到的问题）。
+    """
+    client, factory = db_and_client
+    monkeypatch.setattr(favorites_service, "sync_from_douyin", _flush_then_blow_up)
+    monkeypatch.setattr(favorites_service, "sync_from_bilibili", _bilibili_success)
+
+    resp = client.post("/api/favorites/sync", params={"platform": "all"})
+
+    assert resp.status_code == 200
+    assert resp.json()["success"] is True
+
+    with factory() as db:
+        items = db.query(ContentItem).all()
+        # Only bilibili's committed row should exist; douyin's flushed-then
+        # -abandoned row must not have survived B站's later commit.
+        assert [item.remote_item_id for item in items] == ["bili-ok"]
