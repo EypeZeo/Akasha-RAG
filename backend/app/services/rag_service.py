@@ -306,6 +306,25 @@ class RagService:
             )
         return ""
 
+    def _retrieve_hits_for_route(
+        self,
+        route: str,
+        query: str,
+        db: Session,
+        scope_ids: set[str] | None,
+        platform: str | None,
+    ) -> list[dict]:
+        """给定路由决定是否要做向量检索——`answer()`/`answer_stream()` 共用
+        这一段，避免两处各自维护一份、悄悄漂移出不一致的行为（BUG-08）。
+
+        `db_content` 和 `vector` 一样做检索：有命中就走 `_compress_chunks`
+        语义压缩，`_build_context` 在没有命中时会自动退回 `_db_content_context`
+        的纯 DB 内容拼接，两条路由共用检索不会丢失任何一边原有的能力。
+        """
+        if route in ("vector", "db_content"):
+            return self._filter_hits_to_done_items(db, self._dense_retrieve(query, scope_ids, platform=platform))
+        return []
+
     @staticmethod
     def _filter_hits_to_done_items(db: Session, hits: list[dict]) -> list[dict]:
         """丢弃"整体尚未 done"的条目残留在 Chroma 里的向量命中。
@@ -667,14 +686,12 @@ class RagService:
 
         # Step 2: 检索（支持平台与收藏夹筛选）
         t0 = time.perf_counter()
-        hits: list[dict] = []
         platform_filter = platform if platform and platform not in ("all", "") else None
         # 解析收藏夹范围 → remote_item_id 集合（vector 与 db_* 路由都遵守）
         scope_ids: set[str] | None = None
         if collection_id and collection_id not in ("all", ""):
             scope_ids = self._resolve_collection_scope(db, collection_id)
-        if route == "vector":
-            hits = self._filter_hits_to_done_items(db, self._dense_retrieve(normalized, scope_ids, platform=platform_filter))
+        hits = self._retrieve_hits_for_route(route, normalized, db, scope_ids, platform_filter)
         t_dense = time.perf_counter() - t0
 
         # Step 3: 构建上下文
@@ -848,13 +865,11 @@ class RagService:
         t_route = time.perf_counter() - t0
 
         t1 = time.perf_counter()
-        hits: list[dict] = []
         platform_filter = platform if platform and platform not in ("all", "") else None
         scope_ids: set[str] | None = None
         if collection_id and collection_id not in ("all", ""):
             scope_ids = self._resolve_collection_scope(db, collection_id)
-        if route in ("vector", "db_content"):
-            hits = self._filter_hits_to_done_items(db, self._dense_retrieve(normalized, scope_ids, platform=platform_filter))
+        hits = self._retrieve_hits_for_route(route, normalized, db, scope_ids, platform_filter)
         t_dense = time.perf_counter() - t1
 
         t2 = time.perf_counter()
