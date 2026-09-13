@@ -5,6 +5,10 @@
 """
 import json
 import logging
+import queue
+import threading
+from collections.abc import Callable, Iterator
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -67,6 +71,62 @@ async def chat_ask(
 # ------------------------------------------------------------------
 # SSE 流式问答
 # ------------------------------------------------------------------
+
+# answer_stream() 是一个同步生成器（内部同步调 LLM SDK），不能直接 `async
+# for` 驱动而不阻塞事件循环。生产者线程负责把它完整驱动完，通过一个有界
+# 队列把 (event_name, payload) 元组转交给异步的消费者；取消信号走反方向：
+# 消费者检测到客户端断连后置位 cancel_event，生产者在事件之间检查它，
+# 命中就对 answer_stream() 生成器调 .close()（不能打断已经在途的一次 LLM
+# 网络调用，只能在下一次控制权回到生成器自己的帧时生效）。
+_STREAM_QUEUE_MAXSIZE = 32
+_STREAM_PRODUCER_PUT_TIMEOUT_SECONDS = 30.0
+_STREAM_SENTINEL = object()
+_STREAM_TERMINAL_EVENTS = ("done", "error", "cancelled")
+
+
+def _produce_stream_events(
+    gen_factory: Callable[[], Iterator[tuple[str, dict]]],
+    q: "queue.Queue[Any]",
+    cancel_event: threading.Event,
+) -> None:
+    """在独立 OS 线程运行：拉取 gen_factory() 产出的 (event, payload)，推入
+    队列。每推送完一项就检查一次 cancel_event——检测粒度是"每个 SSE 事件
+    之间"，不是"每个 token 之间的任意时刻"（做不到，见上）。
+    """
+    gen = gen_factory()
+    try:
+        for event_name, payload in gen:
+            if cancel_event.is_set():
+                gen.close()
+                try:
+                    q.put(("cancelled", {"message": "客户端已断开"}), timeout=5)
+                except queue.Full:
+                    pass
+                return
+            try:
+                q.put((event_name, payload), timeout=_STREAM_PRODUCER_PUT_TIMEOUT_SECONDS)
+            except queue.Full:
+                # 消费者长时间不取（网络异常但 ASGI 层还没报断连）：不能让
+                # 这个线程被无限期占用，自行判定消费者已经不在了。
+                gen.close()
+                return
+            if event_name in _STREAM_TERMINAL_EVENTS:
+                return
+    except Exception as exc:
+        logger.exception("流式问答生产线程异常")
+        try:
+            q.put(("error", {"message": str(exc)}), timeout=5)
+        except queue.Full:
+            pass
+    finally:
+        # 保底：万一 answer_stream() 没有正常吐出 done/error 事件（比如上面
+        # 的 return 分支已经处理过，这里对 Queue 的一次多余 put 是无害的
+        # 幂等收尾），消费者也不会永久卡在 q.get()。
+        try:
+            q.put(_STREAM_SENTINEL, timeout=5)
+        except queue.Full:
+            pass
+
 
 @router.post("/ask/stream")
 async def chat_ask_stream(
