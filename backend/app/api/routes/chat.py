@@ -10,7 +10,7 @@ import threading
 from collections.abc import Callable, Iterator
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -129,37 +129,65 @@ def _produce_stream_events(
 
 
 @router.post("/ask/stream")
-async def chat_ask_stream(
-    body: AskRequest, db: Session = Depends(get_db)
-):
+async def chat_ask_stream(body: AskRequest, request: Request):
     """
     SSE 流式 RAG 问答
 
     事件类型：
-    - sources: 检索到的视频来源列表
-    - delta:   LLM 逐 token 输出
-    - meta:    最终元信息（session_id, route_type, latency_ms, sources）
-    - done:    流结束标记
-    - error:   错误信息
+    - sources:   检索到的视频来源列表
+    - delta:     LLM 逐 token 输出
+    - meta:      最终元信息（session_id, route_type, latency_ms, sources）
+    - done:      流结束标记
+    - error:     错误信息
+    - cancelled: 客户端断连后中止（仅供后端日志/自身观测，客户端此时已经
+                 不在了，收不到这个事件）
+
+    数据库会话不走 `Depends(get_db)`——它会在独立的生产者线程上通过
+    `session_factory()` 自行获取，因为这个路由需要在生产者线程仍在运行期间
+    持续轮询 `request.is_disconnected()`，是真正的跨线程并发访问，不能像
+    一次性线程池调用那样安全复用请求作用域的 session。
 
     :param body: 问答请求
-    :param db: 数据库会话
+    :param request: 用于轮询客户端是否已断开连接
     :return: SSE 事件流
     """
+    cancel_event = threading.Event()
+    q: "queue.Queue[Any]" = queue.Queue(maxsize=_STREAM_QUEUE_MAXSIZE)
+
+    def gen_factory():
+        from app.db.session import session_factory
+
+        with session_factory() as thread_db:
+            yield from rag_service.answer_stream(
+                thread_db, body.query, body.session_id, body.collection_id, platform=body.platform
+            )
+
+    threading.Thread(
+        target=_produce_stream_events, args=(gen_factory, q, cancel_event),
+        daemon=True, name="ask-stream-producer",
+    ).start()
 
     async def event_stream():
+        from starlette.concurrency import run_in_threadpool
+
         try:
-            for event_name, payload in rag_service.answer_stream(
-                db, body.query, body.session_id, body.collection_id, platform=body.platform
-            ):
+            while True:
+                if await request.is_disconnected():
+                    cancel_event.set()
+                    return
+                try:
+                    item = await run_in_threadpool(q.get, timeout=0.5)
+                except queue.Empty:
+                    continue
+                if item is _STREAM_SENTINEL:
+                    return
+                event_name, payload = item
                 data = json.dumps(payload, ensure_ascii=False)
                 yield f"event: {event_name}\ndata: {data}\n\n"
-        except Exception as exc:
-            logger.exception("流式问答异常")
-            error_data = json.dumps(
-                {"message": str(exc)}, ensure_ascii=False
-            )
-            yield f"event: error\ndata: {error_data}\n\n"
+                if event_name in _STREAM_TERMINAL_EVENTS:
+                    return
+        finally:
+            cancel_event.set()
 
     return StreamingResponse(
         event_stream(),
