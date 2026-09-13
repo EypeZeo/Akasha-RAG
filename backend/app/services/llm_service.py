@@ -285,10 +285,14 @@ class EmbeddingClient:
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         from app.core.config import require_dashscope_key
         key = require_dashscope_key()
-        resp = TextEmbedding.call(
-            model=settings.embedding_model, input=texts, api_key=key,
-            dimension=EMBEDDING_DIMENSION, request_timeout=30,
-        )
+        # ModelCallAdmissionTimeout 不在下面的 retry 白名单里，会立即
+        # 原样传播，不会被这个方法自己的 @retry 盲目重试。
+        # TODO(后续批次): 视情况引入"排队等待 + SDK 超时"的统一剩余 deadline 传播。
+        with acquire_model_call_slot("embedding"):
+            resp = TextEmbedding.call(
+                model=settings.embedding_model, input=texts, api_key=key,
+                dimension=EMBEDDING_DIMENSION, request_timeout=30,
+            )
         if resp.status_code != 200:
             error_type = (_TransientEmbeddingError if resp.status_code in (408, 429, 500, 502, 503, 504)
                           else RuntimeError)
