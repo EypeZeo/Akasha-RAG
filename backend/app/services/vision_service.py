@@ -12,6 +12,7 @@ import base64
 import json
 import logging
 import re
+import time
 import urllib.parse
 from pathlib import Path
 from typing import List, Optional
@@ -19,6 +20,7 @@ from typing import List, Optional
 import dashscope
 import requests
 from dashscope import MultiModalConversation
+from dashscope.api_entities.dashscope_response import MultiModalConversationResponse
 
 from app.core.config import settings
 from app.core.external_urls import safe_platform_image_url
@@ -26,10 +28,41 @@ from app.core.external_urls import safe_platform_image_url
 logger = logging.getLogger(__name__)
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
 _MAX_IMAGE_REDIRECTS = 3
+# Transient failures worth one retry: connection/timeout at the transport
+# layer, or a response that came back but signals the server/gateway is
+# temporarily unable to serve the request. Other 4xx (auth, bad params) are
+# not retried -- retrying those just burns another 30s for the same failure.
+_RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+_RETRY_DELAY_SECONDS = 1.0
 
 
 class VisionService:
     """视觉文字识别与提取服务"""
+
+    @staticmethod
+    def _call_vision_model(messages: list) -> MultiModalConversationResponse:
+        """调用一次 Qwen-VL，带请求超时；网络传输异常或一次瞬态 HTTP 状态码
+        （408/429/5xx）各自最多重试一次——这里只承诺"本服务层最多重试一次"，
+        不代表底层 SDK/网络实际只会发出两次请求。鉴权/参数类的其它 4xx
+        不重试，重试它们只是把同样的失败再等一遍。
+        """
+        for attempt in range(2):
+            try:
+                response = MultiModalConversation.call(
+                    model=settings.vision_model,
+                    messages=messages,
+                    request_timeout=settings.vision_request_timeout_seconds,
+                )
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+                if attempt == 0:
+                    time.sleep(_RETRY_DELAY_SECONDS)
+                    continue
+                raise
+            else:
+                if attempt == 0 and response.status_code in _RETRYABLE_HTTP_STATUS_CODES:
+                    time.sleep(_RETRY_DELAY_SECONDS)
+                    continue
+                return response
 
     def __init__(self) -> None:
         self.user_agent = (
@@ -300,10 +333,7 @@ class VisionService:
                     }
                 ]
 
-                response = MultiModalConversation.call(
-                    model=settings.vision_model,
-                    messages=messages,
-                )
+                response = self._call_vision_model(messages)
 
                 if response.status_code == 200 and response.output and response.output.choices:
                     content = response.output.choices[0].message.content

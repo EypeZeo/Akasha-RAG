@@ -114,6 +114,11 @@ class ContentItem(Base):
     source_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     part_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    # When this item's provider-side part/page data was last confirmed fresh
+    # (BUG-10/NET-04). NULL means "never enriched" -- added post-hoc via
+    # ensure_content_item_enrichment_column(), same pattern as
+    # ensure_source_account_profile_columns().
+    last_enriched_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 

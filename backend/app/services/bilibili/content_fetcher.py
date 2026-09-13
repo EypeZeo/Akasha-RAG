@@ -13,6 +13,7 @@ Bilibili 视频正文提取器
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
@@ -26,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 # 实质正文最小有效字符阈值
 SUBSTANTIVE_TEXT_MIN_CHARS = 50
+
+
+class TranscriptionCancelled(Exception):
+    """正文提取因任务被取消而中止（由 cancel_check() 确认，不是消息文本匹配）。"""
 
 
 class BilibiliContentFetcher:
@@ -69,6 +74,7 @@ class BilibiliContentFetcher:
         cid: int,
         title: str = "",
         part_title: str = "",
+        cancel_check: Optional[Callable[[], bool]] = None,
     ) -> str:
         """
         提取单分P视频的实质正文 (字幕优先 -> DASH 音频 ASR)
@@ -77,9 +83,17 @@ class BilibiliContentFetcher:
         :param cid: 分P cid
         :param title: 视频主标题
         :param part_title: 分P标题 (若有多P)
+        :param cancel_check: 取消探测；命中时在字幕探测/DASH下载/转码这几个
+            步骤前抛出 TranscriptionCancelled，而不是让调用方靠猜测异常
+            消息文本来区分"取消"和"真实失败"。
         :return: 提取到的实质性正文
         :raises RuntimeError: 当无法提取到大于阈值的实质正文时抛出
+        :raises TranscriptionCancelled: 当 cancel_check() 命中时抛出
         """
+        def _raise_if_cancelled() -> None:
+            if cancel_check is not None and cancel_check():
+                raise TranscriptionCancelled(f"正文提取已取消 [{bvid} cid={cid}]")
+
         clean_main_title = clean_title_for_index(title)
         if cid <= 0:
             pages = await self.fetch_video_pages(bvid)
@@ -96,6 +110,7 @@ class BilibiliContentFetcher:
         # --------------------------------------------------------------
         # 步骤 1: 尝试提取字幕 (官方人工字幕或 AI 字幕)
         # --------------------------------------------------------------
+        _raise_if_cancelled()
         try:
             player_info = await self._client.get_player_info(bvid, cid)
             subtitle_info = player_info.get("subtitle") or {}
@@ -118,6 +133,7 @@ class BilibiliContentFetcher:
                         "[%s cid=%s] 检测到字幕 (%s)，正在下载...",
                         bvid, cid, target_sub.get("lan_doc", "中文"),
                     )
+                    _raise_if_cancelled()
                     sub_text = await self._client.download_subtitle(sub_url)
                     if sub_text and len(sub_text.strip()) >= SUBSTANTIVE_TEXT_MIN_CHARS:
                         logger.info(
@@ -126,12 +142,17 @@ class BilibiliContentFetcher:
                         )
                         return f"【视频字幕】{full_title}\n\n{sub_text.strip()}"
                     logger.info("[%s cid=%s] 字幕文本过短 (%d 字符)，尝试音频 ASR", bvid, cid, len(sub_text or ""))
+        except TranscriptionCancelled:
+            # 取消信号必须先于下面的宽泛容错重新抛出——否则会被误判成
+            # "字幕失败，降级走音频下载"，取消就形同虚设了。
+            raise
         except Exception as exc:
             logger.warning("[%s cid=%s] 字幕探测/下载失败: %s", bvid, cid, exc)
 
         # --------------------------------------------------------------
         # 步骤 2: DASH 音频下载 + 本地 ASR 转写
         # --------------------------------------------------------------
+        _raise_if_cancelled()
         logger.info("[%s cid=%s] 尝试获取 DASH 音频流进行 ASR 转写...", bvid, cid)
         audio_url = await self._client.get_audio_url(bvid, cid)
         if not audio_url:
@@ -143,9 +164,11 @@ class BilibiliContentFetcher:
 
         with audio_cache_lease(lease_key):
             try:
+                _raise_if_cancelled()
                 ok = await self._client.download_audio_to_file(audio_url, raw_audio_file)
                 if not ok or not raw_audio_file.exists():
                     raise RuntimeError(f"B 站音频流下载失败或文件损坏 [{bvid}]")
+                _raise_if_cancelled()
                 # Dash audio commonly arrives as M4A.  DashScope ASR accepts
                 # only MP3/WAV in this pipeline, so never pass the raw DASH
                 # container through directly.
@@ -155,7 +178,16 @@ class BilibiliContentFetcher:
                     "[%s cid=%s] 音频下载成功 (%.2f MB)，开始 ASR 语音识别...",
                     bvid, cid, audio_file.stat().st_size / (1024 * 1024),
                 )
-                asr_text = asr_service.transcribe_to_text(audio_file)
+                try:
+                    asr_text = asr_service.transcribe_to_text(audio_file, cancel_check=cancel_check)
+                except RuntimeError as exc:
+                    # ASR 取消时抛出的是裸 RuntimeError（asr_service 自己已经
+                    # 在抛出前确认过 cancel_check() 为真）；这里不猜测异常消息
+                    # 文本，而是用同一个 cancel_check 再确认一次，为真才转换成
+                    # 专用的取消信号，为假原样重新抛出当真实失败处理。
+                    if cancel_check is not None and cancel_check():
+                        raise TranscriptionCancelled(str(exc)) from exc
+                    raise
                 if not asr_text or len(asr_text.strip()) < SUBSTANTIVE_TEXT_MIN_CHARS:
                     raise RuntimeError(
                         f"ASR 未能识别到实质正文 (提取字符数 < {SUBSTANTIVE_TEXT_MIN_CHARS})"

@@ -13,11 +13,15 @@ from __future__ import annotations
 import base64
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import case, desc, func, select
+from sqlalchemy import update as sql_update
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.entities import (
     CollectionItemRelation,
     ContentItem,
@@ -27,6 +31,7 @@ from app.models.entities import (
     IngestionItem,
     VideoCache,
 )
+from app.services.chroma_service import get_chroma_service
 from app.services.douyin_collector import (
     FavoriteScrapedCollection,
     FavoriteScrapedVideo,
@@ -38,6 +43,30 @@ logger = logging.getLogger(__name__)
 
 ALL_COLLECTION_ID = "all"
 ALL_COLLECTION_TITLE = "全部收藏"
+
+
+def _utcnow() -> datetime:
+    """Naive UTC datetime, matching how `func.now()` stores SQLite timestamps
+    elsewhere in this schema (`datetime.utcnow()` itself is deprecated in 3.12+)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def ensure_content_item_enrichment_column(engine: Engine) -> None:
+    """Idempotently extend existing SQLite installations with `last_enriched_at`.
+
+    Same pattern as account_state.py::ensure_source_account_profile_columns --
+    a plain ALTER TABLE, not a full migration.py table rebuild.
+    """
+    if engine.dialect.name != "sqlite":
+        return
+    with engine.begin() as connection:
+        columns = {
+            row[1] for row in connection.exec_driver_sql("PRAGMA table_info(content_items)")
+        }
+        if "last_enriched_at" not in columns:
+            connection.exec_driver_sql(
+                "ALTER TABLE content_items ADD COLUMN last_enriched_at DATETIME"
+            )
 
 
 class FavoritesService:
@@ -203,6 +232,66 @@ class FavoritesService:
         # 针对视频分P探测，剔除下架/不可见稿件
         invalid_video_ids = set()
 
+        # BUG-10/NET-04: 预读已存在的 last_enriched_at / ContentPart 快照，
+        # 判断哪些视频真的需要重新调用 get_video_info。P1-3：这一步必须用
+        # 独立的短生命周期只读 session，不能占着传入的 db 跨网络 await
+        # 持有 SQLite 连接/事务。
+        from app.db.session import session_factory
+
+        remote_ids = list(videos_by_id.keys())
+        existing_snapshot: dict[str, dict] = {}
+        if remote_ids:
+            with session_factory() as read_db:
+                rows = read_db.execute(
+                    select(ContentItem.id, ContentItem.remote_item_id, ContentItem.last_enriched_at)
+                    .where(ContentItem.platform == "bilibili", ContentItem.remote_item_id.in_(remote_ids))
+                ).all()
+                item_ids = [r.id for r in rows]
+                parts_by_item: dict[int, list[dict]] = {}
+                if item_ids:
+                    part_rows = read_db.execute(
+                        select(ContentPart.content_item_id, ContentPart.remote_part_id,
+                               ContentPart.part_index, ContentPart.part_title, ContentPart.duration)
+                        .where(ContentPart.content_item_id.in_(item_ids))
+                    ).all()
+                    for pr in part_rows:
+                        parts_by_item.setdefault(pr.content_item_id, []).append({
+                            "remote_part_id": pr.remote_part_id,
+                            "part_index": pr.part_index,
+                            "part_title": pr.part_title,
+                            "duration": pr.duration,
+                        })
+                for r in rows:
+                    existing_snapshot[r.remote_item_id] = {
+                        "last_enriched_at": r.last_enriched_at,
+                        "parts": parts_by_item.get(r.id, []),
+                    }
+            # read_db closed here -- everything below is either in-memory or
+            # the real network calls; the short-lived session never overlaps
+            # with them.
+
+        ttl = timedelta(hours=settings.bilibili_enrichment_ttl_hours)
+        now = _utcnow()
+        to_enrich: list[FavoriteScrapedVideo] = []
+        for v in videos_by_id.values():
+            snap = existing_snapshot.get(v.platform_item_id)
+            is_only_placeholder = (
+                snap is not None
+                and len(snap["parts"]) == 1
+                and snap["parts"][0]["remote_part_id"] == "default"
+            )
+            if (
+                snap is None
+                or not snap["parts"]
+                or is_only_placeholder
+                or snap["last_enriched_at"] is None
+                or now - snap["last_enriched_at"] > ttl
+            ):
+                to_enrich.append(v)
+            else:
+                # TTL 内，已经有真实分 P 数据——复用，不重新请求。
+                v.parts = [dict(p) for p in snap["parts"]]
+
         async def _enrich_video(v: FavoriteScrapedVideo) -> None:
             try:
                 info = await bilibili_client.get_video_info(v.platform_item_id)
@@ -217,6 +306,10 @@ class FavoritesService:
                     for index, page in enumerate(pages, start=1)
                     if page.get("cid")
                 ]
+                # 只有这里——get_video_info 真的成功——才允许 last_enriched_at
+                # 推进；_sync_videos_and_cache 还会再要求这次持久化本身也
+                # 成功才真的写这个时间戳。
+                v.freshly_enriched = True
             except Exception as exc:
                 err_str = str(exc)
                 if "不可见" in err_str or "不存在" in err_str or "404" in err_str or "删除" in err_str:
@@ -224,9 +317,22 @@ class FavoritesService:
                     invalid_video_ids.add(v.platform_item_id)
                 else:
                     logger.warning("获取视频详情失败 [%s]: %s (降级保留基本条目)", v.platform_item_id, exc)
-                    v.parts = []
+                    # 网络/API 失败：不能把 v.parts 清空——如果这个视频之前
+                    # 已经有真实分 P 数据，清空会让下游把它当成"从来没有过
+                    # 真实分 P"，插入一个多余的 default 占位行、和已有的真实
+                    # parts 同时残留。失败时复用上一次已知的数据，不清空。
+                    previous = existing_snapshot.get(v.platform_item_id)
+                    v.parts = [dict(p) for p in previous["parts"]] if previous else []
 
-        await asyncio.gather(*[_enrich_video(v) for v in videos_by_id.values()])
+        # 分批执行，避免冷同步（大量视频都需要富化）一次性创建成百上千个
+        # 等待同一信号量的协程/任务；这限定的是这一次 sync_from_bilibili()
+        # 调用自己的并发，bilibili_max_concurrency 信号量本身仍然是按事件
+        # 循环存储、范围不变。
+        batch_size = max(1, settings.bilibili_max_concurrency * 4)
+        for start in range(0, len(to_enrich), batch_size):
+            batch = to_enrich[start : start + batch_size]
+            await asyncio.gather(*[_enrich_video(v) for v in batch])
+
         for bad_id in invalid_video_ids:
             videos_by_id.pop(bad_id, None)
 
@@ -315,6 +421,7 @@ class FavoritesService:
                 "author": video.author,
                 "duration": video.duration,
                 "parts": video.parts,
+                "freshly_enriched": getattr(video, "freshly_enriched", False),
             }
             desired_video_payload[remote_id] = payload
 
@@ -395,8 +502,24 @@ class FavoritesService:
 
         db.flush()
 
-        # Synchronize provider pages; default parts are retained only for
-        # providers without explicit page metadata.
+        # Synchronize provider pages. Two distinct cases (BUG-10/NET-04):
+        #
+        # 1. No real provider part data this round (Douyin never has any;
+        #    Bilibili falls back here before/between successful enrichment).
+        #    Keep this cheap and non-destructive: add the single "default"
+        #    placeholder row if missing, otherwise just refresh its
+        #    title/duration in place. This must NOT fall into case 2 below --
+        #    an unrelated Douyin title edit would otherwise wipe every
+        #    existing video's transcript and vectors on every sync.
+        #
+        # 2. Real provider parts are present (freshly fetched, or reused from
+        #    cache because the enrichment TTL hasn't expired). Diff against
+        #    what's actually stored using (remote_part_id, part_index,
+        #    title, duration); any difference -- added/removed/renamed/
+        #    re-timed parts, or upgrading from a "default" placeholder to
+        #    real parts -- means the previously generated transcript/vectors
+        #    no longer match today's part layout, so it must be rebuilt from
+        #    scratch, not silently left stale alongside new part rows.
         existing_parts = (
             db.execute(
                 select(ContentPart).where(
@@ -406,18 +529,73 @@ class FavoritesService:
             .scalars()
             .all()
         )
-        part_keys = {(p.content_item_id, p.remote_part_id) for p in existing_parts}
+        existing_parts_by_item: dict[int, list[ContentPart]] = {}
+        for p in existing_parts:
+            existing_parts_by_item.setdefault(p.content_item_id, []).append(p)
+
         for remote_id, item in existing_item_map.items():
-            parts = desired_video_payload.get(remote_id, {}).get("parts") or []
-            if not parts:
-                parts = [{"remote_part_id": "default", "part_index": 1, "part_title": item.title, "duration": item.duration}]
-            for part in parts:
-                key = (item.id, str(part["remote_part_id"]))
-                if key not in part_keys:
-                    db.add(ContentPart(content_item_id=item.id, remote_part_id=str(part["remote_part_id"]),
-                        part_index=int(part["part_index"]), part_title=str(part["part_title"]),
-                        duration=int(part["duration"]), transcript_source="whisper_asr", transcript_version="1",
-                        time_range=f"0-{int(part['duration'])}"))
+            payload = desired_video_payload.get(remote_id, {})
+            real_parts = payload.get("parts") or []
+            existing_for_item = existing_parts_by_item.get(item.id, [])
+
+            if not real_parts:
+                default_row = next((p for p in existing_for_item if p.remote_part_id == "default"), None)
+                if default_row is None:
+                    db.add(ContentPart(content_item_id=item.id, remote_part_id="default", part_index=1,
+                        part_title=item.title, duration=item.duration, transcript_source="whisper_asr",
+                        transcript_version="1", time_range=f"0-{item.duration}"))
+                else:
+                    default_row.part_title = item.title
+                    default_row.duration = item.duration
+                    default_row.time_range = f"0-{item.duration}"
+                continue
+
+            desired_keys = {
+                (str(p["remote_part_id"]), int(p["part_index"]), str(p["part_title"]), int(p["duration"]))
+                for p in real_parts
+            }
+            existing_keys = {
+                (p.remote_part_id, p.part_index, p.part_title, p.duration) for p in existing_for_item
+            }
+
+            if existing_keys == desired_keys:
+                if payload.get("freshly_enriched"):
+                    item.last_enriched_at = _utcnow()
+                continue
+
+            if existing_for_item:
+                # A previously-known item's parts genuinely changed (added/
+                # removed/renamed/re-timed, or upgrading from a "default"
+                # placeholder to real parts) -- the previously generated
+                # transcript/vectors no longer match today's part layout.
+                # Chroma and SQLite have no shared transaction (same
+                # ordering as BUG-02's clear-all): clear the vectors first,
+                # so a retry after a later SQLite failure just re-clears an
+                # already-empty collection instead of leaving stale vectors
+                # while the DB still claims they don't exist. Flush the
+                # deletes before inserting the new rows -- they can share a
+                # (content_item_id, remote_part_id) key, and the unique
+                # constraint would otherwise fire against the not-yet-
+                # executed deletes.
+                get_chroma_service().delete_by_video(remote_id, platform=platform, content_item_id=item.id)
+                for stale in existing_for_item:
+                    db.delete(stale)
+                db.execute(
+                    sql_update(IngestionItem)
+                    .where(IngestionItem.content_item_id == item.id)
+                    .values(status="pending", transcript_text="", summary="", error_message="")
+                )
+                db.flush()
+            # else: brand new item, nothing existed before -- just add its
+            # parts, no vectors to clear and no IngestionItem yet to revert.
+
+            for part in real_parts:
+                db.add(ContentPart(content_item_id=item.id, remote_part_id=str(part["remote_part_id"]),
+                    part_index=int(part["part_index"]), part_title=str(part["part_title"]),
+                    duration=int(part["duration"]), transcript_source="whisper_asr", transcript_version="1",
+                    time_range=f"0-{int(part['duration'])}"))
+            if payload.get("freshly_enriched"):
+                item.last_enriched_at = _utcnow()
 
         # 3. 同步收藏夹成员关联 (CollectionItemRelation)
         active_collection_ids = [

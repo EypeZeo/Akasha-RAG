@@ -252,6 +252,8 @@ class KnowledgeService:
 
         def process_one_video(content_ref: int | str) -> None:
             nonlocal completed_count, failed_count
+            from app.services.bilibili.content_fetcher import TranscriptionCancelled
+
             claimed = False
             try:
                 if bail_if_cancelled(content_ref, False):
@@ -339,25 +341,41 @@ class KnowledgeService:
                     if not parts:
                         raise RuntimeError("B站视频缺少分P元数据，请先重新同步收藏夹")
 
-                    async def _fetch_all_parts():
+                    def _cancel_check() -> bool:
+                        return worker.is_cancelled(task_id) or worker.is_platform_blocked(item_platform)
+
+                    async def _fetch_all_parts() -> tuple[list[tuple[ContentPart, str]], bool]:
                         # 一次 asyncio.run 里顺序处理全部分 P（保持原有的逐 P
                         # 顺序行为不变），而不是每个分 P 各开关一次事件循环——
                         # 后者会让 bilibili_client 在每次 asyncio.run 内都新
                         # 建一个绑定当前循环的 AsyncClient，循环销毁时这个
                         # client 从未被关闭，连接被悬空丢弃（BUG-04）。
-                        results = []
+                        results: list[tuple[ContentPart, str]] = []
+                        cancelled = False
                         try:
                             for p in parts:
-                                text = await bilibili_content_fetcher.fetch_transcript(
-                                    bvid=platform_item_id, cid=int(p.remote_part_id), title=title,
-                                    part_title=p.part_title,
-                                )
+                                if _cancel_check():
+                                    cancelled = True
+                                    break
+                                try:
+                                    text = await bilibili_content_fetcher.fetch_transcript(
+                                        bvid=platform_item_id, cid=int(p.remote_part_id), title=title,
+                                        part_title=p.part_title,
+                                        cancel_check=_cancel_check,
+                                    )
+                                except TranscriptionCancelled:
+                                    cancelled = True
+                                    break
                                 results.append((p, text))
                         finally:
                             await bilibili_client.aclose()
-                        return results
+                        return results, cancelled
 
-                    part_transcripts.extend(asyncio.run(_fetch_all_parts()))
+                    fetched_parts, was_cancelled = asyncio.run(_fetch_all_parts())
+                    part_transcripts.extend(fetched_parts)
+                    if was_cancelled:
+                        bail_if_cancelled(content_ref, claimed, item_platform)
+                        return
                     transcript_text = "\n\n".join(text for _, text in part_transcripts)
                     if bail_if_cancelled(content_ref, claimed, item_platform):
                         return
@@ -376,13 +394,22 @@ class KnowledgeService:
                             return
                         save_state(content_ref, status="transcribing")
                         report(f"📹 语音转写: {title[:22]}...")
-                        transcript_text = asr_service.transcribe_to_text(
-                            audio_path,
-                            cancel_check=lambda: (
-                                worker.is_cancelled(task_id)
-                                or worker.is_platform_blocked(item_platform)
-                            ),
-                        )
+
+                        def _cancel_check() -> bool:
+                            return worker.is_cancelled(task_id) or worker.is_platform_blocked(item_platform)
+
+                        try:
+                            transcript_text = asr_service.transcribe_to_text(
+                                audio_path,
+                                cancel_check=_cancel_check,
+                            )
+                        except RuntimeError as exc:
+                            # 同一套不猜异常消息文本的原则：ASR 抛出的裸
+                            # RuntimeError 是否代表取消，靠再确认一次
+                            # cancel_check() 判定，不靠字符串匹配。
+                            if _cancel_check():
+                                raise TranscriptionCancelled(str(exc)) from exc
+                            raise
                         if not transcript_text or len(transcript_text.strip()) < 10:
                             raise RuntimeError("ASR 未能提取到实质音频正文（已拒绝仅标题入库）")
                         # 在收费 ASR 完成后先提交检查点，Embedding 失败可以直接续传。
@@ -452,6 +479,10 @@ class KnowledgeService:
                     processed_at=datetime.now(timezone.utc),
                 )
                 logger.info("入库成功 (%s): %s (%d chunks)", type_tag, platform_item_id, len(chunks))
+            except TranscriptionCancelled:
+                # 取消要落到 bail_if_cancelled 现有的 pending 回退语义，
+                # 不能像真实失败一样被写成 failed。
+                bail_if_cancelled(content_ref, claimed, item_platform)
             except Exception as exc:
                 logger.exception("入库失败: %s", content_ref)
                 with progress_lock:

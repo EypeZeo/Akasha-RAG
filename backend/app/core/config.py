@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     注意：qwen-vl-* 系列即将下线，请使用 qwen3.x 系列
     """
 
+    vision_request_timeout_seconds: float = Field(default=30.0, ge=5.0, le=120.0)
+    """单次 Qwen-VL 调用的请求超时（秒）；SDK 默认 300s 对逐图循环里的单次调用来说太长"""
+
     # ===== 检索参数 =====
     retrieval_top_k: int = Field(default=8, ge=1, le=50)
     """最终返回的检索结果数量"""
@@ -169,7 +172,12 @@ class Settings(BaseSettings):
     """Bilibili 凭证状态存储路径"""
 
     bilibili_max_concurrency: int = Field(default=3, ge=1, le=10)
-    """Bilibili API 客户端最大并发限制"""
+    """Bilibili API 客户端最大并发限制（按事件循环存储的信号量，限定单次
+    sync_from_bilibili() 调用自己的并发，不是跨进程的全局上限）"""
+
+    bilibili_enrichment_ttl_hours: float = Field(default=48.0, ge=1.0, le=720.0)
+    """Bilibili 收藏富化（分P/页面信息）重新验证周期（小时）：超过这个时长
+    才会为已同步过的视频重新调用 get_video_info，不是永久跳过"""
 
     wbi_cache_ttl_hours: float = Field(default=12.0, ge=1.0, le=72.0)
     """Bilibili WBI 混淆 Key 缓存时长（小时）"""
