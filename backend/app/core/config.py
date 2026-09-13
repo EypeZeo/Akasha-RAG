@@ -172,7 +172,12 @@ class Settings(BaseSettings):
     """Bilibili 凭证状态存储路径"""
 
     bilibili_max_concurrency: int = Field(default=3, ge=1, le=10)
-    """Bilibili API 客户端最大并发限制"""
+    """Bilibili API 客户端最大并发限制（按事件循环存储的信号量，限定单次
+    sync_from_bilibili() 调用自己的并发，不是跨进程的全局上限）"""
+
+    bilibili_enrichment_ttl_hours: float = Field(default=48.0, ge=1.0, le=720.0)
+    """Bilibili 收藏富化（分P/页面信息）重新验证周期（小时）：超过这个时长
+    才会为已同步过的视频重新调用 get_video_info，不是永久跳过"""
 
     wbi_cache_ttl_hours: float = Field(default=12.0, ge=1.0, le=72.0)
     """Bilibili WBI 混淆 Key 缓存时长（小时）"""

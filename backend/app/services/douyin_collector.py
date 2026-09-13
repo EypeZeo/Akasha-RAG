@@ -82,6 +82,11 @@ class FavoriteScrapedVideo:
     collection_ids: set[str] = field(default_factory=set)
     # Provider-native independent parts, e.g. Bilibili pages/CIDs.
     parts: list[dict] = field(default_factory=list)
+    # True when this sync actually re-fetched provider part/page data this
+    # round (BUG-10/NET-04) -- vs. reusing cached ContentPart rows because
+    # the enrichment TTL hadn't expired. Only the former should advance
+    # ContentItem.last_enriched_at when persisted.
+    freshly_enriched: bool = False
 
 
 @dataclass

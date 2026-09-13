@@ -68,6 +68,8 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     from app.services.account_state import ensure_source_account_profile_columns
     ensure_source_account_profile_columns(engine)
+    from app.services.favorites_service import ensure_content_item_enrichment_column
+    ensure_content_item_enrichment_column(engine)
     logger.info("数据库表初始化完成")
 
     # Eagerly initialize the platform-partitioned Chroma collections so a
