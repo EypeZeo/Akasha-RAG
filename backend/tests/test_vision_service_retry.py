@@ -13,6 +13,7 @@ import pytest
 import requests
 
 from app.core.config import settings
+from app.core.model_gate import ModelCallAdmissionTimeout
 from app.services import vision_service as vision_module
 from app.services.vision_service import VisionService
 
@@ -73,3 +74,37 @@ def test_call_passes_the_configured_request_timeout(monkeypatch):
 
     _args, kwargs = call.call_args
     assert kwargs["request_timeout"] == settings.vision_request_timeout_seconds
+
+
+def test_admission_timeout_propagates_without_matching_the_transient_retry(monkeypatch):
+    """PR2B-4: ModelCallAdmissionTimeout 不匹配 except (ConnectionError, Timeout)，
+    应该在第一次尝试就直接传播出去，不会被当成传输层异常再重试一次。"""
+    call = Mock(return_value=_fake_response(200))
+    monkeypatch.setattr(vision_module, "MultiModalConversation", SimpleNamespace(call=call))
+
+    def raising_gate(kind):
+        raise ModelCallAdmissionTimeout(kind, 30.0)
+
+    monkeypatch.setattr(vision_module, "acquire_model_call_slot", raising_gate)
+
+    with pytest.raises(ModelCallAdmissionTimeout):
+        VisionService._call_vision_model([])
+    call.assert_not_called()
+
+
+def test_extract_text_from_images_skips_image_on_admission_timeout(monkeypatch):
+    """PR2B-4: 单张图片的准入超时应该落进现有的逐图 try/except（跳过这张图、
+    继续处理其余图片），不应该让整次图文提取失败。"""
+    monkeypatch.setattr(settings, "dashscope_api_key", "fixture-secret")
+    monkeypatch.setattr(vision_module, "safe_platform_image_url", lambda platform, url: url)
+
+    service = VisionService()
+    monkeypatch.setattr(service, "_download_trusted_image", lambda url, headers: b"\xff\xd8\xffjpeg-bytes")
+
+    def raising_gate(kind):
+        raise ModelCallAdmissionTimeout(kind, 30.0)
+
+    monkeypatch.setattr(vision_module, "acquire_model_call_slot", raising_gate)
+
+    result = service.extract_text_from_images(["http://x/img.jpg"], title="t")
+    assert result == ""

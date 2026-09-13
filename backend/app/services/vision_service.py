@@ -24,6 +24,7 @@ from dashscope.api_entities.dashscope_response import MultiModalConversationResp
 
 from app.core.config import settings
 from app.core.external_urls import safe_platform_image_url
+from app.core.model_gate import acquire_model_call_slot
 
 logger = logging.getLogger(__name__)
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -46,13 +47,18 @@ class VisionService:
         不代表底层 SDK/网络实际只会发出两次请求。鉴权/参数类的其它 4xx
         不重试，重试它们只是把同样的失败再等一遍。
         """
+        # 闸门只包住每次真正的网络调用，不包住两次尝试之间的退避
+        # sleep——ModelCallAdmissionTimeout 不匹配下面的
+        # except (ConnectionError, Timeout)，会直接传播给调用方。
+        # TODO(后续批次): 视情况引入"排队等待 + SDK 超时"的统一剩余 deadline 传播。
         for attempt in range(2):
             try:
-                response = MultiModalConversation.call(
-                    model=settings.vision_model,
-                    messages=messages,
-                    request_timeout=settings.vision_request_timeout_seconds,
-                )
+                with acquire_model_call_slot("vision"):
+                    response = MultiModalConversation.call(
+                        model=settings.vision_model,
+                        messages=messages,
+                        request_timeout=settings.vision_request_timeout_seconds,
+                    )
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
                 if attempt == 0:
                     time.sleep(_RETRY_DELAY_SECONDS)
