@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.db.session import get_db
 from app.models.entities import CollectionItemRelation, ContentItem, FavoriteCollection, VideoCache
@@ -311,7 +312,7 @@ async def clear_all_knowledge(
             "message": "入库任务仍在执行或排队，请等待任务结束后清空",
             "chroma_cleared": False,
         }
-    return _clear_all_knowledge_sync(db, body)
+    return await run_in_threadpool(_clear_all_knowledge_sync, db, body)
 
 
 def _clear_all_knowledge_sync(db: Session, body: ClearAllRequest) -> dict:
