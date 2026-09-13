@@ -914,12 +914,20 @@ class RagService:
         t3 = time.perf_counter()
         parts: list[str] = []
         try:
-            for delta in llm_client.stream_chat(
-                system_prompt=system, user_prompt=user
-            ):
-                if delta:
-                    parts.append(delta)
-                    yield ("delta", {"text": delta})
+            stream_gen = llm_client.stream_chat(system_prompt=system, user_prompt=user)
+            try:
+                for delta in stream_gen:
+                    if delta:
+                        parts.append(delta)
+                        yield ("delta", {"text": delta})
+            finally:
+                # 外部对 answer_stream() 生成器调 .close()（取消）时，Python
+                # 会在这里注入 GeneratorExit——显式关闭内层生成器，不依赖
+                # CPython 引用计数何时回收它才触发 close()。stream_chat 的
+                # 闸门名额（acquire_model_call_slot）就是靠这次 close() 才
+                # 能立刻释放，不是等 GC。对已耗尽的生成器调 close() 是安全
+                # 的空操作。
+                stream_gen.close()
 
             t_llm = time.perf_counter() - t3
             answer = _sanitize_answer("".join(parts), is_structured)
