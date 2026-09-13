@@ -14,6 +14,7 @@ from typing import Annotated, List, Literal, Optional
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from app.core.logging import LOG_DIR, VALID_LEVELS, log_manager
 
@@ -28,6 +29,26 @@ _LOG_FILE_PATTERNS: dict[LogType, str] = {
 
 # 目录选择框互斥：同一时刻只允许一个原生对话框在等待
 _pick_dir_lock = threading.Lock()
+
+def _tail_lines(path: Path, max_lines: int, chunk_size: int = 8192) -> List[str]:
+    """从文件末尾往前按块读取，凑够 max_lines 行或读到文件头就停——
+    不把整份日志文件读进内存（大文件时 f.readlines() 是真实的内存/IO 问题）。"""
+    with open(path, "rb") as f:
+        f.seek(0, os.SEEK_END)
+        remaining = f.tell()
+        block = bytearray()
+        newline_count = 0
+        while remaining > 0 and newline_count <= max_lines:
+            read_size = min(chunk_size, remaining)
+            remaining -= read_size
+            f.seek(remaining)
+            data = f.read(read_size)
+            newline_count += data.count(b"\n")
+            block[0:0] = data
+        text = block.decode("utf-8", errors="replace")
+    lines = text.splitlines()
+    return lines[-max_lines:] if len(lines) > max_lines else lines
+
 
 _PICK_DIR_SCRIPT = r"""
 import sys, tkinter as tk
@@ -140,7 +161,8 @@ async def pick_directory(body: PickDirectoryRequest = PickDirectoryRequest()):
         return {"success": False, "busy": True, "message": "已有选择框在等待，请先完成"}
     try:
         init_dir = (body.initial_dir or "").strip()
-        completed = subprocess.run(
+        completed = await run_in_threadpool(
+            subprocess.run,
             [sys.executable, "-c", _PICK_DIR_SCRIPT, init_dir],
             capture_output=True,
             text=True,
@@ -179,15 +201,14 @@ async def get_recent_logs(
             return {"success": True, "lines": [], "file": None}
 
         latest_file = matching_files[0]
-        content_lines: List[str] = []
-        with open(latest_file, "r", encoding="utf-8", errors="replace") as f:
-            all_lines = f.readlines()
-            content_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+        content_lines = await run_in_threadpool(_tail_lines, latest_file, lines)
 
         return {
             "success": True,
             "file": latest_file.name,
-            "lines": [l.rstrip("\r\n") for l in content_lines],
+            # _tail_lines() already returns line-ending-stripped strings
+            # (str.splitlines()).
+            "lines": content_lines,
             "total_lines": len(content_lines),
         }
     except Exception as e:
