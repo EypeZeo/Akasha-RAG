@@ -24,7 +24,7 @@ async def test_no_subtitle_fallback_transcodes_before_asr(tmp_path, monkeypatch)
     )
     monkeypatch.setattr(
         "app.services.bilibili.content_fetcher.asr_service.transcribe_to_text",
-        lambda path: "A sufficiently long fallback transcript proves that raw M4A is transcoded before ASR.",
+        lambda path, cancel_check=None: "A sufficiently long fallback transcript proves that raw M4A is transcoded before ASR.",
     )
 
     text = await fetcher.fetch_transcript("BV1xx411c7mD", 1001, title="测试视频")
