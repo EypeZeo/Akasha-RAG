@@ -3,6 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from app.core.model_gate import ModelCallAdmissionTimeout
 from app.services import llm_service as module
 
 
@@ -51,3 +52,18 @@ def test_permanent_api_error_is_not_retried_and_key_is_redacted(client, monkeypa
         client.embed_texts(["text"])
     assert "fixture-secret" not in str(error.value)
     assert call.call_count == 1
+
+
+def test_admission_timeout_propagates_immediately_without_calling_dashscope(client, monkeypatch):
+    """PR2B-4: ModelCallAdmissionTimeout 不在 _embed_batch 的 retry 白名单里，
+    应该原样从 embed_texts 传播出去，且从不真正调用 TextEmbedding.call。"""
+    def raising_gate(kind):
+        raise ModelCallAdmissionTimeout(kind, 30.0)
+
+    monkeypatch.setattr(module, "acquire_model_call_slot", raising_gate)
+    call = Mock()
+    monkeypatch.setattr(module.TextEmbedding, "call", call)
+
+    with pytest.raises(ModelCallAdmissionTimeout):
+        client.embed_texts(["text"])
+    call.assert_not_called()

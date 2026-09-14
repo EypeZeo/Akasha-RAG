@@ -21,6 +21,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fi
 from requests.exceptions import RequestException
 
 from app.core.config import settings
+from app.core.model_gate import acquire_model_call_slot
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,6 @@ class LLMClient:
         api_key = settings.deepseek_api_key.strip() if settings.deepseek_api_key else ""
         return "openai", settings.llm_base_url, api_key, settings.llm_model
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
     def chat(
         self,
         system_prompt: str,
@@ -75,6 +75,23 @@ class LLMClient:
         :param timeout: 超时时间（秒）
         :return: LLM 生成的完整回复
         """
+        # 闸门包在被 @retry 装饰的方法外面一层：_chat_with_retry 的重试
+        # 装饰器没有白名单也没有 reraise=True，如果闸门在里面，
+        # ModelCallAdmissionTimeout 会被盲目重试 3 次、最后包成不可辨识的
+        # tenacity.RetryError。
+        # TODO(后续批次): 视情况引入"排队等待 + SDK 超时"的统一剩余 deadline 传播。
+        with acquire_model_call_slot("llm_chat"):
+            return self._chat_with_retry(system_prompt, user_prompt, temperature, max_tokens, timeout)
+
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
+    def _chat_with_retry(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int,
+        timeout: float,
+    ) -> str:
         protocol, base_url, api_key, model = self._resolve_provider()
         started = time.perf_counter()
         if protocol == "anthropic":
@@ -111,7 +128,12 @@ class LLMClient:
             stream_fn = _anthropic_stream_chat
         else:
             stream_fn = _openai_stream_chat
-        yield from stream_fn(base_url, api_key, model, system_prompt, user_prompt, temperature, max_tokens, timeout)
+        # 闸门包在整个生成器体外面，让名额横跨整个 SSE 生成周期——不是只
+        # 包住建立连接那一下。生成器的 with 块在正常耗尽、抛异常、或被
+        # 外部 .close() 时都会执行 __exit__，这是后续取消传播能正确释放
+        # 名额的关键。
+        with acquire_model_call_slot("llm_stream"):
+            yield from stream_fn(base_url, api_key, model, system_prompt, user_prompt, temperature, max_tokens, timeout)
 
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         logger.info("LLM stream 完成 (%sms, protocol=%s, model=%s)", elapsed_ms, protocol, model)
@@ -263,10 +285,14 @@ class EmbeddingClient:
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         from app.core.config import require_dashscope_key
         key = require_dashscope_key()
-        resp = TextEmbedding.call(
-            model=settings.embedding_model, input=texts, api_key=key,
-            dimension=EMBEDDING_DIMENSION, request_timeout=30,
-        )
+        # ModelCallAdmissionTimeout 不在下面的 retry 白名单里，会立即
+        # 原样传播，不会被这个方法自己的 @retry 盲目重试。
+        # TODO(后续批次): 视情况引入"排队等待 + SDK 超时"的统一剩余 deadline 传播。
+        with acquire_model_call_slot("embedding"):
+            resp = TextEmbedding.call(
+                model=settings.embedding_model, input=texts, api_key=key,
+                dimension=EMBEDDING_DIMENSION, request_timeout=30,
+            )
         if resp.status_code != 200:
             error_type = (_TransientEmbeddingError if resp.status_code in (408, 429, 500, 502, 503, 504)
                           else RuntimeError)

@@ -93,6 +93,22 @@ class Settings(BaseSettings):
     vision_request_timeout_seconds: float = Field(default=30.0, ge=5.0, le=120.0)
     """单次 Qwen-VL 调用的请求超时（秒）；SDK 默认 300s 对逐图循环里的单次调用来说太长"""
 
+    # ===== 模型调用资源治理 =====
+    model_call_max_concurrency: int = Field(default=4, ge=1, le=16)
+    """
+    进程级模型调用并发上限（LLM chat/stream + Embedding + Vision 共用一个闸门）。
+    入库流水线最多 3 个工作线程，加上任意数量并发的 /ask、/ask/stream 请求，
+    超过此值的新调用会排队等待，不会无限叠加对上游供应商的并发请求数。
+    """
+
+    model_call_admission_timeout_seconds: float = Field(default=30.0, ge=1.0, le=300.0)
+    """
+    等待获取模型调用名额的最长时间（秒）；超时抛出 ModelCallAdmissionTimeout。
+    这是"排队等待名额"的超时，和各调用自己的网络请求超时（如上面的
+    vision_request_timeout_seconds）相互独立，不会因为排队超时而额外触发
+    底层 SDK 的网络重试。
+    """
+
     # ===== 检索参数 =====
     retrieval_top_k: int = Field(default=8, ge=1, le=50)
     """最终返回的检索结果数量"""
