@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId } from 'react';
 import * as api from '../api';
 import { useI18n } from '../i18n';
+import Dialog from './ui/Dialog';
 
 interface Props {
   onClose: () => void;
@@ -27,6 +28,7 @@ export default function BuildConfirmModal({
   platform,
 }: Props) {
   const { t } = useI18n();
+  const titleId = useId();
   const [items, setItems] = useState<api.VideoItem[]>([]);
   const [stats, setStats] = useState<{ total: number; video_count: number; note_count: number }>({
     total: pendingCount,
@@ -183,12 +185,17 @@ export default function BuildConfirmModal({
   const hasSelection = selectedCount > 0;
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 animate-fadeIn" onClick={onClose}>
-      <div className="bg-[var(--color-panel)] rounded-2xl w-[530px] max-h-[85vh] flex flex-col shadow-2xl border border-[var(--color-border)]" onClick={e => e.stopPropagation()}>
+    <Dialog
+      onClose={onClose}
+      labelledBy={titleId}
+      closeOnBackdropClick={!building}
+      closeOnEscape={!building}
+      className="bg-[var(--color-panel)] rounded-2xl w-[530px] max-h-[85vh] flex flex-col shadow-2xl border border-[var(--color-border)] animate-fadeIn"
+    >
         {/* Header */}
         <div className="px-6 pt-5 pb-3">
           <div className="flex items-center justify-between">
-            <h2 className="font-display text-lg font-bold text-[var(--color-ink)] flex items-center gap-2">
+            <h2 id={titleId} className="font-display text-lg font-bold text-[var(--color-ink)] flex items-center gap-2">
               <span>🚀</span> {t('confirmBuild')}
               {collectionTitle && (
                 <span className="text-xs font-normal px-2 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/20">
@@ -196,7 +203,7 @@ export default function BuildConfirmModal({
                 </span>
               )}
             </h2>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-sm cursor-pointer p-1">✕</button>
+            <button onClick={onClose} aria-label={t('close')} className="text-gray-400 hover:text-gray-600 text-sm cursor-pointer p-1">✕</button>
           </div>
           <p className="text-xs text-[var(--color-ink-muted)] mt-1">
             {t('buildPipelineDesc')}
@@ -417,7 +424,6 @@ export default function BuildConfirmModal({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

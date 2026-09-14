@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useId, useRef } from 'react';
 import * as api from '../api';
 import { useI18n } from '../i18n';
+import Dialog from './ui/Dialog';
 
 interface Props {
   onClose: () => void;
@@ -10,6 +11,7 @@ interface Props {
 
 export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douyin' }: Props) {
   const { t } = useI18n();
+  const titleId = useId();
   const [platform, setPlatform] = useState<'douyin' | 'bilibili'>(initialPlatform);
 
   // Douyin state
@@ -259,11 +261,11 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
   };
 
   return (
-    <div className="fixed inset-0 bg-black/45 flex items-center justify-center z-50 backdrop-blur-xs p-4 animate-fade-in" onClick={handleClose}>
-      <div
-        className="bg-[var(--color-panel)] rounded-2xl p-7 w-full max-w-[420px] flex flex-col items-center gap-4 shadow-2xl border border-[var(--color-border)] animate-scale-up"
-        onClick={e => e.stopPropagation()}
-      >
+    <Dialog
+      onClose={handleClose}
+      labelledBy={titleId}
+      className="bg-[var(--color-panel)] rounded-2xl p-7 w-full max-w-[420px] flex flex-col items-center gap-4 shadow-2xl border border-[var(--color-border)] animate-scale-up"
+    >
         {/* Platform Switcher Tabs */}
         <div className="w-full flex items-center bg-black/5 p-1 rounded-xl">
           <button
@@ -303,7 +305,7 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
         </div>
 
         {/* Modal Title */}
-        <h2 className="font-display text-lg font-bold text-[var(--color-ink)] text-center">
+        <h2 id={titleId} className="font-display text-lg font-bold text-[var(--color-ink)] text-center">
           {platform === 'douyin' ? (
             dyStatus === 'success'
               ? t('loginSuccessDone')
@@ -558,7 +560,6 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
         >
           {(platform === 'douyin' ? (dyStatus === 'success' || dyStatus === 'syncing') : biliStatus === 'success') ? t('close') : t('cancelLogin')}
         </button>
-      </div>
-    </div>
+    </Dialog>
   );
 }

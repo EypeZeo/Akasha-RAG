@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useId, useRef } from 'react';
 import { useI18n, SupportedLang } from '../i18n';
 import * as api from '../api';
 import {
@@ -9,6 +9,7 @@ import {
   THEME_OPTIONS,
   type ThemeId,
 } from '../utils/settings';
+import Dialog from './ui/Dialog';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -105,6 +106,7 @@ export default function SettingsModal({
   onAccountsChanged,
 }: SettingsModalProps) {
   const { lang, setLang, t, languages } = useI18n();
+  const titleId = useId();
   const [openingLogs, setOpeningLogs] = useState(false);
   const [platforms, setPlatforms] = useState<api.PlatformInfo[]>([]);
   const [loadingPlatforms, setLoadingPlatforms] = useState(false);
@@ -274,13 +276,11 @@ export default function SettingsModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-xs p-4 animate-fade-in"
-      onClick={e => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Dialog
+      onClose={onClose}
+      labelledBy={titleId}
+      className="bg-white rounded-2xl shadow-2xl border border-[var(--color-border)] w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden"
     >
-      <div className="bg-white rounded-2xl shadow-2xl border border-[var(--color-border)] w-full max-w-xl max-h-[90vh] flex flex-col overflow-hidden animate-scale-up">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)] bg-gray-50/50 flex-shrink-0">
           <div className="flex items-center gap-2.5">
@@ -292,7 +292,7 @@ export default function SettingsModal({
               </svg>
             </div>
             <div>
-              <h2 className="text-base font-bold text-[var(--color-ink)]">{t('settingsTitle')}</h2>
+              <h2 id={titleId} className="text-base font-bold text-[var(--color-ink)]">{t('settingsTitle')}</h2>
               <span className="text-[11px] text-[var(--color-ink-muted)]">Akasha-RAG</span>
             </div>
           </div>
@@ -851,7 +851,6 @@ export default function SettingsModal({
             {t('close')}
           </button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }

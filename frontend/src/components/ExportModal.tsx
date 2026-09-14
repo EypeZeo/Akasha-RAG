@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import * as api from '../api';
 import { useI18n } from '../i18n';
+import Dialog from './ui/Dialog';
 
 const EXPORT_DIR_KEY = 'akasha:exportDir';
 
@@ -14,6 +15,7 @@ interface Props {
 
 export default function ExportModal({ onClose, onExportStarted, collectionId, collectionTitle, doneCount }: Props) {
   const { t } = useI18n();
+  const titleId = useId();
   const [scope, setScope] = useState<'current' | 'all'>('current');
   const [contentType, setContentType] = useState<'both' | 'ai' | 'original'>('both');
   const [format, setFormat] = useState<'markdown' | 'word' | 'excel' | 'ppt' | 'pdf'>('word');
@@ -81,15 +83,20 @@ export default function ExportModal({ onClose, onExportStarted, collectionId, co
   const isZipSupported = ['markdown', 'word', 'pdf'].includes(format);
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-[var(--color-panel)] rounded-2xl w-full max-w-lg shadow-2xl flex flex-col border border-[var(--color-border)] overflow-hidden" onClick={e => e.stopPropagation()}>
+    <Dialog
+      onClose={onClose}
+      labelledBy={titleId}
+      closeOnBackdropClick={!exporting}
+      closeOnEscape={!exporting}
+      className="bg-[var(--color-panel)] rounded-2xl w-full max-w-lg shadow-2xl flex flex-col border border-[var(--color-border)] overflow-hidden"
+    >
         {/* Header */}
         <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between bg-white/70">
           <div className="flex items-center gap-2">
             <span className="text-xl">📦</span>
-            <h2 className="text-base font-bold text-[var(--color-ink)]">{t('exportModalTitle')}</h2>
+            <h2 id={titleId} className="text-base font-bold text-[var(--color-ink)]">{t('exportModalTitle')}</h2>
           </div>
-          <button onClick={onClose} className="text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] p-1 rounded-lg">✕</button>
+          <button onClick={onClose} aria-label={t('close')} className="text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] p-1 rounded-lg">✕</button>
         </div>
 
         {/* Body */}
@@ -315,7 +322,6 @@ export default function ExportModal({ onClose, onExportStarted, collectionId, co
             )}
           </button>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
