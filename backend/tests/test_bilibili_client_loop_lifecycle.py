@@ -26,12 +26,15 @@ def isolated_client(monkeypatch):
 
 
 def test_get_client_does_not_leak_across_destroyed_loops(isolated_client):
-    client_ids_seen = []
+    clients_seen = []
 
     def _run_and_capture():
         async def _inner():
             c = isolated_client._get_client()
-            client_ids_seen.append(id(c))
+            # Keep the instance alive until the comparison below.  Comparing
+            # ``id()`` after the first local has been released is itself
+            # flaky: CPython is allowed to reuse that memory address.
+            clients_seen.append(c)
         asyncio.run(_inner())
 
     _run_and_capture()
@@ -40,7 +43,7 @@ def test_get_client_does_not_leak_across_destroyed_loops(isolated_client):
 
     # 两次拿到的必须是不同的 client 实例（第二个循环不该命中第一个循环
     # 遗留下来的、已经绑定在一个已关闭循环上的 client）。
-    assert client_ids_seen[0] != client_ids_seen[1]
+    assert clients_seen[0] is not clients_seen[1]
     # 弱引用字典应该已经把第一个循环的条目自动清掉，不会无限堆积。
     assert len(isolated_client._clients) <= 1
 
@@ -59,16 +62,18 @@ def test_aclose_closes_every_cached_client_and_clears_caches(isolated_client):
 
 def test_wbi_lock_does_not_leak_across_destroyed_loops():
     signer = WbiSigner()
-    lock_ids_seen = []
+    locks_seen = []
 
     def _run_and_capture():
         async def _inner():
-            lock_ids_seen.append(id(signer._lock_for_current_loop()))
+            # See the matching client test above: retain both locks so this
+            # test verifies object identity rather than allocator reuse.
+            locks_seen.append(signer._lock_for_current_loop())
         asyncio.run(_inner())
 
     _run_and_capture()
     gc.collect()
     _run_and_capture()
 
-    assert lock_ids_seen[0] != lock_ids_seen[1]
+    assert locks_seen[0] is not locks_seen[1]
     assert len(signer._locks) <= 1

@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.db.session import get_db
 from app.models.entities import CollectionItemRelation, ContentItem, FavoriteCollection, VideoCache
@@ -300,6 +301,21 @@ async def clear_all_knowledge(
     清理 ChromaDB 向量库、重置所有/指定收藏夹 VideoCache 为 pending 状态，
     清空转写文本及缓存音频文件。
     """
+    if worker.has_active_tasks():
+        # 入库流水线用一次比较并置换的 SQL 认领条目后，从不再检查这条记录
+        # 是否被清空操作重置过——如果这里在有活跃任务时继续执行，worker
+        # 线程稍后仍会把向量写进刚清空重建的 Chroma 集合，而 DB 那边已经
+        # 被这次清空重置成 pending，两边状态不一致。和 reset_failed_videos
+        # 用的是同一条防线。
+        return {
+            "success": False,
+            "message": "入库任务仍在执行或排队，请等待任务结束后清空",
+            "chroma_cleared": False,
+        }
+    return await run_in_threadpool(_clear_all_knowledge_sync, db, body)
+
+
+def _clear_all_knowledge_sync(db: Session, body: ClearAllRequest) -> dict:
     from sqlalchemy import update as sql_update
     from app.services.chroma_service import get_chroma_service
 

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.db.session import get_db
 from app.services.rag_service import rag_service
@@ -52,8 +53,8 @@ async def chat_ask(
     :return: 完整回答 + 来源信息 + 会话 ID
     """
     try:
-        result = rag_service.answer(
-            db, body.query, body.session_id, body.collection_id, platform=body.platform
+        result = await run_in_threadpool(
+            rag_service.answer, db, body.query, body.session_id, body.collection_id, platform=body.platform
         )
         return {"success": True, **result}
     except Exception as exc:
