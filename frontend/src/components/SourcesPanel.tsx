@@ -125,6 +125,7 @@ export default function SourcesPanel({
       if (p.status === 'done' || p.status === 'failed') {
         stopExportPoll();
         if (p.status === 'done' && mode === 'browser') triggerBrowserDownload(taskId);
+        if (p.status === 'failed') console.error('Export failed:', p.message);
       }
     } catch { /* 网络抖动，下次再试 */ }
   }, [stopExportPoll, triggerBrowserDownload, t]);
@@ -1090,7 +1091,7 @@ export default function SourcesPanel({
             )}
 
             {exportTask.status === 'failed' && (
-              <p className="text-[11px] text-red-600 break-all">{exportTask.message}</p>
+              <p className="text-[11px] text-red-600 break-all">{t('exportFailedRetry')}</p>
             )}
           </div>
         )}

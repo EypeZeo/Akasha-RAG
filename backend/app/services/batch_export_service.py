@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.entities import FavoriteVideo, VideoCache
+from app.services.export_common import display_author, display_link
 from app.services.markdown_export import export_ai_organized, export_original
 
 logger = logging.getLogger(__name__)
@@ -259,12 +260,12 @@ class BatchExportService:
     # Markdown 导出
     # -------------------------------------------------------------
     def _render_item_markdown(self, cache: VideoCache, fv: Optional[FavoriteVideo], content_type: str) -> str:
-        author = fv.author if fv and fv.author else "未知"
+        author = display_author(fv)
         lines = [
             f"# {cache.title}",
             "",
             f"- **视频作者**：{author}",
-            f"- **视频链接**：https://www.douyin.com/video/{cache.platform_item_id}",
+            f"- **视频链接**：{display_link(fv)}",
             f"- **导出时间**：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             "",
         ]
@@ -355,8 +356,8 @@ class BatchExportService:
         font_body = Font(name="微软雅黑", size=10)
 
         for idx, (cache, fv) in enumerate(items, 1):
-            author = fv.author if fv and fv.author else "未知"
-            url = f"https://www.douyin.com/video/{cache.platform_item_id}"
+            author = display_author(fv)
+            url = display_link(fv)
             time_str = cache.updated_at.strftime("%Y-%m-%d %H:%M") if cache.updated_at else ""
 
             row_data = [idx, cache.platform_item_id, cache.title, author, url, time_str]
@@ -439,14 +440,14 @@ class BatchExportService:
         doc.add_paragraph()
 
         for idx, (cache, fv) in enumerate(items, 1):
-            author = fv.author if fv and fv.author else "未知"
+            author = display_author(fv)
             doc.add_heading(f"{idx}. {cache.title}", level=1)
 
             table = doc.add_table(rows=2, cols=2)
             table.style = "Table Grid"
             table.cell(0, 0).text = f"作者: {author}"
             table.cell(0, 1).text = f"视频ID: {cache.platform_item_id}"
-            table.cell(1, 0).text = f"链接: https://www.douyin.com/video/{cache.platform_item_id}"
+            table.cell(1, 0).text = f"链接: {display_link(fv)}"
             table.cell(1, 1).text = f"导出时间: {datetime.now().strftime('%Y-%m-%d')}"
 
             doc.add_paragraph()
@@ -482,10 +483,10 @@ class BatchExportService:
         with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for idx, (cache, fv) in enumerate(items, 1):
                 doc = Document()
-                author = fv.author if fv and fv.author else "未知"
+                author = display_author(fv)
                 doc.add_heading(cache.title, level=0)
 
-                doc.add_paragraph(f"作者: {author}  |  链接: https://www.douyin.com/video/{cache.platform_item_id}")
+                doc.add_paragraph(f"作者: {author}  |  链接: {display_link(fv)}")
                 doc.add_paragraph("---")
 
                 if content_type in ("ai", "both"):
@@ -535,7 +536,7 @@ class BatchExportService:
         p2.font.size = Pt(18)
 
         for idx, (cache, fv) in enumerate(items, 1):
-            author = fv.author if fv and fv.author else "未知"
+            author = display_author(fv)
             slide = prs.slides.add_slide(blank_layout)
 
             title_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.5), Inches(11.7), Inches(1.0))
@@ -546,7 +547,7 @@ class BatchExportService:
             p_t.font.bold = True
 
             p_sub = tf_title.add_paragraph()
-            p_sub.text = f"作者: {author}  |  链接: https://www.douyin.com/video/{cache.platform_item_id}"
+            p_sub.text = f"作者: {author}  |  链接: {display_link(fv)}"
             p_sub.font.size = Pt(12)
 
             content_box = slide.shapes.add_textbox(Inches(0.8), Inches(1.8), Inches(11.7), Inches(5.0))
@@ -580,6 +581,16 @@ class BatchExportService:
     # -------------------------------------------------------------
     # PDF 导出 (.pdf)
     # -------------------------------------------------------------
+    @staticmethod
+    def _pdf_safe(text) -> str:
+        """reportlab 的 Paragraph 把输入当成一段 mini-XML 解析（<b>/<br/> 等），
+        不是纯文本。标题、作者、链接、AI 整理正文、原始转写正文都是用户/模型
+        生成的自由文本，可能包含 &、<、> 或恰好撞上 reportlab 标签语法的子串，
+        转义前先把 None/非字符串规整成字符串。"""
+        from xml.sax.saxutils import escape as xml_escape
+
+        return xml_escape(str(text) if text is not None else "")
+
     def _export_pdf(self, items: list, content_type: str) -> io.BytesIO:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -630,9 +641,12 @@ class BatchExportService:
         ]
 
         for idx, (cache, fv) in enumerate(items, 1):
-            author = fv.author if fv and fv.author else "未知"
-            story.append(Paragraph(f"{idx}. {cache.title}", h1_style))
-            story.append(Paragraph(f"作者: {author}  |  链接: https://www.douyin.com/video/{cache.platform_item_id}", meta_style))
+            author = display_author(fv)
+            safe_title = self._pdf_safe(cache.title)
+            safe_author = self._pdf_safe(author)
+            safe_link = self._pdf_safe(display_link(fv))
+            story.append(Paragraph(f"{idx}. {safe_title}", h1_style))
+            story.append(Paragraph(f"作者: {safe_author}  |  链接: {safe_link}", meta_style))
             story.append(Spacer(1, 8))
 
             if content_type in ("ai", "both"):
@@ -643,7 +657,7 @@ class BatchExportService:
                     ai_text = "暂无 AI 整理内容"
                 for line in ai_text.split("\n"):
                     if line.strip():
-                        story.append(Paragraph(line.strip(), body_style))
+                        story.append(Paragraph(self._pdf_safe(line.strip()), body_style))
                         story.append(Spacer(1, 3))
                 story.append(Spacer(1, 8))
 
@@ -652,7 +666,7 @@ class BatchExportService:
                 orig = (cache.transcript_text or "").strip()
                 for line in orig.split("\n"):
                     if line.strip():
-                        story.append(Paragraph(line.strip(), body_style))
+                        story.append(Paragraph(self._pdf_safe(line.strip()), body_style))
                         story.append(Spacer(1, 3))
 
             story.append(Spacer(1, 15))
