@@ -204,6 +204,65 @@ class TestDbContentRoutingIsUnifiedAcrossAskAndStream:
         assert recorded_calls == ["db_content", "db_content"]
 
 
+class TestAnswerStreamExplicitGeneratorCleanup:
+    """PR2B-5: answer_stream 必须显式 close 内层 stream_chat 生成器，不能
+    只靠 CPython 引用计数回收时机来触发它的 close()（进而释放模型调用
+    闸门名额）。"""
+
+    def _service_and_db(self, monkeypatch):
+        engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+        Base.metadata.create_all(engine)
+        factory = sessionmaker(engine, expire_on_commit=False)
+        monkeypatch.setattr(rag_module, "get_chroma_service", lambda: Mock(count=lambda: 5))
+        monkeypatch.setattr(RagService, "_retrieve_hits_for_route", lambda *a, **kw: [])
+        return RagService(), factory
+
+    def test_closing_answer_stream_early_closes_the_inner_llm_generator(self, monkeypatch):
+        service, factory = self._service_and_db(monkeypatch)
+
+        inner_state = {"closed": False}
+
+        def fake_stream_chat(**kwargs):
+            try:
+                yield "a"
+                yield "b"
+                yield "c"
+            finally:
+                inner_state["closed"] = True
+
+        monkeypatch.setattr(rag_module.llm_client, "stream_chat", fake_stream_chat)
+
+        with factory() as db:
+            gen = service.answer_stream(db, "总结一下", session_id=None)
+            first = next(gen)  # ("sources", {...})
+            assert first[0] == "sources"
+            second = next(gen)  # ("delta", {"text": "a"})
+            assert second == ("delta", {"text": "a"})
+            assert inner_state["closed"] is False
+
+            gen.close()
+            assert inner_state["closed"] is True
+
+    def test_normal_exhaustion_still_closes_the_inner_generator_without_error(self, monkeypatch):
+        service, factory = self._service_and_db(monkeypatch)
+
+        inner_state = {"closed": False}
+
+        def fake_stream_chat(**kwargs):
+            try:
+                yield "answer text"
+            finally:
+                inner_state["closed"] = True
+
+        monkeypatch.setattr(rag_module.llm_client, "stream_chat", fake_stream_chat)
+
+        with factory() as db:
+            events = list(service.answer_stream(db, "总结一下", session_id=None))
+
+        assert inner_state["closed"] is True
+        assert events[-1][0] == "done"
+
+
 class TestDenseRetrieveEmptyScope:
     """BUG-03: 空 scope（收藏夹存在但没有内容）必须直接返回空，不能退化成全库检索"""
 
