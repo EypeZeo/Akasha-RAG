@@ -2,24 +2,15 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import * as api from '../api';
 import BuildConfirmModal from './BuildConfirmModal';
 import ExportModal from './ExportModal';
+import ExportProgressCard from './ExportProgressCard';
 import ApiKeyMissingModal from './ApiKeyMissingModal';
 import { useI18n } from '../i18n';
 import { VIDEOS_PER_PAGE_OPTIONS } from '../utils/settings';
 import { aggregateSyncCounts, getFailedPlatforms } from '../utils/syncSummary';
 import { useWorkspaceStore } from '../store/workspace';
+import { useExportFlow } from '../hooks/useExportFlow';
 
-const ACTIVE_EXPORT_KEY = 'akasha:active_export';
 const ACTIVE_BUILD_KEY = 'akasha:active_build';
-
-interface ExportTaskState {
-  id: string;
-  mode: 'local' | 'browser';
-  status: 'queued' | 'running' | 'done' | 'failed';
-  progress: number;
-  total: number;
-  message: string;
-  result?: any;
-}
 
 interface Props {
   onBuildDone: () => void;
@@ -58,7 +49,6 @@ export default function SourcesPanel({
   const buildMissesRef = useRef(0);
   const [showBuildConfirm, setShowBuildConfirm] = useState(false);
   const [buildInitialType, setBuildInitialType] = useState<'all' | 'video' | 'note'>('all');
-  const [showExportModal, setShowExportModal] = useState(false);
   const [showApiKeyMissing, setShowApiKeyMissing] = useState(false);
 
   // 展开收藏夹与分页
@@ -79,88 +69,15 @@ export default function SourcesPanel({
   const [clearing, setClearing] = useState(false);
 
   // 批量导出后台任务（进度常驻，弹窗关 / F5 刷新都能恢复）
-  const [exportTask, setExportTask] = useState<ExportTaskState | null>(null);
-  const exportPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const exportDownloadedRef = useRef<string | null>(null);
-
-  const stopExportPoll = useCallback(() => {
-    if (exportPollRef.current) {
-      clearInterval(exportPollRef.current);
-      exportPollRef.current = null;
-    }
-  }, []);
-
-  const triggerBrowserDownload = useCallback((taskId: string) => {
-    if (exportDownloadedRef.current === taskId) return;
-    exportDownloadedRef.current = taskId;
-    const a = document.createElement('a');
-    a.href = api.exportDownloadUrl(taskId);
-    a.download = '';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }, []);
-
-  const pollExportOnce = useCallback(async (taskId: string, mode: 'local' | 'browser') => {
-    try {
-      const p = await api.getExportProgress(taskId);
-      if (!p || p.success === false) {
-        // 任务已过期/不存在
-        stopExportPoll();
-        setExportTask(null);
-        try {
-          localStorage.removeItem(ACTIVE_EXPORT_KEY);
-        } catch { /* ignore */ }
-        return;
-      }
-      setExportTask({
-        id: taskId,
-        mode,
-        status: (p.status as ExportTaskState['status']) || 'running',
-        progress: p.progress || 0,
-        total: p.total || 0,
-        message: t('exporting'),
-        result: p.result,
-      });
-      if (p.status === 'done' || p.status === 'failed') {
-        stopExportPoll();
-        if (p.status === 'done' && mode === 'browser') triggerBrowserDownload(taskId);
-        if (p.status === 'failed') console.error('Export failed:', p.message);
-      }
-    } catch { /* 网络抖动，下次再试 */ }
-  }, [stopExportPoll, triggerBrowserDownload, t]);
-
-  const startExportPolling = useCallback((taskId: string, mode: 'local' | 'browser') => {
-    stopExportPoll();
-    exportDownloadedRef.current = null;
-    setExportTask({ id: taskId, mode, status: 'queued', progress: 0, total: 0, message: t('exportQueued') });
-    try { localStorage.setItem(ACTIVE_EXPORT_KEY, JSON.stringify({ id: taskId, mode })); } catch { /* ignore */ }
-    pollExportOnce(taskId, mode);
-    exportPollRef.current = setInterval(() => pollExportOnce(taskId, mode), 1500);
-  }, [stopExportPoll, pollExportOnce, t]);
-
-  const dismissExportCard = useCallback(() => {
-    stopExportPoll();
-    setExportTask(null);
-    try {
-      localStorage.removeItem(ACTIVE_EXPORT_KEY);
-    } catch { /* ignore */ }
-  }, [stopExportPoll]);
-
-  // F5 刷新后恢复未完成的导出任务
-  useEffect(() => {
-    let saved: { id: string; mode: 'local' | 'browser' } | null = null;
-    try {
-      const raw = localStorage.getItem(ACTIVE_EXPORT_KEY);
-      if (raw) saved = JSON.parse(raw);
-    } catch { /* ignore */ }
-    if (saved?.id) {
-      exportDownloadedRef.current = saved.id; // 恢复时不自动重下，交给用户点按钮
-      pollExportOnce(saved.id, saved.mode);
-      exportPollRef.current = setInterval(() => pollExportOnce(saved!.id, saved!.mode), 1500);
-    }
-    return () => stopExportPoll();
-  }, [pollExportOnce, stopExportPoll]);
+  const {
+    exportTask,
+    showExportModal,
+    openExportModal,
+    closeExportModal,
+    startExportPolling,
+    dismissExportCard,
+    triggerBrowserDownload,
+  } = useExportFlow(t);
 
   // 搜索框 300ms (0.3s) 防抖优化
   useEffect(() => {
@@ -617,7 +534,7 @@ export default function SourcesPanel({
           </div>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => setShowExportModal(true)}
+              onClick={() => openExportModal()}
               disabled={doneCount === 0}
               className="group flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-accent bg-accent/10 hover:bg-accent/18 active:scale-95 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-accent/10 shadow-2xs cursor-pointer"
               title={t('batchExportTooltip')}
@@ -1022,79 +939,7 @@ export default function SourcesPanel({
         <div className="gradient-divider my-1" />
 
         {/* 批量导出进度卡（弹窗关闭 / 刷新页面仍可见） */}
-        {exportTask && (
-          <div className="flex flex-col gap-2 p-3 rounded-xl border border-accent/30 bg-accent-light/60">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-accent">
-                📤 {exportTask.status === 'done' ? t('exportDone') : exportTask.status === 'failed' ? t('exportFailed') : t('exportProgress')}
-              </span>
-              <button
-                onClick={dismissExportCard}
-                className="text-[11px] text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] cursor-pointer"
-                title={t('close')}
-              >
-                ✕
-              </button>
-            </div>
-
-            {exportTask.status !== 'done' && exportTask.status !== 'failed' && (
-              <>
-                <p className="text-[11px] text-[var(--color-ink)] truncate">{exportTask.message}</p>
-                <div className="h-2 rounded-full bg-black/5 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-accent to-amber transition-all duration-500"
-                    style={{ width: `${exportTask.total ? (exportTask.progress / exportTask.total) * 100 : 15}%` }}
-                  />
-                </div>
-                {exportTask.total > 0 && (
-                  <div className="text-[11px] text-[var(--color-ink-soft)] font-medium">
-                    {exportTask.progress} / {exportTask.total}
-                  </div>
-                )}
-              </>
-            )}
-
-            {exportTask.status === 'done' && (
-              <div className="flex flex-col gap-1.5">
-                <p className="text-[11px] text-[var(--color-ink-soft)]">
-                  {exportTask.mode === 'local'
-                    ? (exportTask.result?.message || t('savedToLocalDir'))
-                    : t('fileGeneratedCanDownload')}
-                </p>
-                <div className="flex gap-1.5">
-                  {exportTask.mode === 'browser' ? (
-                    <button
-                      onClick={() => triggerBrowserDownload(exportTask.id)}
-                      className="flex-1 py-1.5 rounded-lg text-[11px] font-medium bg-accent text-white hover:opacity-90 cursor-pointer"
-                    >
-                      {t('downloadOrRedownload')}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        const dir = exportTask.result?.target_dir;
-                        if (dir) api.openLocalFolder('custom', dir).catch(() => {});
-                      }}
-                      className="flex-1 py-1.5 rounded-lg text-[11px] font-medium bg-accent text-white hover:opacity-90 cursor-pointer"
-                    >
-                      {t('openFolder')}
-                    </button>
-                  )}
-                  <button
-                    onClick={dismissExportCard}
-                    className="px-3 py-1.5 rounded-lg text-[11px] text-[var(--color-ink-soft)] border border-[var(--color-border)] hover:bg-black/5 cursor-pointer"
-                  >
-                    {t('close')}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {exportTask.status === 'failed' && (
-              <p className="text-[11px] text-red-600 break-all">{t('exportFailedRetry')}</p>
-            )}
-          </div>
-        )}
+        <ExportProgressCard exportTask={exportTask} onDismiss={dismissExportCard} onDownload={triggerBrowserDownload} />
 
         {/* Build & Clear Section */}
         <div className="flex flex-col gap-2.5">
@@ -1217,7 +1062,7 @@ export default function SourcesPanel({
                   <span>{t('oneClickIngest')} ({pendingCount})</span>
                 </button>
                 <button
-                  onClick={() => setShowExportModal(true)}
+                  onClick={() => openExportModal()}
                   disabled={doneCount === 0}
                   className="group py-2.5 rounded-xl border border-accent/35 bg-accent-light hover:bg-accent/20 text-accent text-xs font-bold transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
                 >
@@ -1292,7 +1137,7 @@ export default function SourcesPanel({
           collectionId={expandedId || selectedId}
           collectionTitle={currentTitle}
           doneCount={doneCount}
-          onClose={() => setShowExportModal(false)}
+          onClose={closeExportModal}
           onExportStarted={(taskId, mode) => startExportPolling(taskId, mode)}
         />
       )}
