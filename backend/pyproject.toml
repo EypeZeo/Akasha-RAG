@@ -1,6 +1,6 @@
 [project]
 name = "akasha-rag"
-version = "1.0.1"
+version = "1.1.0"
 description = "Akasha-RAG · 多平台收藏夹 RAG 知识库"
 requires-python = ">=3.12"
 dependencies = [
