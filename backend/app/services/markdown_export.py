@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.entities import VideoCache
+from app.services.export_common import display_author, display_link
 from app.services.llm_service import llm_client
 
 logger = logging.getLogger(__name__)
@@ -46,8 +47,8 @@ def export_original(video: VideoCache) -> str:
     lines = [
         f"# {video.title}",
         "",
-        f"> 作者：{video.platform_item_id}",
-        f"> 链接：https://www.douyin.com/video/{video.platform_item_id}",
+        f"> 作者：{display_author(video.content_item)}",
+        f"> 链接：{display_link(video.content_item)}",
         f"> 导出时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         "",
         "---",
@@ -100,8 +101,8 @@ def export_ai_organized(
     lines = [
         f"# {video.title}",
         "",
-        f"> 作者：{video.platform_item_id}",
-        f"> 链接：https://www.douyin.com/video/{video.platform_item_id}",
+        f"> 作者：{display_author(video.content_item)}",
+        f"> 链接：{display_link(video.content_item)}",
         f"> 导出时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         "",
         "---",
