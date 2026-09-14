@@ -96,7 +96,7 @@ export default function ExportModal({ onClose, onExportStarted, collectionId, co
             <span className="text-xl">📦</span>
             <h2 id={titleId} className="text-base font-bold text-[var(--color-ink)]">{t('exportModalTitle')}</h2>
           </div>
-          <button onClick={onClose} className="text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] p-1 rounded-lg">✕</button>
+          <button onClick={onClose} aria-label={t('close')} className="text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] p-1 rounded-lg">✕</button>
         </div>
 
         {/* Body */}

@@ -203,7 +203,7 @@ export default function BuildConfirmModal({
                 </span>
               )}
             </h2>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-sm cursor-pointer p-1">✕</button>
+            <button onClick={onClose} aria-label={t('close')} className="text-gray-400 hover:text-gray-600 text-sm cursor-pointer p-1">✕</button>
           </div>
           <p className="text-xs text-[var(--color-ink-muted)] mt-1">
             {t('buildPipelineDesc')}

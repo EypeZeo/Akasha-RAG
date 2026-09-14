@@ -839,7 +839,7 @@ export default function SourcesPanel({
                               className="w-full text-xs px-2.5 py-1 pr-6 rounded-lg bg-white/70 border border-[var(--color-border)] focus:outline-none focus:border-accent text-[var(--color-ink)] placeholder-[var(--color-ink-muted)]"
                             />
                             {videoSearch && (
-                              <button onClick={() => setVideoSearch('')} className="absolute right-2 top-1 text-[10px] text-gray-400 cursor-pointer">✕</button>
+                              <button onClick={() => setVideoSearch('')} aria-label={t('clear')} className="absolute right-2 top-1 text-[10px] text-gray-400 cursor-pointer">✕</button>
                             )}
                           </div>
                         </div>
