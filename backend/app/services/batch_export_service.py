@@ -581,6 +581,16 @@ class BatchExportService:
     # -------------------------------------------------------------
     # PDF 导出 (.pdf)
     # -------------------------------------------------------------
+    @staticmethod
+    def _pdf_safe(text) -> str:
+        """reportlab 的 Paragraph 把输入当成一段 mini-XML 解析（<b>/<br/> 等），
+        不是纯文本。标题、作者、链接、AI 整理正文、原始转写正文都是用户/模型
+        生成的自由文本，可能包含 &、<、> 或恰好撞上 reportlab 标签语法的子串，
+        转义前先把 None/非字符串规整成字符串。"""
+        from xml.sax.saxutils import escape as xml_escape
+
+        return xml_escape(str(text) if text is not None else "")
+
     def _export_pdf(self, items: list, content_type: str) -> io.BytesIO:
         from reportlab.lib.pagesizes import A4
         from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -632,8 +642,11 @@ class BatchExportService:
 
         for idx, (cache, fv) in enumerate(items, 1):
             author = display_author(fv)
-            story.append(Paragraph(f"{idx}. {cache.title}", h1_style))
-            story.append(Paragraph(f"作者: {author}  |  链接: {display_link(fv)}", meta_style))
+            safe_title = self._pdf_safe(cache.title)
+            safe_author = self._pdf_safe(author)
+            safe_link = self._pdf_safe(display_link(fv))
+            story.append(Paragraph(f"{idx}. {safe_title}", h1_style))
+            story.append(Paragraph(f"作者: {safe_author}  |  链接: {safe_link}", meta_style))
             story.append(Spacer(1, 8))
 
             if content_type in ("ai", "both"):
@@ -644,7 +657,7 @@ class BatchExportService:
                     ai_text = "暂无 AI 整理内容"
                 for line in ai_text.split("\n"):
                     if line.strip():
-                        story.append(Paragraph(line.strip(), body_style))
+                        story.append(Paragraph(self._pdf_safe(line.strip()), body_style))
                         story.append(Spacer(1, 3))
                 story.append(Spacer(1, 8))
 
@@ -653,7 +666,7 @@ class BatchExportService:
                 orig = (cache.transcript_text or "").strip()
                 for line in orig.split("\n"):
                     if line.strip():
-                        story.append(Paragraph(line.strip(), body_style))
+                        story.append(Paragraph(self._pdf_safe(line.strip()), body_style))
                         story.append(Spacer(1, 3))
 
             story.append(Spacer(1, 15))
