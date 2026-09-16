@@ -80,8 +80,6 @@ export default function ExportModal({ onClose, onExportStarted, collectionId, co
     }
   };
 
-  const isZipSupported = ['markdown', 'word', 'pdf'].includes(format);
-
   return (
     <Dialog
       onClose={onClose}

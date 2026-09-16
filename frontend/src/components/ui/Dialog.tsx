@@ -102,7 +102,6 @@ export default function Dialog({
     return () => {
       previouslyFocusedRef.current?.focus?.();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

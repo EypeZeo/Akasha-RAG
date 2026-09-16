@@ -235,6 +235,28 @@ export default function SourcesPanel({
     setShowBuildConfirm(true);
   };
 
+  const fetchVideos = useCallback(async (collectionId: string, page: number, size: number, plat?: string) => {
+    setLoadingVideos(true);
+    try {
+      if (page === 1) videoCursorsRef.current = new Map([[1, undefined]]);
+      const activePlat = plat !== undefined ? plat : platformFilter;
+      const r = await api.listCollectionVideos(
+        collectionId, page, size, activePlat, videoCursorsRef.current.get(page),
+      );
+      if (r.success) {
+        setExpandedVideos(r.items);
+        setVideoTotal(r.total);
+        setExpandedVideoCount(r.video_count ?? 0);
+        setExpandedNoteCount(r.note_count ?? 0);
+        setVideoPage(page);
+        if (r.next_cursor) videoCursorsRef.current.set(page + 1, r.next_cursor);
+      }
+    } catch (e) {
+      console.error('加载视频列表失败:', e);
+    }
+    setLoadingVideos(false);
+  }, [platformFilter]);
+
   const stopBuildPoll = useCallback(() => {
     if (buildPollRef.current) {
       clearInterval(buildPollRef.current);
@@ -298,7 +320,7 @@ export default function SourcesPanel({
     };
     tick();
     buildPollRef.current = setInterval(tick, 1500);
-  }, [stopBuildPoll, finishBuild, onBuildDone, fetchStats, expandedId, videoPage, videoPageSize, t]);
+  }, [stopBuildPoll, finishBuild, onBuildDone, fetchStats, fetchVideos, expandedId, videoPage, videoPageSize, t]);
 
   // F5 刷新后恢复未完成的入库任务
   useEffect(() => {
@@ -355,28 +377,6 @@ export default function SourcesPanel({
       console.error('Ingest failed:', e);
       alert(t('operationFailed'));
     }
-  };
-
-  const fetchVideos = async (collectionId: string, page: number, size: number, plat?: string) => {
-    setLoadingVideos(true);
-    try {
-      if (page === 1) videoCursorsRef.current = new Map([[1, undefined]]);
-      const activePlat = plat !== undefined ? plat : platformFilter;
-      const r = await api.listCollectionVideos(
-        collectionId, page, size, activePlat, videoCursorsRef.current.get(page),
-      );
-      if (r.success) {
-        setExpandedVideos(r.items);
-        setVideoTotal(r.total);
-        setExpandedVideoCount(r.video_count ?? 0);
-        setExpandedNoteCount(r.note_count ?? 0);
-        setVideoPage(page);
-        if (r.next_cursor) videoCursorsRef.current.set(page + 1, r.next_cursor);
-      }
-    } catch (e) {
-      console.error('加载视频列表失败:', e);
-    }
-    setLoadingVideos(false);
   };
 
   const handlePlatformChange = (newPlatform: 'all' | 'douyin' | 'bilibili') => {
@@ -463,11 +463,9 @@ export default function SourcesPanel({
 
   const videoDone = stats?.detail?.video?.done ?? 0;
   const videoPending = stats?.detail?.video?.pending ?? 0;
-  const videoFailed = stats?.detail?.video?.failed ?? 0;
 
   const noteDone = stats?.detail?.note?.done ?? 0;
   const notePending = stats?.detail?.note?.pending ?? 0;
-  const noteFailed = stats?.detail?.note?.failed ?? 0;
 
   // 修正总计统计：避免 Object.values 将 total_video / total_note 重复累加导致翻倍
   const totalCount = (totalVideo + totalNote > 0)
