@@ -463,11 +463,9 @@ export default function SourcesPanel({
 
   const videoDone = stats?.detail?.video?.done ?? 0;
   const videoPending = stats?.detail?.video?.pending ?? 0;
-  const videoFailed = stats?.detail?.video?.failed ?? 0;
 
   const noteDone = stats?.detail?.note?.done ?? 0;
   const notePending = stats?.detail?.note?.pending ?? 0;
-  const noteFailed = stats?.detail?.note?.failed ?? 0;
 
   // 修正总计统计：避免 Object.values 将 total_video / total_note 重复累加导致翻倍
   const totalCount = (totalVideo + totalNote > 0)

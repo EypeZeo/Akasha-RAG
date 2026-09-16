@@ -93,7 +93,7 @@ function findSourcesForCitation(title: string, sources?: api.SourceItem[], fallb
 }
 
 function CitationBadge({ index, title, sources, allSources = [], messageKey }: CitationBadgeProps) {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const [showTooltip, setShowTooltip] = useState(false);
   const openTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

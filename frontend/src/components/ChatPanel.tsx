@@ -8,7 +8,7 @@ import { useI18n } from '../i18n';
 import { useWorkspaceStore, type Platform } from '../store/workspace';
 import { isNearBottom } from '../utils/chatScroll';
 import ApiKeyMissingModal from './ApiKeyMissingModal';
-import ChatMessageRow, { type Message, type TraceData } from './ChatMessageRow';
+import ChatMessageRow, { type Message } from './ChatMessageRow';
 
 interface Props {
   collectionId: string;
