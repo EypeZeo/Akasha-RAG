@@ -660,3 +660,150 @@ describe('SourcesPanel clear all knowledge', () => {
     expect(screen.queryByText(TRANSLATIONS.en.cleaning)).toBeNull();
   });
 });
+
+describe('SourcesPanel sync favorites', () => {
+  function noopSync(overrides: Partial<Awaited<ReturnType<typeof api.syncFavorites>>> = {}) {
+    return {
+      success: true,
+      added_videos: 0, removed_videos: 0, added_notes: 0, removed_notes: 0, invalid_count: 0,
+      ...overrides,
+    };
+  }
+
+  it('shows the "up to date" message and still refreshes collections and stats on a no-op sync', async () => {
+    vi.mocked(api.syncFavorites).mockResolvedValue(noopSync());
+
+    setup();
+    const syncBtn = await screen.findByText(TRANSLATIONS.en.sync);
+    await waitFor(() => expect(api.listCollections).toHaveBeenCalledTimes(1));
+    vi.mocked(api.listCollections).mockClear();
+    vi.mocked(api.getKnowledgeStats).mockClear();
+
+    act(() => { syncBtn.click(); });
+
+    await waitFor(() => {
+      expect(window.alert).toHaveBeenCalledWith(TRANSLATIONS.en.syncUpToDate);
+    });
+    expect(api.listCollections).toHaveBeenCalledTimes(1);
+    expect(api.getKnowledgeStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('builds a combined added/removed videos+notes+invalid message for a representative mixed result', async () => {
+    vi.mocked(api.syncFavorites).mockResolvedValue(noopSync({
+      added_videos: 3, removed_videos: 1, added_notes: 2, invalid_count: 1,
+    }));
+
+    setup();
+    const syncBtn = await screen.findByText(TRANSLATIONS.en.sync);
+    act(() => { syncBtn.click(); });
+
+    // Built by hand from the real i18n templates — aggregateSyncCounts' own math is
+    // already covered by syncSummary.test.ts, this only proves handleSync's wiring.
+    const expected = TRANSLATIONS.en.syncSuccessPrefix + [
+      TRANSLATIONS.en.addAndRemoveVideos.replace('{add}', '3').replace('{remove}', '1'),
+      TRANSLATIONS.en.addNotes.replace('{count}', '2'),
+      TRANSLATIONS.en.syncInvalidCount.replace('{count}', '1'),
+    ].join('，');
+
+    await waitFor(() => {
+      expect(window.alert).toHaveBeenCalledWith(expected);
+    });
+  });
+
+  it('appends a per-platform failure suffix naming only the failed platform(s) even though sync overall succeeded', async () => {
+    vi.mocked(api.syncFavorites).mockResolvedValue(noopSync({
+      platform_results: { douyin: { success: true }, bilibili: { success: false } },
+    }));
+
+    setup();
+    const syncBtn = await screen.findByText(TRANSLATIONS.en.sync);
+    act(() => { syncBtn.click(); });
+
+    const expected = TRANSLATIONS.en.syncUpToDate
+      + TRANSLATIONS.en.syncPartialFailureSuffix.replace('{platforms}', TRANSLATIONS.en.platformBilibili);
+    await waitFor(() => {
+      expect(window.alert).toHaveBeenCalledWith(expected);
+    });
+  });
+
+  it('fetches videos for the expanded collection after a successful sync, keeping the current page and explicit platform', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({ success: true, items: [makeVideo({ title: 'V1' })], total: 1 });
+    vi.mocked(api.syncFavorites).mockResolvedValue(noopSync());
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('V1');
+
+    vi.mocked(api.listCollectionVideos).mockClear();
+    const syncBtn = screen.getByText(TRANSLATIONS.en.sync);
+    act(() => { syncBtn.click(); });
+
+    // fetchVideos(expandedId, videoPage, videoPageSize, platformFilter) — unlike
+    // clear-all, sync keeps the current page and passes platform explicitly.
+    await waitFor(() => {
+      expect(api.listCollectionVideos).toHaveBeenCalledWith('col-1', 1, 20, 'all', undefined);
+    });
+  });
+
+  it('does not fetch videos after sync when no collection is expanded', async () => {
+    vi.mocked(api.syncFavorites).mockResolvedValue(noopSync());
+
+    setup();
+    const syncBtn = await screen.findByText(TRANSLATIONS.en.sync);
+    vi.mocked(api.listCollectionVideos).mockClear();
+    act(() => { syncBtn.click(); });
+
+    await waitFor(() => expect(api.syncFavorites).toHaveBeenCalled());
+    expect(api.listCollectionVideos).not.toHaveBeenCalled();
+  });
+
+  it('shows a generic failure alert and logs the backend message, never surfacing it in the UI, when sync reports success:false', async () => {
+    vi.mocked(api.syncFavorites).mockResolvedValue({ success: false, message: 'internal token expired' });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    setup();
+    const syncBtn = await screen.findByText(TRANSLATIONS.en.sync);
+    act(() => { syncBtn.click(); });
+
+    await waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith('Sync failed:', 'internal token expired');
+    });
+    expect(window.alert).toHaveBeenCalledWith(TRANSLATIONS.en.syncFailed);
+    expect(document.body.textContent).not.toContain('internal token expired');
+  });
+
+  it('shows a generic failure alert and logs the thrown error when the sync request rejects', async () => {
+    const rawError = new Error('network down');
+    vi.mocked(api.syncFavorites).mockRejectedValue(rawError);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    setup();
+    const syncBtn = await screen.findByText(TRANSLATIONS.en.sync);
+    act(() => { syncBtn.click(); });
+
+    await waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith('Sync failed:', rawError);
+    });
+    expect(window.alert).toHaveBeenCalledWith(TRANSLATIONS.en.syncFailed);
+  });
+
+  it('disables the Sync button and shows the syncing state while the request is in flight', async () => {
+    const { promise, resolve } = deferred<Awaited<ReturnType<typeof api.syncFavorites>>>();
+    vi.mocked(api.syncFavorites).mockReturnValue(promise);
+
+    setup();
+    const syncBtn = await screen.findByText(TRANSLATIONS.en.sync);
+    act(() => { syncBtn.click(); });
+
+    const syncingLabel = await screen.findByText(TRANSLATIONS.en.syncing);
+    expect(syncingLabel.closest('button')).toHaveProperty('disabled', true);
+
+    await act(async () => {
+      resolve(noopSync());
+      await promise;
+    });
+
+    expect(screen.queryByText(TRANSLATIONS.en.syncing)).toBeNull();
+  });
+});
