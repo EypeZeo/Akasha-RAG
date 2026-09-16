@@ -549,3 +549,114 @@ describe('SourcesPanel expanded video list & search', () => {
     expect(api.listCollectionVideos).not.toHaveBeenCalled();
   });
 });
+
+describe('SourcesPanel clear all knowledge', () => {
+  function statsWithDone(done: number) {
+    return { success: true, video_cache: { done, failed: 0, pending: 0, downloading: 0, transcribing: 0 } };
+  }
+
+  it('does nothing when the confirm dialog is cancelled', async () => {
+    vi.mocked(api.getKnowledgeStats).mockResolvedValue(statsWithDone(3));
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    setup();
+    const clearBtn = await screen.findByText(TRANSLATIONS.en.clearIngested);
+    act(() => { clearBtn.click(); });
+
+    expect(api.clearAllKnowledge).not.toHaveBeenCalled();
+  });
+
+  it('clears everything and shows a localized success count when nothing is expanded', async () => {
+    vi.mocked(api.getKnowledgeStats).mockResolvedValue(statsWithDone(3));
+    vi.mocked(api.clearAllKnowledge).mockResolvedValue({ success: true, reset_count: 7 });
+    const { onBuildDone } = setup();
+
+    const clearBtn = await screen.findByText(TRANSLATIONS.en.clearIngested);
+    act(() => { clearBtn.click(); });
+
+    await waitFor(() => {
+      expect(api.clearAllKnowledge).toHaveBeenCalledWith(undefined, 'all');
+    });
+    expect(window.alert).toHaveBeenCalledWith(TRANSLATIONS.en.clearKnowledgeSuccess.replace('{count}', '7'));
+    expect(onBuildDone).toHaveBeenCalled();
+  });
+
+  it('scopes both the confirm wording and the API call to the expanded collection, then resets that collection to page 1', async () => {
+    vi.mocked(api.getKnowledgeStats).mockResolvedValue(statsWithDone(3));
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({ success: true, items: [makeVideo({ title: 'V1' })], total: 1 });
+    vi.mocked(api.clearAllKnowledge).mockResolvedValue({ success: true, reset_count: 2 });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('V1');
+
+    vi.mocked(api.listCollectionVideos).mockClear();
+    const clearBtn = screen.getByText(TRANSLATIONS.en.clearIngested);
+    act(() => { clearBtn.click(); });
+
+    await waitFor(() => {
+      expect(api.clearAllKnowledge).toHaveBeenCalledWith('col-1', 'all');
+    });
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining(TRANSLATIONS.en.clearScopeCurrent));
+    // fetchVideos(expandedId, 1, videoPageSize) — no explicit platform arg, so it falls
+    // back to platformFilter ('all' by default, see the shared beforeEach).
+    await waitFor(() => {
+      expect(api.listCollectionVideos).toHaveBeenCalledWith('col-1', 1, 20, 'all', undefined);
+    });
+  });
+
+  it('shows a generic failure alert without side effects when the backend reports success:false', async () => {
+    vi.mocked(api.getKnowledgeStats).mockResolvedValue(statsWithDone(3));
+    vi.mocked(api.clearAllKnowledge).mockResolvedValue({ success: false, reset_count: 0 });
+    const { onBuildDone } = setup();
+
+    const clearBtn = await screen.findByText(TRANSLATIONS.en.clearIngested);
+    vi.mocked(api.getKnowledgeStats).mockClear();
+    act(() => { clearBtn.click(); });
+
+    await waitFor(() => {
+      expect(api.clearAllKnowledge).toHaveBeenCalled();
+    });
+    expect(window.alert).toHaveBeenCalledWith(TRANSLATIONS.en.operationFailed);
+    expect(api.getKnowledgeStats).not.toHaveBeenCalled();
+    expect(onBuildDone).not.toHaveBeenCalled();
+  });
+
+  it('shows a generic failure alert and logs the raw error, never surfacing it in the UI, when the request throws', async () => {
+    vi.mocked(api.getKnowledgeStats).mockResolvedValue(statsWithDone(3));
+    const rawError = new Error('disk full: /var/data');
+    vi.mocked(api.clearAllKnowledge).mockRejectedValue(rawError);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    setup();
+    const clearBtn = await screen.findByText(TRANSLATIONS.en.clearIngested);
+    act(() => { clearBtn.click(); });
+
+    await waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith('Clear ingested data failed:', rawError);
+    });
+    expect(window.alert).toHaveBeenCalledWith(TRANSLATIONS.en.operationFailed);
+    expect(document.body.textContent).not.toContain('disk full');
+  });
+
+  it('disables the Clear Ingested button and shows "Cleaning..." while the request is in flight', async () => {
+    vi.mocked(api.getKnowledgeStats).mockResolvedValue(statsWithDone(3));
+    const { promise, resolve } = deferred<Awaited<ReturnType<typeof api.clearAllKnowledge>>>();
+    vi.mocked(api.clearAllKnowledge).mockReturnValue(promise);
+
+    setup();
+    const clearBtn = await screen.findByText(TRANSLATIONS.en.clearIngested);
+    act(() => { clearBtn.click(); });
+
+    const cleaningLabel = await screen.findByText(TRANSLATIONS.en.cleaning);
+    expect(cleaningLabel.closest('button')).toHaveProperty('disabled', true);
+
+    await act(async () => {
+      resolve({ success: true, reset_count: 1 });
+      await promise;
+    });
+
+    expect(screen.queryByText(TRANSLATIONS.en.cleaning)).toBeNull();
+  });
+});
