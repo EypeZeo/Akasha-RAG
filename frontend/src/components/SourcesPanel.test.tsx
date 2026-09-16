@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import SourcesPanel from './SourcesPanel';
 import { I18nProvider, TRANSLATIONS } from '../i18n';
 import * as api from '../api';
@@ -20,6 +20,28 @@ function makeCollection(overrides: Partial<api.CollectionItem> = {}): api.Collec
   };
 }
 
+function makeVideo(overrides: Partial<api.VideoItem> = {}): api.VideoItem {
+  return {
+    id: 1,
+    collection_id: 'col-1',
+    platform_item_id: 'v1',
+    url: 'https://www.douyin.com/video/v1',
+    title: 'Test Video',
+    author: 'Author',
+    duration: 30,
+    item_type: 'video',
+    status: 'done',
+    platform: 'douyin',
+    ...overrides,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(res => { resolve = res; });
+  return { promise, resolve };
+}
+
 interface SetupProps {
   onBuildDone: () => void;
   selectedId: string;
@@ -30,24 +52,42 @@ interface SetupProps {
   onOpenSettings: () => void;
 }
 
+function buildElement(propsOverride: Partial<SetupProps>) {
+  return (
+    <I18nProvider>
+      <SourcesPanel
+        onBuildDone={propsOverride.onBuildDone ?? vi.fn()}
+        selectedId={propsOverride.selectedId ?? 'all'}
+        onSelectCollection={propsOverride.onSelectCollection ?? vi.fn()}
+        statsRefreshKey={propsOverride.statsRefreshKey ?? 0}
+        collectionsPerPage={propsOverride.collectionsPerPage ?? 20}
+        videosPerPage={propsOverride.videosPerPage ?? 20}
+        onOpenSettings={propsOverride.onOpenSettings ?? vi.fn()}
+      />
+    </I18nProvider>
+  );
+}
+
 function setup(propsOverride: Partial<SetupProps> = {}) {
   const onBuildDone = propsOverride.onBuildDone ?? vi.fn();
   const onSelectCollection = propsOverride.onSelectCollection ?? vi.fn();
   const onOpenSettings = propsOverride.onOpenSettings ?? vi.fn();
-  render(
-    <I18nProvider>
-      <SourcesPanel
-        onBuildDone={onBuildDone}
-        selectedId={propsOverride.selectedId ?? 'all'}
-        onSelectCollection={onSelectCollection}
-        statsRefreshKey={propsOverride.statsRefreshKey ?? 0}
-        collectionsPerPage={propsOverride.collectionsPerPage ?? 20}
-        videosPerPage={propsOverride.videosPerPage ?? 20}
-        onOpenSettings={onOpenSettings}
-      />
-    </I18nProvider>,
-  );
-  return { onBuildDone, onSelectCollection, onOpenSettings };
+  const resolvedProps = { ...propsOverride, onBuildDone, onSelectCollection, onOpenSettings };
+  const { rerender } = render(buildElement(resolvedProps));
+  return {
+    onBuildDone,
+    onSelectCollection,
+    onOpenSettings,
+    rerender: (nextOverride: Partial<SetupProps> = {}) =>
+      rerender(buildElement({ ...resolvedProps, ...nextOverride })),
+  };
+}
+
+/** Clicks the collection row identified by its title, toggling expand/collapse. */
+function clickCollection(title: string) {
+  act(() => {
+    screen.getByText(title).click();
+  });
 }
 
 beforeEach(() => {
@@ -232,5 +272,280 @@ describe('SourcesPanel collections list & pagination', () => {
       await vi.advanceTimersByTimeAsync(10000); // stays frozen, not just paused
     });
     expect(api.listCollections).toHaveBeenCalledTimes(12);
+  });
+});
+
+describe('SourcesPanel expanded video list & search', () => {
+  it('shows a loading state while videos are being fetched, then renders them', async () => {
+    const { promise, resolve } = deferred<Awaited<ReturnType<typeof api.listCollectionVideos>>>();
+    vi.mocked(api.listCollectionVideos).mockReturnValue(promise);
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+
+    expect(await screen.findByText(TRANSLATIONS.en.loadingVideos)).toBeTruthy();
+
+    await act(async () => {
+      resolve({ success: true, items: [makeVideo({ title: 'Video A' })], total: 1 });
+      await promise;
+    });
+
+    expect(await screen.findByText('Video A')).toBeTruthy();
+    expect(screen.queryByText(TRANSLATIONS.en.loadingVideos)).toBeNull();
+  });
+
+  it('shows "no content yet" when a collection genuinely has no videos', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({ success: true, items: [], total: 0 });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+
+    expect(await screen.findByText(TRANSLATIONS.en.noVideosPleaseSync)).toBeTruthy();
+  });
+
+  it('shows "no matches" (not "no content") when an active search filters every item out', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true,
+      items: [makeVideo({ title: 'Alpha' }), makeVideo({ id: 2, platform_item_id: 'v2', title: 'Beta' })],
+      total: 4, // >3 so the search box renders
+    });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('Alpha');
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const search = screen.getByPlaceholderText(TRANSLATIONS.en.searchPlaceholder);
+    fireEvent.change(search, { target: { value: 'nonexistent-zzz' } });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+
+    expect(await screen.findByText(TRANSLATIONS.en.noMatchedVideos)).toBeTruthy();
+    expect(screen.queryByText(TRANSLATIONS.en.noVideosPleaseSync)).toBeNull();
+  });
+
+  it('filters the visible list by title after the 300ms search debounce, not before', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true,
+      items: [makeVideo({ title: 'Alpha' }), makeVideo({ id: 2, platform_item_id: 'v2', title: 'Beta' })],
+      total: 4,
+    });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('Alpha');
+    expect(screen.getByText('Beta')).toBeTruthy();
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const search = screen.getByPlaceholderText(TRANSLATIONS.en.searchPlaceholder);
+    fireEvent.change(search, { target: { value: 'Alpha' } });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(299);
+    });
+    expect(screen.getByText('Beta')).toBeTruthy(); // debounce hasn't fired yet
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(screen.queryByText('Beta')).toBeNull(); // now filtered
+    expect(screen.getByText('Alpha')).toBeTruthy();
+  });
+
+  it('shows the type-filter tabs whenever the collection has at least one note item — not only when mixed with video', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValueOnce({
+      success: true,
+      items: [
+        makeVideo({ title: 'A Video', item_type: 'video' }),
+        makeVideo({ id: 2, platform_item_id: 'v2', title: 'A Note', item_type: 'note', duration: 0 }),
+      ],
+      total: 2,
+      note_count: 1,
+    });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('A Video');
+
+    // Real condition is `expandedVideos.length > 0 && hasNotesInCollection` (SourcesPanel.tsx L705) —
+    // any note present shows the tabs, videos don't need to also be present. Lock that real behavior,
+    // don't assume "mixed only".
+    act(() => {
+      screen.getByText(new RegExp(`^${TRANSLATIONS.en.imageNote}`)).click();
+    });
+    expect(screen.queryByText('A Video')).toBeNull();
+    expect(screen.getByText('A Note')).toBeTruthy();
+  });
+
+  it('shows the type-filter tabs even for an all-notes collection with zero videos', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValueOnce({
+      success: true,
+      items: [makeVideo({ title: 'Only A Note', item_type: 'note', duration: 0 })],
+      total: 1,
+      note_count: 1,
+    });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('Only A Note');
+
+    // Scoped to a button (the type-filter tab), not the unrelated "Total N" stats
+    // span in the Build & Clear section further down the same panel.
+    expect(screen.getByRole('button', { name: new RegExp(`^${TRANSLATIONS.en.total}`) })).toBeTruthy();
+  });
+
+  it('hides the type-filter tabs for an all-video collection', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValueOnce({
+      success: true,
+      items: [makeVideo({ title: 'Only A Video', item_type: 'video' })],
+      total: 1,
+      note_count: 0,
+    });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('Only A Video');
+
+    expect(screen.queryByRole('button', { name: new RegExp(`^${TRANSLATIONS.en.total}`) })).toBeNull();
+  });
+
+  it('only shows the search box once the collection has more than 3 total items', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValueOnce({
+      success: true, items: [makeVideo({ title: 'V1' })], total: 3,
+    });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('V1');
+
+    expect(screen.queryByPlaceholderText(TRANSLATIONS.en.searchPlaceholder)).toBeNull();
+  });
+
+  it('shows the search box once total exceeds 3', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValueOnce({
+      success: true, items: [makeVideo({ title: 'V1' })], total: 4,
+    });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('V1');
+
+    expect(screen.getByPlaceholderText(TRANSLATIONS.en.searchPlaceholder)).toBeTruthy();
+  });
+
+  it('paginates videos, clearing any active search, and requests the right page from the API', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true, items: [makeVideo({ title: 'V1' })], total: 50, video_count: 50,
+    });
+
+    setup({ videosPerPage: 20 });
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('V1');
+
+    const search = screen.getByPlaceholderText(TRANSLATIONS.en.searchPlaceholder);
+    fireEvent.change(search, { target: { value: 'foo' } });
+    expect((search as HTMLInputElement).value).toBe('foo');
+
+    vi.mocked(api.listCollectionVideos).mockClear();
+    act(() => {
+      screen.getByText(TRANSLATIONS.en.nextPage).click();
+    });
+
+    // platformFilter defaults to 'all' (see the shared beforeEach); fetchVideos falls back to it
+    // when no explicit platform argument is passed, per SourcesPanel.tsx's own fetchVideos body.
+    await waitFor(() => {
+      expect(api.listCollectionVideos).toHaveBeenCalledWith('col-1', 2, 20, 'all', undefined);
+    });
+    expect((screen.getByPlaceholderText(TRANSLATIONS.en.searchPlaceholder) as HTMLInputElement).value).toBe('');
+  });
+
+  it('changing the page-size select clears search, resets to page 1, and refetches with the new size', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true, items: [makeVideo({ title: 'V1' })], total: 50,
+    });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('V1');
+
+    const search = screen.getByPlaceholderText(TRANSLATIONS.en.searchPlaceholder);
+    fireEvent.change(search, { target: { value: 'foo' } });
+
+    vi.mocked(api.listCollectionVideos).mockClear();
+    const select = screen.getByRole('combobox') as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: '50' } });
+
+    await waitFor(() => {
+      expect(api.listCollectionVideos).toHaveBeenCalledWith('col-1', 1, 50, 'all', undefined);
+    });
+    expect((screen.getByPlaceholderText(TRANSLATIONS.en.searchPlaceholder) as HTMLInputElement).value).toBe('');
+  });
+
+  it('re-fetches page 1 of the expanded collection when the videosPerPage prop changes', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true, items: [makeVideo({ title: 'V1' })], total: 1,
+    });
+
+    const { rerender } = setup({ videosPerPage: 20 });
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('V1');
+
+    vi.mocked(api.listCollectionVideos).mockClear();
+    rerender({ videosPerPage: 50 });
+
+    await waitFor(() => {
+      expect(api.listCollectionVideos).toHaveBeenCalledWith('col-1', 1, 50, 'all', undefined);
+    });
+  });
+
+  it('re-fetches the expanded collection videos when the platform filter changes', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true, items: [makeVideo({ title: 'V1' })], total: 1,
+    });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('V1');
+
+    vi.mocked(api.listCollectionVideos).mockClear();
+    act(() => {
+      screen.getByText(TRANSLATIONS.en.platformBilibili).click();
+    });
+
+    // handlePlatformChange always resets to page 1 and passes the new platform explicitly.
+    await waitFor(() => {
+      expect(api.listCollectionVideos).toHaveBeenCalledWith('col-1', 1, 20, 'bilibili', undefined);
+    });
+  });
+
+  it('collapses the collection on a second click without re-fetching', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true, items: [makeVideo({ title: 'V1' })], total: 1,
+    });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('V1');
+
+    vi.mocked(api.listCollectionVideos).mockClear();
+    clickCollection('Test Collection'); // collapse
+
+    expect(screen.queryByText('V1')).toBeNull();
+    expect(api.listCollectionVideos).not.toHaveBeenCalled();
   });
 });
