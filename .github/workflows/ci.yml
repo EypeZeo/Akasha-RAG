@@ -51,6 +51,9 @@ jobs:
 
       - run: npm ci
 
+      - name: Lint (eslint)
+        run: npm run lint:ci
+
       - name: i18n keyset check
         run: npm run check:i18n
 
