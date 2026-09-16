@@ -171,7 +171,6 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
     snap();
     const timers = [0, 16, 32, 64, 120, 240, 400, 600].map(d => window.setTimeout(snap, d));
     return () => timers.forEach(clearTimeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages]);
 
   const handleNewChat = () => {
@@ -390,7 +389,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
   // 监听选中的历史会话 ID 变化
   useEffect(() => {
     if (activeSessionId) {
-      if (activeSessionId === sessionIdRef.current && messages.length > 0) return;
+      if (activeSessionId === sessionIdRef.current && messagesRef.current.length > 0) return;
       setLoading(true);
       api.getSessionMessages(activeSessionId, { limit: MSG_PAGE })
         .then(res => {

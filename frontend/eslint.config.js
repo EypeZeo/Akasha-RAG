@@ -67,6 +67,21 @@ export default defineConfig(
       // later effort. Do not silently turn this off. lint:ci caps the
       // total warning count so new `any` sites can't accumulate silently.
       '@typescript-eslint/no-explicit-any': 'warn',
+
+      // Fires on exactly 2 files, both intentionally structured this way:
+      // i18n.tsx bundles the translation table + I18nProvider + useI18n
+      // hook (pre-existing design, not something this round is
+      // restructuring), and ChatMessageRow.tsx deliberately co-exports its
+      // private helper functions alongside the row component (PR #16's
+      // extraction design). Splitting either further is out of scope this
+      // round. This rule only affects Vite Fast Refresh in local dev, not
+      // build/runtime correctness, so a visible warning is enough.
+      // Options repeated (not just the bare severity) so downgrading to
+      // warn doesn't silently drop reactRefresh.configs.vite's own options.
+      'react-refresh/only-export-components': ['warn', {
+        allowConstantExport: true,
+        allowCompoundComponents: true,
+      }],
     },
   },
 

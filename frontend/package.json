@@ -12,7 +12,7 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "lint:ci": "eslint . --max-warnings=<N>"
+    "lint:ci": "eslint . --max-warnings=52"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.11",
