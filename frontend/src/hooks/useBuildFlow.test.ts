@@ -310,6 +310,95 @@ describe('useBuildFlow', () => {
     expect(cb2).not.toHaveBeenCalled();
   });
 
+  it('12. a successful cancel sets cancelling and updates the message, but polling keeps running', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
+    vi.mocked(api.cancelSync).mockResolvedValue({ success: true });
+    const onBuildComplete = vi.fn();
+    const { result } = renderHook(() => useBuildFlow(t, onBuildComplete));
+
+    await act(async () => {
+      result.current.startBuildPolling('task-12', '视频');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await act(async () => {
+      await result.current.handleCancelBuild();
+    });
+    expect(result.current.cancelling).toBe(true);
+    expect(result.current.buildMessage).toBe('cancelling');
+    expect(api.cancelSync).toHaveBeenCalledWith('task-12');
+
+    vi.mocked(api.getSyncProgress).mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(api.getSyncProgress).toHaveBeenCalledWith('task-12'); // tick keeps firing after cancel is requested
+  });
+
+  it('13. a failed cancel bounces cancelling back to false without touching the active task', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
+    vi.mocked(api.cancelSync).mockRejectedValue(new Error('cancel failed'));
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onBuildComplete = vi.fn();
+    const { result } = renderHook(() => useBuildFlow(t, onBuildComplete));
+
+    await act(async () => {
+      result.current.startBuildPolling('task-13', '视频');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    await act(async () => {
+      await result.current.handleCancelBuild();
+    });
+    expect(result.current.cancelling).toBe(false);
+    expect(result.current.buildTaskId).toBe('task-13');
+  });
+
+  it('14. cancel is a no-op when there is no active task, or when a cancel is already in flight', async () => {
+    vi.mocked(api.cancelSync).mockResolvedValue({ success: true });
+    const onBuildComplete = vi.fn();
+    const { result } = renderHook(() => useBuildFlow(t, onBuildComplete));
+
+    await act(async () => {
+      await result.current.handleCancelBuild(); // no buildTaskId yet
+    });
+    expect(api.cancelSync).not.toHaveBeenCalled();
+
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
+    const { promise, resolve } = deferred<{ success: boolean }>();
+    vi.mocked(api.cancelSync).mockReturnValue(promise);
+    await act(async () => {
+      result.current.startBuildPolling('task-14', '视频');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    act(() => { result.current.handleCancelBuild(); }); // first call: cancelling flips to true synchronously-ish
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    act(() => { result.current.handleCancelBuild(); }); // second call while the first is still in flight: guarded
+
+    expect(api.cancelSync).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolve({ success: true });
+      await promise;
+    });
+  });
+
+  it('15. F5 restore resumes polling with the "restoring" message, not "starting"', async () => {
+    localStorage.setItem(ACTIVE_BUILD_KEY, JSON.stringify({ task_id: 'task-15', typeLabel: '视频' }));
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 3, total: 10 });
+    const onBuildComplete = vi.fn();
+    const { result } = renderHook(() => useBuildFlow(t, onBuildComplete));
+
+    await waitFor(() => {
+      expect(result.current.buildTaskId).toBe('task-15');
+    });
+    expect(result.current.buildMessage).toBe('ingestRestoring');
+    expect(api.getSyncProgress).toHaveBeenCalledWith('task-15');
+  });
+
   describe('16. corrupted ACTIVE_BUILD_KEY data is cleaned up on mount instead of silently ignored forever', () => {
     it('16a. invalid JSON', async () => {
       localStorage.setItem(ACTIVE_BUILD_KEY, 'not json{');
