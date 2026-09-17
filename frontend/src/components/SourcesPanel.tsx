@@ -9,8 +9,7 @@ import { VIDEOS_PER_PAGE_OPTIONS } from '../utils/settings';
 import { aggregateSyncCounts, getFailedPlatforms } from '../utils/syncSummary';
 import { useWorkspaceStore } from '../store/workspace';
 import { useExportFlow } from '../hooks/useExportFlow';
-
-const ACTIVE_BUILD_KEY = 'akasha:active_build';
+import { useBuildFlow } from '../hooks/useBuildFlow';
 
 interface Props {
   onBuildDone: () => void;
@@ -39,14 +38,6 @@ export default function SourcesPanel({
   const [collections, setCollections] = useState<api.CollectionItem[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
-  const [building, setBuilding] = useState(false);
-  const [buildProgress, setBuildProgress] = useState(0);
-  const [buildTotal, setBuildTotal] = useState(0);
-  const [buildMessage, setBuildMessage] = useState('');
-  const [buildTaskId, setBuildTaskId] = useState<string | null>(null);
-  const [cancelling, setCancelling] = useState(false);
-  const buildPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const buildMissesRef = useRef(0);
   const [showBuildConfirm, setShowBuildConfirm] = useState(false);
   const [buildInitialType, setBuildInitialType] = useState<'all' | 'video' | 'note'>('all');
   const [showApiKeyMissing, setShowApiKeyMissing] = useState(false);
@@ -257,95 +248,23 @@ export default function SourcesPanel({
     setLoadingVideos(false);
   }, [platformFilter]);
 
-  const stopBuildPoll = useCallback(() => {
-    if (buildPollRef.current) {
-      clearInterval(buildPollRef.current);
-      buildPollRef.current = null;
-    }
-  }, []);
+  const onBuildComplete = useCallback(() => {
+    onBuildDone();
+    fetchStats();
+    if (expandedId) fetchVideos(expandedId, videoPage, videoPageSize);
+  }, [onBuildDone, fetchStats, fetchVideos, expandedId, videoPage, videoPageSize]);
 
-  const finishBuild = useCallback(() => {
-    stopBuildPoll();
-    setBuilding(false);
-    setBuildTaskId(null);
-    setCancelling(false);
-    try {
-      localStorage.removeItem(ACTIVE_BUILD_KEY);
-    } catch { /* ignore */ }
-  }, [stopBuildPoll]);
-
-  const startBuildPolling = useCallback((taskId: string, typeLabel: string, restoring = false) => {
-    stopBuildPoll();
-    buildMissesRef.current = 0;
-    setBuilding(true);
-    setBuildTaskId(taskId);
-    if (!restoring) setBuildProgress(0);
-    setBuildMessage(restoring ? t('ingestRestoring') : t('ingestStarting', { type: typeLabel }));
-    try {
-      localStorage.setItem(ACTIVE_BUILD_KEY, JSON.stringify({ task_id: taskId, typeLabel }));
-    } catch { /* ignore */ }
-
-    const tick = async () => {
-      let p: any;
-      try {
-        p = await api.getSyncProgress(taskId);
-      } catch {
-        return; // 网络抖动，下次再试
-      }
-      if (!p || p.success === false) {
-        // 后端重启 / 任务过期：自愈复位，绝不永久卡住
-        buildMissesRef.current += 1;
-        if (buildMissesRef.current >= 2) finishBuild();
-        return;
-      }
-      buildMissesRef.current = 0;
-      setBuildProgress(p.progress || 0);
-      if (p.total) setBuildTotal(p.total);
-      if (p.message) setBuildMessage(t('ingesting'));
-      if (p.status === 'done' || p.status === 'failed' || p.status === 'cancelled') {
-        stopBuildPoll();
-        if (p.status === 'done') {
-          setBuildProgress(p.total || 0);
-          setBuildMessage(t('ingestCompleted', { type: typeLabel }));
-        } else if (p.status === 'cancelled') {
-          setBuildMessage(t('ingestCancelled'));
-        }
-        setTimeout(() => {
-          finishBuild();
-          onBuildDone();
-          fetchStats();
-          if (expandedId) fetchVideos(expandedId, videoPage, videoPageSize);
-        }, 900);
-      }
-    };
-    tick();
-    buildPollRef.current = setInterval(tick, 1500);
-  }, [stopBuildPoll, finishBuild, onBuildDone, fetchStats, fetchVideos, expandedId, videoPage, videoPageSize, t]);
-
-  // F5 刷新后恢复未完成的入库任务
-  useEffect(() => {
-    let saved: { task_id: string; typeLabel: string } | null = null;
-    try {
-      const raw = localStorage.getItem(ACTIVE_BUILD_KEY);
-      if (raw) saved = JSON.parse(raw);
-    } catch { /* ignore */ }
-    if (saved?.task_id) startBuildPolling(saved.task_id, saved.typeLabel || t('categoryContent'), true);
-    return () => stopBuildPoll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startBuildPolling, t]);
-
-  const handleCancelBuild = async () => {
-    if (!buildTaskId || cancelling) return;
-    setCancelling(true);
-    try {
-      await api.cancelSync(buildTaskId);
-      setBuildMessage(t('cancelling'));
-    } catch (e: any) {
-      setCancelling(false);
-      console.error('Cancel ingest failed:', e);
-      alert(t('operationFailed'));
-    }
-  };
+  const {
+    building,
+    buildProgress,
+    buildTotal,
+    buildMessage,
+    buildTaskId,
+    cancelling,
+    startBuildPolling,
+    setBuildTotalHint,
+    handleCancelBuild,
+  } = useBuildFlow(t, onBuildComplete);
 
   const handleBuild = async (
     selectedIds?: string[],
@@ -356,7 +275,7 @@ export default function SourcesPanel({
     if (building || (scope === 'selected' && !selectedIds?.length)) return;
     const isAll = scope === 'all';
     const initialTotal = isAll ? (stats?.video_cache?.pending ?? 0) : selectedIds!.length;
-    setBuildTotal(initialTotal);
+    setBuildTotalHint(initialTotal);
     const typeLabel = contentType === 'video' ? t('shortVideo') : (contentType === 'note' ? t('imageNote') : t('categoryContent'));
     try {
       const r = await api.syncKnowledge({
@@ -367,7 +286,7 @@ export default function SourcesPanel({
         platform: buildPlat || platformFilter,
       });
       if (r.success && r.task_id) {
-        if (r.pending_count) setBuildTotal(r.pending_count);
+        if (r.pending_count) setBuildTotalHint(r.pending_count);
         startBuildPolling(r.task_id, typeLabel);
       } else if (r.message) {
         console.error('Ingest failed:', r.message);
