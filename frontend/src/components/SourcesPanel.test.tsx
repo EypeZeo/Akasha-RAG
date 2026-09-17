@@ -807,3 +807,72 @@ describe('SourcesPanel sync favorites', () => {
     expect(screen.queryByText(TRANSLATIONS.en.syncing)).toBeNull();
   });
 });
+
+describe('SourcesPanel build submission (isSubmitting mutex + UI)', () => {
+  it('20. two rapid retries on different failed videos only issue one syncKnowledge request', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true,
+      items: [
+        makeVideo({ id: 1, platform_item_id: 'fv1', title: 'Failed A', status: 'failed' }),
+        makeVideo({ id: 2, platform_item_id: 'fv2', title: 'Failed B', status: 'failed' }),
+      ],
+      total: 2,
+    });
+    const { promise, resolve } = deferred<Awaited<ReturnType<typeof api.syncKnowledge>>>();
+    vi.mocked(api.syncKnowledge).mockReturnValue(promise);
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 0, total: 1 });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('Failed A');
+
+    const retryButtons = screen.getAllByTitle(TRANSLATIONS.en.retryIngestTooltip);
+    expect(retryButtons).toHaveLength(2);
+    act(() => { retryButtons[0].click(); });
+    act(() => { retryButtons[1].click(); }); // fired before syncKnowledge resolves
+
+    expect(api.syncKnowledge).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolve({ success: true, task_id: 'task-20', pending_count: 1 });
+      await promise;
+    });
+  });
+
+  it('21. isSubmitting is reflected in the UI: header text and the retry button are disabled before syncKnowledge resolves', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true,
+      items: [makeVideo({ id: 1, platform_item_id: 'fv1', title: 'Failed A', status: 'failed' })],
+      total: 1,
+    });
+    const { promise, resolve } = deferred<Awaited<ReturnType<typeof api.syncKnowledge>>>();
+    vi.mocked(api.syncKnowledge).mockReturnValue(promise);
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 0, total: 1 });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('Failed A');
+
+    const retryButton = screen.getByTitle(TRANSLATIONS.en.retryIngestTooltip);
+    act(() => { retryButton.click(); });
+
+    expect(await screen.findByText(TRANSLATIONS.en.ingestSubmitting)).toBeTruthy();
+    expect(retryButton).toHaveProperty('disabled', true);
+
+    await act(async () => {
+      resolve({ success: true, task_id: 'task-21', pending_count: 1 });
+      await promise;
+    });
+
+    expect(screen.queryByText(TRANSLATIONS.en.ingestSubmitting)).toBeNull();
+    // The header is "📥 {label}" — the emoji and label are separate text
+    // nodes under the same <h3>, so an exact getByText(label) won't match
+    // the node's full text; match on substring instead.
+    await waitFor(() => {
+      expect(screen.getByText((_, el) => el?.tagName === 'H3' && !!el.textContent?.includes(TRANSLATIONS.en.ingesting))).toBeTruthy();
+    });
+    expect(retryButton).toHaveProperty('disabled', true); // now disabled via `building`, not `isSubmitting`
+  });
+});

@@ -41,6 +41,14 @@ export default function SourcesPanel({
   const [showBuildConfirm, setShowBuildConfirm] = useState(false);
   const [buildInitialType, setBuildInitialType] = useState<'all' | 'video' | 'note'>('all');
   const [showApiKeyMissing, setShowApiKeyMissing] = useState(false);
+  // 提交中互斥：syncKnowledge() 还没返回时 building 仍是 false，这段窗口
+  // 里第二次点击（比如两个失败视频各点一次重试）完全不会被 `if (building...)`
+  // 拦住，会各自发起一次 syncKnowledge、各自在后端创建一个任务。isSubmitting
+  // 给 UI 用（驱动按钮 disabled/文案）；isSubmittingRef 才是真正挡住重入的
+  // 那个——React state 更新不是同步的，同一个事件循环轮次内的第二次点击
+  // 靠 state 挡不住，ref 的赋值是立即生效的。
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   // 展开收藏夹与分页
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -272,7 +280,9 @@ export default function SourcesPanel({
     scope: 'all' | 'selected' = 'all',
     buildPlat?: string,
   ) => {
-    if (building || (scope === 'selected' && !selectedIds?.length)) return;
+    if (building || isSubmittingRef.current || (scope === 'selected' && !selectedIds?.length)) return;
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
     const isAll = scope === 'all';
     const initialTotal = isAll ? (stats?.video_cache?.pending ?? 0) : selectedIds!.length;
     setBuildTotalHint(initialTotal);
@@ -295,6 +305,9 @@ export default function SourcesPanel({
     } catch (e: any) {
       console.error('Ingest failed:', e);
       alert(t('operationFailed'));
+    } finally {
+      isSubmittingRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -759,7 +772,7 @@ export default function SourcesPanel({
                             {v.status === 'failed' && (
                               <button
                                 onClick={() => handleBuild([String(v.id)], 'all', 'selected', v.platform)}
-                                disabled={building}
+                                disabled={building || isSubmitting}
                                 className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 hover:bg-red-100 text-red-600 font-medium flex items-center gap-0.5 cursor-pointer shadow-2xs"
                                 title={t('retryIngestTooltip')}
                               >
@@ -861,8 +874,8 @@ export default function SourcesPanel({
         {/* Build & Clear Section */}
         <div className="flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold text-[var(--color-ink-soft)]">📥 {building ? t('ingesting') : t('kbStatus')}</h3>
-            {doneCount > 0 && !building && (
+            <h3 className="text-xs font-semibold text-[var(--color-ink-soft)]">📥 {building ? t('ingesting') : (isSubmitting ? t('ingestSubmitting') : t('kbStatus'))}</h3>
+            {doneCount > 0 && !building && !isSubmitting && (
               <button
                 onClick={handleClearAll}
                 disabled={clearing}
@@ -875,27 +888,33 @@ export default function SourcesPanel({
             )}
           </div>
 
-          {building ? (
-            <>
-              <p className="text-[11px] text-[var(--color-ink)] truncate">{buildMessage}</p>
-              <div className="h-2 rounded-full bg-black/5 overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-accent to-amber transition-all duration-700 ease-linear"
-                  style={{ width: `${buildTotal ? (buildProgress / buildTotal) * 100 : 0}%` }}
-                />
-              </div>
-              <div className="flex justify-between text-[11px]">
-                <span className="text-[var(--color-ink)] font-semibold">{buildProgress} / {buildTotal}</span>
-                <span className="text-accent font-bold">{buildTotal ? Math.round((buildProgress / buildTotal) * 100) : 0}%</span>
-              </div>
-              <button
-                onClick={handleCancelBuild}
-                disabled={!buildTaskId || cancelling}
-                className="w-full py-2.5 rounded-xl text-sm font-bold transition-all border border-red-300 text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-1"
-              >
-                {cancelling ? t('cancelling') : `✕ ${t('cancelIngest')}`}
-              </button>
-            </>
+          {building || isSubmitting ? (
+            building ? (
+              <>
+                <p className="text-[11px] text-[var(--color-ink)] truncate">{buildMessage}</p>
+                <div className="h-2 rounded-full bg-black/5 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-accent to-amber transition-all duration-700 ease-linear"
+                    style={{ width: `${buildTotal ? (buildProgress / buildTotal) * 100 : 0}%` }}
+                  />
+                </div>
+                <div className="flex justify-between text-[11px]">
+                  <span className="text-[var(--color-ink)] font-semibold">{buildProgress} / {buildTotal}</span>
+                  <span className="text-accent font-bold">{buildTotal ? Math.round((buildProgress / buildTotal) * 100) : 0}%</span>
+                </div>
+                <button
+                  onClick={handleCancelBuild}
+                  disabled={!buildTaskId || cancelling}
+                  className="w-full py-2.5 rounded-xl text-sm font-bold transition-all border border-red-300 text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-1"
+                >
+                  {cancelling ? t('cancelling') : `✕ ${t('cancelIngest')}`}
+                </button>
+              </>
+            ) : (
+              // 提交中：还没有 taskId/进度数据可信，只给一句文案，不显示
+              // 进度条或取消按钮（没有任务可取消）。
+              <p className="text-[11px] text-[var(--color-ink)] truncate">{t('ingestSubmitting')}</p>
+            )
           ) : (
             <>
               <div className="flex items-center justify-between text-[11px] text-[var(--color-ink-muted)]">
