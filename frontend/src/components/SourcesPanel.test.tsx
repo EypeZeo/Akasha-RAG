@@ -8,6 +8,7 @@ import { useWorkspaceStore } from '../store/workspace';
 vi.mock('../api');
 
 const ACTIVE_EXPORT_KEY = 'akasha:active_export';
+const ACTIVE_BUILD_KEY = 'akasha:active_build';
 
 function makeCollection(overrides: Partial<api.CollectionItem> = {}): api.CollectionItem {
   return {
@@ -805,5 +806,160 @@ describe('SourcesPanel sync favorites', () => {
     });
 
     expect(screen.queryByText(TRANSLATIONS.en.syncing)).toBeNull();
+  });
+});
+
+describe('SourcesPanel build submission (isSubmitting mutex + UI)', () => {
+  it('20. two rapid retries on different failed videos only issue one syncKnowledge request', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true,
+      items: [
+        makeVideo({ id: 1, platform_item_id: 'fv1', title: 'Failed A', status: 'failed' }),
+        makeVideo({ id: 2, platform_item_id: 'fv2', title: 'Failed B', status: 'failed' }),
+      ],
+      total: 2,
+    });
+    const { promise, resolve } = deferred<Awaited<ReturnType<typeof api.syncKnowledge>>>();
+    vi.mocked(api.syncKnowledge).mockReturnValue(promise);
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 0, total: 1 });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('Failed A');
+
+    const retryButtons = screen.getAllByTitle(TRANSLATIONS.en.retryIngestTooltip);
+    expect(retryButtons).toHaveLength(2);
+    act(() => { retryButtons[0].click(); });
+    act(() => { retryButtons[1].click(); }); // fired before syncKnowledge resolves
+
+    expect(api.syncKnowledge).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolve({ success: true, task_id: 'task-20', pending_count: 1 });
+      await promise;
+    });
+  });
+
+  it('21. isSubmitting is reflected in the UI: header text and the retry button are disabled before syncKnowledge resolves', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true,
+      items: [makeVideo({ id: 1, platform_item_id: 'fv1', title: 'Failed A', status: 'failed' })],
+      total: 1,
+    });
+    const { promise, resolve } = deferred<Awaited<ReturnType<typeof api.syncKnowledge>>>();
+    vi.mocked(api.syncKnowledge).mockReturnValue(promise);
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 0, total: 1 });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('Failed A');
+
+    const retryButton = screen.getByTitle(TRANSLATIONS.en.retryIngestTooltip);
+    act(() => { retryButton.click(); });
+
+    expect(await screen.findByText(TRANSLATIONS.en.ingestSubmitting)).toBeTruthy();
+    expect(retryButton).toHaveProperty('disabled', true);
+
+    await act(async () => {
+      resolve({ success: true, task_id: 'task-21', pending_count: 1 });
+      await promise;
+    });
+
+    expect(screen.queryByText(TRANSLATIONS.en.ingestSubmitting)).toBeNull();
+    // The header is "📥 {label}" — the emoji and label are separate text
+    // nodes under the same <h3>, so an exact getByText(label) won't match
+    // the node's full text; match on substring instead.
+    await waitFor(() => {
+      expect(screen.getByText((_, el) => el?.tagName === 'H3' && !!el.textContent?.includes(TRANSLATIONS.en.ingesting))).toBeTruthy();
+    });
+    expect(retryButton).toHaveProperty('disabled', true); // now disabled via `building`, not `isSubmitting`
+  });
+});
+
+describe('SourcesPanel build submit-path error handling', () => {
+  it('18. getSettingsStatus throwing does not block opening the confirm modal (deliberately swallowed)', async () => {
+    vi.mocked(api.getKnowledgeStats).mockResolvedValue({
+      success: true,
+      video_cache: { pending: 5, done: 0, failed: 0, downloading: 0, transcribing: 0 },
+    });
+    vi.mocked(api.getSettingsStatus).mockRejectedValue(new Error('offline'));
+    vi.mocked(api.listPendingKnowledge).mockResolvedValue({
+      success: true, items: [], total: 0, video_count: 0, note_count: 0, page: 1, page_size: 50, has_more: false,
+    });
+
+    setup();
+    const ingestBtn = await screen.findByText(new RegExp(TRANSLATIONS.en.oneClickIngest));
+    act(() => { ingestBtn.click(); });
+
+    // The confirm modal (with its own Cancel button) opens despite the
+    // preflight check having thrown — status-check failure shouldn't block
+    // the user from trying; the real ingest call surfaces its own error.
+    expect(await screen.findByRole('button', { name: TRANSLATIONS.en.cancel })).toBeTruthy();
+    expect(screen.queryByText(TRANSLATIONS.en.apiKeyMissingTitle)).toBeNull();
+  });
+
+  it('19. syncKnowledge throwing shows only the generic failure message, logs the raw error, and never starts polling', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true,
+      items: [makeVideo({ id: 1, platform_item_id: 'fv1', title: 'Failed A', status: 'failed' })],
+      total: 1,
+    });
+    const rawError = new Error('ECONNRESET');
+    vi.mocked(api.syncKnowledge).mockRejectedValue(rawError);
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('Failed A');
+
+    const retryButton = screen.getByTitle(TRANSLATIONS.en.retryIngestTooltip);
+    await act(async () => { retryButton.click(); });
+
+    await waitFor(() => {
+      expect(window.alert).toHaveBeenCalledWith(TRANSLATIONS.en.operationFailed);
+    });
+    expect(errorSpy).toHaveBeenCalledWith('Ingest failed:', rawError);
+    expect(document.body.textContent).not.toContain('ECONNRESET');
+    expect(api.getSyncProgress).not.toHaveBeenCalled();
+  });
+
+  it('22. syncKnowledge resolving successfully after unmount does not crash, and the next mount\'s F5-restore effect picks up the task', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true,
+      items: [makeVideo({ id: 1, platform_item_id: 'fv1', title: 'Failed A', status: 'failed' })],
+      total: 1,
+    });
+    const { promise, resolve } = deferred<Awaited<ReturnType<typeof api.syncKnowledge>>>();
+    vi.mocked(api.syncKnowledge).mockReturnValue(promise);
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 5 });
+
+    const { unmount } = render(buildElement({}));
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('Failed A');
+
+    const retryButton = screen.getByTitle(TRANSLATIONS.en.retryIngestTooltip);
+    act(() => { retryButton.click(); });
+
+    unmount();
+
+    await act(async () => {
+      resolve({ success: true, task_id: 'task-22', pending_count: 1 });
+      await promise;
+    });
+
+    const saved = localStorage.getItem(ACTIVE_BUILD_KEY);
+    expect(saved).not.toBeNull();
+    expect(JSON.parse(saved!).task_id).toBe('task-22');
+
+    // Fresh mount — its own F5-restore effect should pick this task up.
+    render(buildElement({}));
+    await waitFor(() => {
+      expect(screen.getByText(TRANSLATIONS.en.ingestRestoring)).toBeTruthy();
+    });
+    expect(api.getSyncProgress).toHaveBeenCalledWith('task-22');
   });
 });
