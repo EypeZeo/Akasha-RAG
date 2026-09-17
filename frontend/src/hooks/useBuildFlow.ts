@@ -144,8 +144,23 @@ export function useBuildFlow(t: TFunction, onBuildComplete: () => void) {
     let saved: { task_id: string; typeLabel: string } | null = null;
     try {
       const raw = localStorage.getItem(ACTIVE_BUILD_KEY);
-      if (raw) saved = JSON.parse(raw);
-    } catch { /* ignore */ }
+      if (raw !== null) {
+        const parsed = JSON.parse(raw);
+        const taskId = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed.task_id : undefined;
+        if (typeof taskId === 'string' && taskId.length > 0) {
+          saved = { task_id: taskId, typeLabel: typeof parsed.typeLabel === 'string' ? parsed.typeLabel : '' };
+        } else {
+          // 合法 JSON 但形状不对（task_id 缺失/非字符串/整体是数组等）——
+          // 这份残留数据用不了，主动清理，不要留着每次挂载都重新尝试一遍。
+          try { localStorage.removeItem(ACTIVE_BUILD_KEY); } catch { /* ignore */ }
+        }
+      }
+    } catch {
+      // JSON.parse 抛异常（非法 JSON、空字符串等）——同样是用不了的坏数据，
+      // 主动清理，不能只是"这次不用它"就完事,否则会永久残留、每次挂载都
+      // 重新触发一次同样的静默失败。
+      try { localStorage.removeItem(ACTIVE_BUILD_KEY); } catch { /* ignore */ }
+    }
     if (saved?.task_id) startBuildPolling(saved.task_id, saved.typeLabel || t('categoryContent'), true);
     return () => stopBuildPoll();
     // eslint-disable-next-line react-hooks/exhaustive-deps

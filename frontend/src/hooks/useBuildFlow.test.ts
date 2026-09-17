@@ -310,6 +310,45 @@ describe('useBuildFlow', () => {
     expect(cb2).not.toHaveBeenCalled();
   });
 
+  describe('16. corrupted ACTIVE_BUILD_KEY data is cleaned up on mount instead of silently ignored forever', () => {
+    it('16a. invalid JSON', async () => {
+      localStorage.setItem(ACTIVE_BUILD_KEY, 'not json{');
+      const { result } = renderHook(() => useBuildFlow(t, vi.fn()));
+      await waitFor(() => {
+        expect(localStorage.getItem(ACTIVE_BUILD_KEY)).toBeNull();
+      });
+      expect(result.current.building).toBe(false);
+      expect(api.getSyncProgress).not.toHaveBeenCalled();
+    });
+
+    it('16b. empty string', async () => {
+      localStorage.setItem(ACTIVE_BUILD_KEY, '');
+      renderHook(() => useBuildFlow(t, vi.fn()));
+      await waitFor(() => {
+        expect(localStorage.getItem(ACTIVE_BUILD_KEY)).toBeNull();
+      });
+      expect(api.getSyncProgress).not.toHaveBeenCalled();
+    });
+
+    it('16c. valid JSON but task_id is not a string (number)', async () => {
+      localStorage.setItem(ACTIVE_BUILD_KEY, JSON.stringify({ task_id: 12345, typeLabel: '视频' }));
+      renderHook(() => useBuildFlow(t, vi.fn()));
+      await waitFor(() => {
+        expect(localStorage.getItem(ACTIVE_BUILD_KEY)).toBeNull();
+      });
+      expect(api.getSyncProgress).not.toHaveBeenCalled();
+    });
+
+    it('16d. valid JSON but the overall shape is wrong (an array)', async () => {
+      localStorage.setItem(ACTIVE_BUILD_KEY, JSON.stringify(['task-x', '视频']));
+      renderHook(() => useBuildFlow(t, vi.fn()));
+      await waitFor(() => {
+        expect(localStorage.getItem(ACTIVE_BUILD_KEY)).toBeNull();
+      });
+      expect(api.getSyncProgress).not.toHaveBeenCalled();
+    });
+  });
+
   it('17. startBuildPolling called after unmount only persists ACTIVE_BUILD_KEY, does not poll or write state', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
