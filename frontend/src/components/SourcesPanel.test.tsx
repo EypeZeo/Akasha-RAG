@@ -157,6 +157,11 @@ describe('SourcesPanel collections list & pagination', () => {
   });
 
   it('paginates real collections, with the "all" row pinned and excluded from paging', async () => {
+    // Third-arg timeout below is intentionally > the waitFor({ timeout: 5000 })
+    // calls in this test — Vitest's own default per-test timeout is also
+    // 5000ms, so without this the outer test timeout could fire first and
+    // mask waitFor's more specific rejection message with a generic
+    // "Test timed out in 5000ms".
     const allRow = makeCollection({ collection_id: 'all', title: '全部收藏', video_count: 5 });
     const real = [1, 2, 3, 4, 5].map(n => makeCollection({
       id: n, collection_id: `col-${n}`, title: `Collection ${n}`, video_count: n,
@@ -204,7 +209,7 @@ describe('SourcesPanel collections list & pagination', () => {
       expect(screen.getByText('Collection 5')).toBeTruthy();
     }, { timeout: 5000 });
     expect(screen.getByText(TRANSLATIONS.en.nextPage).closest('button')).toHaveProperty('disabled', true);
-  });
+  }, 15000);
 
   it('resets the collection page to 1 when the platform filter changes', async () => {
     const real = [1, 2, 3, 4, 5].map(n => makeCollection({
