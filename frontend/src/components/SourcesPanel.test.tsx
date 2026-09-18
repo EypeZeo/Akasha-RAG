@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import SourcesPanel from './SourcesPanel';
 import { I18nProvider, TRANSLATIONS } from '../i18n';
 import * as api from '../api';
@@ -157,17 +158,13 @@ describe('SourcesPanel collections list & pagination', () => {
   });
 
   it('paginates real collections, with the "all" row pinned and excluded from paging', async () => {
-    // Third-arg timeout below is intentionally > the waitFor({ timeout: 5000 })
-    // calls in this test — Vitest's own default per-test timeout is also
-    // 5000ms, so without this the outer test timeout could fire first and
-    // mask waitFor's more specific rejection message with a generic
-    // "Test timed out in 5000ms".
     const allRow = makeCollection({ collection_id: 'all', title: '全部收藏', video_count: 5 });
     const real = [1, 2, 3, 4, 5].map(n => makeCollection({
       id: n, collection_id: `col-${n}`, title: `Collection ${n}`, video_count: n,
     }));
     vi.mocked(api.listCollections).mockResolvedValue({ success: true, items: [allRow, ...real], total: 6 });
 
+    const user = userEvent.setup();
     setup({ collectionsPerPage: 2 });
 
     // Page 1: pinned "All Favorites" + first 2 real collections.
@@ -179,37 +176,28 @@ describe('SourcesPanel collections list & pagination', () => {
     expect(screen.getByText(TRANSLATIONS.en.prevPage).closest('button')).toHaveProperty('disabled', true);
     expect(screen.getByText(TRANSLATIONS.en.nextPage).closest('button')).toHaveProperty('disabled', false);
 
-    act(() => {
-      screen.getByText(TRANSLATIONS.en.nextPage).click();
-    });
+    // Root-caused via runtime instrumentation (see PR description): a bare
+    // `act(() => { element.click() })` can have its resulting state update
+    // computed but never committed under real full-suite process contention
+    // — React's scheduler primitive gets starved and the update never
+    // flushes, not just delayed (confirmed: the click handler's updater ran
+    // and computed the correct next page, but the corresponding re-render
+    // never happened even after a 10s wait). `userEvent.click()` properly
+    // awaits the update instead of assuming synchronous completion — this
+    // is the same pattern every other test file in this codebase already
+    // uses for clicks; this file was the only holdout using a raw
+    // `act()`+`.click()`, which is why this flake was unique to it.
+    await user.click(screen.getByText(TRANSLATIONS.en.nextPage));
 
-    // `setCollectionPage` itself is a plain synchronous state update with no
-    // async work in between, but asserting immediately after a synchronous
-    // `act()` proved to be an intermittent source of full-suite-only
-    // flakiness (passes reliably alone; the full 22-file suite shares a
-    // Vitest worker's global timer/scheduler state across concurrently
-    // running files) — `waitFor` makes the assertion robust to that
-    // regardless of the exact cross-file interaction, at negligible cost
-    // since the update is normally already applied by the time this runs.
-    // A CI run still hit this once even with the default ~1s `waitFor`
-    // timeout, so this uses a more generous one as extra headroom for a
-    // slow/contended runner — it costs nothing when the update lands
-    // immediately, which is the common case.
-    await waitFor(() => {
-      expect(screen.getByText('Collection 3')).toBeTruthy();
-      expect(screen.getByText('Collection 4')).toBeTruthy();
-    }, { timeout: 5000 });
+    expect(await screen.findByText('Collection 3')).toBeTruthy();
+    expect(screen.getByText('Collection 4')).toBeTruthy();
     expect(screen.queryByText('Collection 1')).toBeNull();
 
-    act(() => {
-      screen.getByText(TRANSLATIONS.en.nextPage).click();
-    });
+    await user.click(screen.getByText(TRANSLATIONS.en.nextPage));
 
-    await waitFor(() => {
-      expect(screen.getByText('Collection 5')).toBeTruthy();
-    }, { timeout: 5000 });
+    expect(await screen.findByText('Collection 5')).toBeTruthy();
     expect(screen.getByText(TRANSLATIONS.en.nextPage).closest('button')).toHaveProperty('disabled', true);
-  }, 15000);
+  });
 
   it('resets the collection page to 1 when the platform filter changes', async () => {
     const real = [1, 2, 3, 4, 5].map(n => makeCollection({
@@ -217,19 +205,19 @@ describe('SourcesPanel collections list & pagination', () => {
     }));
     vi.mocked(api.listCollections).mockResolvedValue({ success: true, items: real, total: 5 });
 
+    const user = userEvent.setup();
     setup({ collectionsPerPage: 2 });
 
     await screen.findByText('Collection 1');
-    act(() => { screen.getByText(TRANSLATIONS.en.nextPage).click(); });
-    expect(screen.getByText('Collection 3')).toBeTruthy();
+    // See the pagination test above for why this uses userEvent.click()
+    // instead of a bare act()+.click() — root-caused to a real full-suite
+    // scheduler-starvation flake, not a component bug.
+    await user.click(screen.getByText(TRANSLATIONS.en.nextPage));
+    expect(await screen.findByText('Collection 3')).toBeTruthy();
 
-    act(() => {
-      screen.getByText(TRANSLATIONS.en.platformBilibili).click();
-    });
+    await user.click(screen.getByText(TRANSLATIONS.en.platformBilibili));
 
-    await waitFor(() => {
-      expect(screen.getByText('Collection 1')).toBeTruthy();
-    });
+    expect(await screen.findByText('Collection 1')).toBeTruthy();
     expect(screen.queryByText('Collection 3')).toBeNull();
   });
 
