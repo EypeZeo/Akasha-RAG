@@ -178,15 +178,27 @@ describe('SourcesPanel collections list & pagination', () => {
       screen.getByText(TRANSLATIONS.en.nextPage).click();
     });
 
-    expect(screen.getByText('Collection 3')).toBeTruthy();
-    expect(screen.getByText('Collection 4')).toBeTruthy();
+    // `setCollectionPage` itself is a plain synchronous state update with no
+    // async work in between, but asserting immediately after a synchronous
+    // `act()` proved to be an intermittent source of full-suite-only
+    // flakiness (passes reliably alone; the full 22-file suite shares a
+    // Vitest worker's global timer/scheduler state across concurrently
+    // running files) — `waitFor` makes the assertion robust to that
+    // regardless of the exact cross-file interaction, at negligible cost
+    // since the update is normally already applied by the time this runs.
+    await waitFor(() => {
+      expect(screen.getByText('Collection 3')).toBeTruthy();
+      expect(screen.getByText('Collection 4')).toBeTruthy();
+    });
     expect(screen.queryByText('Collection 1')).toBeNull();
 
     act(() => {
       screen.getByText(TRANSLATIONS.en.nextPage).click();
     });
 
-    expect(screen.getByText('Collection 5')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByText('Collection 5')).toBeTruthy();
+    });
     expect(screen.getByText(TRANSLATIONS.en.nextPage).closest('button')).toHaveProperty('disabled', true);
   });
 
@@ -342,7 +354,17 @@ describe('SourcesPanel expanded video list & search', () => {
     await screen.findByText('Alpha');
     expect(screen.getByText('Beta')).toBeTruthy();
 
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    // Deliberately not `{ shouldAdvanceTime: true }`: that option keeps the
+    // fake clock auto-ticking in the background in step with real elapsed
+    // time for the entire time fake timers stay installed, not just during
+    // an explicit advance call — under full-suite CPU contention that
+    // background drift can be enough to cross the 300ms boundary before we
+    // ever call advanceTimersByTimeAsync(299), corrupting the "hasn't fired
+    // yet" assertion below (this is what was actually causing this test's
+    // intermittent full-suite failures, not React/DOM timing). Nothing
+    // after this point uses waitFor/findBy*, so plain fake timers (no
+    // auto-advance) are safe here.
+    vi.useFakeTimers();
     const search = screen.getByPlaceholderText(TRANSLATIONS.en.searchPlaceholder);
     fireEvent.change(search, { target: { value: 'Alpha' } });
 
