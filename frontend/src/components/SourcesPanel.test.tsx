@@ -186,10 +186,14 @@ describe('SourcesPanel collections list & pagination', () => {
     // running files) — `waitFor` makes the assertion robust to that
     // regardless of the exact cross-file interaction, at negligible cost
     // since the update is normally already applied by the time this runs.
+    // A CI run still hit this once even with the default ~1s `waitFor`
+    // timeout, so this uses a more generous one as extra headroom for a
+    // slow/contended runner — it costs nothing when the update lands
+    // immediately, which is the common case.
     await waitFor(() => {
       expect(screen.getByText('Collection 3')).toBeTruthy();
       expect(screen.getByText('Collection 4')).toBeTruthy();
-    });
+    }, { timeout: 5000 });
     expect(screen.queryByText('Collection 1')).toBeNull();
 
     act(() => {
@@ -198,7 +202,7 @@ describe('SourcesPanel collections list & pagination', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Collection 5')).toBeTruthy();
-    });
+    }, { timeout: 5000 });
     expect(screen.getByText(TRANSLATIONS.en.nextPage).closest('button')).toHaveProperty('disabled', true);
   });
 
