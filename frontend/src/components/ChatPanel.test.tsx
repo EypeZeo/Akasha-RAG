@@ -3,9 +3,11 @@ import { render, screen, waitFor, act, fireEvent } from '@testing-library/react'
 import ChatPanel from './ChatPanel';
 import { I18nProvider, TRANSLATIONS } from '../i18n';
 import * as api from '../api';
+import * as chatExport from '../utils/chatExport';
 import { useWorkspaceStore } from '../store/workspace';
 
 vi.mock('../api');
+vi.mock('../utils/chatExport');
 
 vi.mock('@tanstack/react-virtual', async () => {
   const { createVirtualizerModuleMock } = await import('../test/virtualizerFake');
@@ -350,5 +352,157 @@ describe('ChatPanel send/stream state machine', () => {
     await waitFor(() => {
       expect(api.chatAskStream).toHaveBeenCalled();
     });
+  });
+});
+
+describe('ChatPanel KB-stats empty state', () => {
+  it('7a. shows the plain welcome tip and no prompt chips when nothing is ingested yet', async () => {
+    // beforeEach's baseline already resolves { video_cache: { done: 0 } }.
+    await setup();
+
+    expect(await screen.findByText(TRANSLATIONS.en.welcomeTip)).toBeTruthy();
+    expect(screen.queryByText(TRANSLATIONS.en.promptSummary.replace(/^\S+\s/, ''))).toBeNull();
+  });
+
+  it('7b. shows count-based copy and prompt chips once content is ingested; clicking a chip sends its label', async () => {
+    vi.mocked(api.getKnowledgeStats).mockResolvedValue({
+      success: true, video_cache: { done: 5 }, detail: { note: { done: 0 } },
+    });
+    const { stream } = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValue(stream);
+
+    await setup();
+
+    const chipLabel = TRANSLATIONS.en.promptSummary.replace(/^\S+\s/, '');
+    const chip = await screen.findByText(chipLabel);
+    expect(screen.queryByText(TRANSLATIONS.en.welcomeTip)).toBeNull();
+
+    await act(async () => {
+      fireEvent.click(chip);
+    });
+    await waitFor(() => {
+      expect(api.chatAskStream).toHaveBeenCalledWith(chipLabel, null, 'all', undefined, expect.any(AbortSignal));
+    });
+  });
+});
+
+describe('ChatPanel export menu', () => {
+  async function setupWithCompletedMessage() {
+    const { stream, push, end } = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValue(stream);
+    await setup();
+    await sendViaEnter('hello there');
+    await act(async () => {
+      push({ _event: 'delta', text: 'Hi' });
+      // Ending the generator without an explicit 'done' event simulates the
+      // stream connection just closing — handleSendMessage's `finally` block
+      // calls flushDelta() directly on normal for-await exit, so the pending
+      // delta lands without needing a real requestAnimationFrame to fire.
+      end();
+    });
+    await waitFor(() => {
+      expect(screen.getByText('Hi')).toBeTruthy();
+    });
+  }
+
+  it('8a. Markdown/Word/Text menu items call the matching chatExport function with the transcript and a title', async () => {
+    await setupWithCompletedMessage();
+
+    const exportToggle = screen.getByTitle(TRANSLATIONS.en.exportChatTooltip);
+    fireEvent.click(exportToggle);
+
+    fireEvent.click(screen.getByText('Markdown (.md)'));
+    const markdownMock = vi.mocked(chatExport.exportChatToMarkdown);
+    expect(markdownMock).toHaveBeenCalledTimes(1);
+    expect(markdownMock.mock.calls[0][0]).toEqual(
+      expect.arrayContaining([expect.objectContaining({ role: 'user', content: 'hello there' })]),
+    );
+    expect(markdownMock.mock.calls[0][1]).toBe(TRANSLATIONS.en.sessionFileTitle);
+
+    fireEvent.click(exportToggle);
+    fireEvent.click(screen.getByText(TRANSLATIONS.en.exportDocTitle));
+    expect(chatExport.exportChatToWord).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(exportToggle);
+    fireEvent.click(screen.getByText(TRANSLATIONS.en.exportTxtTitle));
+    expect(chatExport.exportChatToText).toHaveBeenCalledTimes(1);
+  });
+
+  it('8b. the PDF menu item renders every message unvirtualized and calls window.print', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    await setupWithCompletedMessage();
+
+    const exportToggle = screen.getByTitle(TRANSLATIONS.en.exportChatTooltip);
+    fireEvent.click(exportToggle);
+
+    // handleExportPdf does flushSync(() => setPrintAll(true)) then two nested
+    // requestAnimationFrame calls before window.print() — the inner rAF is
+    // only scheduled once the outer one's callback runs, so two separate
+    // advanceTimersToNextFrame() calls aren't guaranteed to catch a
+    // just-scheduled-mid-tick inner callback. Advancing by two frames'
+    // worth of fake time in one go processes anything scheduled along the
+    // way, including the inner rAF.
+    await act(async () => {
+      fireEvent.click(screen.getByText(TRANSLATIONS.en.exportPdfTitle));
+      await vi.advanceTimersByTimeAsync(32);
+    });
+
+    expect(printSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ChatPanel composer', () => {
+  it('9a. Enter submits and clears the input; Shift+Enter does not submit', async () => {
+    const { stream } = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValue(stream);
+    await setup();
+
+    const textarea = await screen.findByPlaceholderText(TRANSLATIONS.en.inputPlaceholder) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: 'draft' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true });
+    expect(api.chatAskStream).not.toHaveBeenCalled();
+    expect(textarea.value).toBe('draft');
+
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: 'Enter' });
+    });
+    await waitFor(() => {
+      expect(api.chatAskStream).toHaveBeenCalledTimes(1);
+    });
+    expect(textarea.value).toBe('');
+  });
+
+  it('9b. the textarea is disabled while loading, and a repeat Enter does not send again', async () => {
+    const { stream } = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValue(stream);
+    await setup();
+    const textarea = await sendViaEnter('first message') as HTMLTextAreaElement;
+
+    expect(textarea).toHaveProperty('disabled', true);
+    fireEvent.change(textarea, { target: { value: 'second' } });
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+    expect(api.chatAskStream).toHaveBeenCalledTimes(1);
+  });
+
+  it('9c. Alt+E opens the expanded editor, and Ctrl+Enter inside it submits and closes it', async () => {
+    const { stream } = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValue(stream);
+    await setup();
+
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'e', altKey: true });
+    });
+    const modalTextarea = await screen.findByPlaceholderText(TRANSLATIONS.en.expandedPlaceholder);
+    fireEvent.change(modalTextarea, { target: { value: 'expanded draft' } });
+
+    await act(async () => {
+      fireEvent.keyDown(modalTextarea, { key: 'Enter', ctrlKey: true });
+    });
+
+    await waitFor(() => {
+      expect(api.chatAskStream).toHaveBeenCalledWith('expanded draft', null, 'all', undefined, expect.any(AbortSignal));
+    });
+    expect(screen.queryByPlaceholderText(TRANSLATIONS.en.expandedPlaceholder)).toBeNull();
   });
 });
