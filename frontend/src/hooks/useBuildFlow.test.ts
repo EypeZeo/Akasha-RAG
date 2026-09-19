@@ -23,6 +23,18 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+// Fake-timer convention for this file: always plain `vi.useFakeTimers()`, never
+// `{ shouldAdvanceTime: true }`. That option lets the fake clock also move with
+// REAL elapsed time, so under CPU load an exact-boundary assertion (e.g. "still
+// building at 899ms") can be overtaken before the test's own advance call
+// (issue #31). None of these tests use `waitFor` (the usual reason for that
+// option); the async advance helpers already flush microtasks.
+//
+// Captured at module load, before any fake clock is installed, so a test can
+// simulate real time passing mid-test.
+const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+const realDelay = (ms: number) => new Promise<void>(res => { realSetTimeout(res, ms); });
+
 beforeEach(() => {
   localStorage.clear();
 });
@@ -50,7 +62,7 @@ describe('useBuildFlow', () => {
   });
 
   it('2. a thrown request does not affect polling and is not counted as a miss', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.getSyncProgress).mockRejectedValue(new Error('network blip'));
     const onBuildComplete = vi.fn();
     const { result } = renderHook(() => useBuildFlow(t, onBuildComplete));
@@ -71,7 +83,7 @@ describe('useBuildFlow', () => {
   });
 
   it('3. exactly 2 consecutive success:false responses trigger self-heal, and it does not call onBuildComplete', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.getSyncProgress).mockResolvedValue({ success: false });
     const onBuildComplete = vi.fn();
     const { result } = renderHook(() => useBuildFlow(t, onBuildComplete));
@@ -90,7 +102,7 @@ describe('useBuildFlow', () => {
   });
 
   it('4. a successful response resets an already-counted miss (not decrements it)', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     const responses: SyncProgressResponse[] = [
       { success: false }, // miss #1
       { success: true, status: 'running', progress: 1, total: 10 }, // resets to 0
@@ -115,7 +127,7 @@ describe('useBuildFlow', () => {
   });
 
   it('5. a task that completes immediately is caught by the synchronous first tick, before the 1500ms interval', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'done', total: 10 });
     const onBuildComplete = vi.fn();
     const { result } = renderHook(() => useBuildFlow(t, onBuildComplete));
@@ -131,7 +143,7 @@ describe('useBuildFlow', () => {
   });
 
   it('6. building stays true at 899ms, flips false at 900ms, onBuildComplete fires exactly once', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'done', total: 10 });
     const onBuildComplete = vi.fn();
     const { result } = renderHook(() => useBuildFlow(t, onBuildComplete));
@@ -148,8 +160,27 @@ describe('useBuildFlow', () => {
     expect(onBuildComplete).toHaveBeenCalledTimes(1);
   });
 
+  it('6b. the 899/900ms boundary does not move when real time passes mid-test (guards against shouldAdvanceTime)', async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'done', total: 10 });
+    const onBuildComplete = vi.fn();
+    const { result } = renderHook(() => useBuildFlow(t, onBuildComplete));
+
+    await act(async () => {
+      result.current.startBuildPolling('task-6b', '视频');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await realDelay(150); // machine load / a slow step; must not advance the fake clock
+    await act(async () => { await vi.advanceTimersByTimeAsync(899); });
+    expect(result.current.building).toBe(true);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(result.current.building).toBe(false);
+    expect(onBuildComplete).toHaveBeenCalledTimes(1);
+  });
+
   it('7. after teardown the interval is genuinely cleared, not just visually stopped', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'done', total: 10 });
     const onBuildComplete = vi.fn();
     const { result } = renderHook(() => useBuildFlow(t, onBuildComplete));
@@ -166,7 +197,7 @@ describe('useBuildFlow', () => {
   });
 
   it('8a. a stale response from a superseded task does not overwrite the new task\'s progress', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     const deferredA = deferred<SyncProgressResponse>();
     vi.mocked(api.getSyncProgress).mockImplementation(async (taskId: string) => {
       if (taskId === 'task-a') return deferredA.promise;
@@ -197,7 +228,7 @@ describe('useBuildFlow', () => {
   });
 
   it('8b. a stale terminal response from a superseded task cannot kill the new task\'s polling', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     const deferredA = deferred<SyncProgressResponse>();
     vi.mocked(api.getSyncProgress).mockImplementation(async (taskId: string) => {
       if (taskId === 'task-a') return deferredA.promise;
@@ -233,7 +264,7 @@ describe('useBuildFlow', () => {
   });
 
   it('9. two overlapping ticks of the same task both reaching terminal status only tear down once', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     const deferred1 = deferred<SyncProgressResponse>();
     const deferred2 = deferred<SyncProgressResponse>();
     vi.mocked(api.getSyncProgress)
@@ -288,7 +319,7 @@ describe('useBuildFlow', () => {
   });
 
   it('11. the completion callback used is the one captured at task start, not a later re-render\'s new reference', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'done', total: 10 });
     const cb1 = vi.fn();
     const cb2 = vi.fn();
@@ -311,7 +342,7 @@ describe('useBuildFlow', () => {
   });
 
   it('12. a successful cancel sets cancelling and updates the message, but polling keeps running', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
     vi.mocked(api.cancelSync).mockResolvedValue({ success: true });
     const onBuildComplete = vi.fn();
@@ -335,7 +366,7 @@ describe('useBuildFlow', () => {
   });
 
   it('13. a failed cancel bounces cancelling back to false without touching the active task', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
     vi.mocked(api.cancelSync).mockRejectedValue(new Error('cancel failed'));
     vi.spyOn(window, 'alert').mockImplementation(() => {});
@@ -365,7 +396,7 @@ describe('useBuildFlow', () => {
     });
     expect(api.cancelSync).not.toHaveBeenCalled();
 
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
     const { promise, resolve } = deferred<{ success: boolean }>();
     vi.mocked(api.cancelSync).mockReturnValue(promise);
@@ -439,7 +470,7 @@ describe('useBuildFlow', () => {
   });
 
   it('17. startBuildPolling called after unmount only persists ACTIVE_BUILD_KEY, does not poll or write state', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
     const onBuildComplete = vi.fn();
     const { result, unmount } = renderHook(() => useBuildFlow(t, onBuildComplete));
