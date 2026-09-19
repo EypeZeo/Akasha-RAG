@@ -43,7 +43,11 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
   const messagesRef = useRef<Message[]>(messages);
   messagesRef.current = messages;
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  // 忙碌状态拆成两个独立来源：发送流程（预检 + 流式）与历史加载。
+  // 旧请求只能碰属于自己的那一个，所以不可能把对方的 loading 提前关掉。
+  const [sending, setSending] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const loading = sending || historyLoading;
   const [showApiKeyMissing, setShowApiKeyMissing] = useState(false);
   const [kbStats, setKbStats] = useState<{ done: number; note: number } | null>(null);
   const [sessionId, setSessionId] = useState<number | null>(null);
@@ -72,6 +76,49 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
   const stickToBottomRef = useRef(true);
   // 前置分页锚点：记录 setMessages 前首个可见行，测量后精确复位
   const pendingAnchorRef = useRef<{ prependCount: number } | null>(null);
+
+  // ---- 会话作用域：所有异步写入者（预检/流/初载历史/加载更早）的统一失效协议 ----
+  // 每次会话转换（切换/新建/清空/删除/卸载）同步 +1；初载历史与"加载更早"在发起时
+  // 捕获，返回后先比对再提交任何状态。
+  const epochRef = useRef(0);
+  // 面板当前绑定的会话，同步维护、不依赖渲染时序：流通过 meta 自选会话时，
+  // 先于 onSelectSession 更新它，所以随后的 activeSessionId 变化不会被当成外部切换。
+  const ownerSessionRef = useRef<number | null>(null);
+
+  /** 取消当前发送（预检/流）。无状态，不动 epoch —— Stop 不是会话转换。 */
+  const invalidateSend = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    generationRef.current = null;
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    pendingDeltaRef.current = '';
+  }, []);
+
+  /** 让本会话作用域内所有在途异步操作失效。无状态：卸载 cleanup 只调用它。 */
+  const invalidateAsyncOperations = useCallback(() => {
+    epochRef.current += 1;
+    invalidateSend();
+  }, [invalidateSend]);
+
+  /** 仍挂载时的会话转换第一步：失效 + 复位各个忙碌标志。 */
+  const resetSessionScope = useCallback(() => {
+    invalidateAsyncOperations();
+    setSending(false);
+    setHistoryLoading(false);
+    setLoadingEarlier(false);
+  }, [invalidateAsyncOperations]);
+
+  /** 清掉旧会话留在面板上的全部可见状态（owner 由调用方先行写入）。 */
+  const clearSessionView = useCallback(() => {
+    setSessionId(null);
+    setMessages([]);
+    setMsgHasMore(false);
+    pendingAnchorRef.current = null;
+    stickToBottomRef.current = true;
+  }, []);
 
   // ChatPanel 常驻挂载，初始在 hidden 的 Tab 面板里（scroll 容器 display:none、
   // clientHeight=0）。@tanstack/react-virtual 首帧会把 scrollRect 缓存成 0×0，
@@ -173,21 +220,26 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
     return () => timers.forEach(clearTimeout);
   }, [messages]);
 
+  // 新对话 / 清空 / 删除当前会话共用的唯一入口。顺序是协议的一部分：
+  // 先失效旧作用域并同步写 owner，再清可见状态，最后才通知父级——
+  // 父级把 activeSessionId 设成 null 时，effect 看到 null === owner，不会二次重置。
   const handleNewChat = () => {
-    onSelectSession?.(null);
-    setSessionId(null);
-    setMessages([]);
+    resetSessionScope();
+    ownerSessionRef.current = null;
+    clearSessionView();
     setInput('');
-    setMsgHasMore(false);
+    onSelectSession?.(null);
   };
 
   const loadEarlierMessages = async () => {
     const oldest = messages.find(m => m.id != null)?.id;
     if (!sessionId || oldest == null || loadingEarlier) return;
     const sid = sessionId;
+    const epoch = epochRef.current;
     setLoadingEarlier(true);
     try {
       const res = await api.getSessionMessages(sid, { before: oldest, limit: MSG_PAGE });
+      if (epochRef.current !== epoch) return; // 会话已切换：旧会话的分页结果不得写入新会话
       if (res.success && res.items && res.items.length) {
         pendingAnchorRef.current = { prependCount: res.items.length };
         setMsgHasMore(Boolean(res.has_more));
@@ -204,24 +256,20 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
         ]);
       }
     } catch { /* ignore */ } finally {
-      setLoadingEarlier(false);
+      if (epochRef.current === epoch) setLoadingEarlier(false);
     }
   };
 
+  // 用同步的 owner 判断，而不是渲染态 sessionId：刚选中会话 B、历史还在加载时
+  // sessionId 仍是旧值，删除 B 也必须完整复位并通知父级去掉已删除的选择。
   const handleSessionDeleted = (id: number) => {
-    if (id === sessionId) handleNewChat();
+    if (id === ownerSessionRef.current || id === activeSessionId) handleNewChat();
   };
 
   // 中断当前回答流式生成（本地视图态；后端该轮不落库）
   const handleStopGeneration = () => {
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    generationRef.current = null;
-    if (rafRef.current != null) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
-    }
-    setLoading(false);
+    invalidateSend();
+    setSending(false);
     setMessages(prev =>
       prev.map(m => (m.isStreaming ? { ...m, isStreaming: false, interrupted: true } : m)),
     );
@@ -351,10 +399,14 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
     };
   }, [showEmoji]);
 
+  // 卸载只做取消与 ref 失效，不调用任何 React setter。owner 一并清空，
+  // 这样 StrictMode 开发模式下"模拟卸载→重新挂载"时历史 effect 会重新加载，
+  // 而不是因为 owner 已经等于 activeSessionId 就跳过。
   useEffect(() => () => {
-    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    invalidateAsyncOperations();
+    ownerSessionRef.current = null;
     scrollBottomTimersRef.current.forEach(clearTimeout);
-  }, []);
+  }, [invalidateAsyncOperations]);
 
   // 检测输入框内容是否超出可视高度，触发边缘呼吸提示
   useEffect(() => {
@@ -383,66 +435,78 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
-  const sessionIdRef = useRef<number | null>(sessionId);
-  sessionIdRef.current = sessionId;
-
-  // 监听选中的历史会话 ID 变化
+  // 监听选中的历史会话 ID 变化。
+  // 与 owner 相同 = 面板自己选的（流的 meta 事件先同步写了 owner，再通知父级）或根本没变，
+  // 不是外部切换。否则是外部切换 / 外部新对话，按固定顺序转换：
+  // ①失效旧作用域 → ②同步写 owner（先于任何 await）→ ③清空旧会话可见状态
+  // → ④置历史 loading → ⑤发请求 → ⑥每个提交点先校验 epoch。
   useEffect(() => {
-    if (activeSessionId) {
-      if (activeSessionId === sessionIdRef.current && messagesRef.current.length > 0) return;
-      setLoading(true);
-      api.getSessionMessages(activeSessionId, { limit: MSG_PAGE })
-        .then(res => {
-          if (res.success && res.items) {
-            setSessionId(activeSessionId);
-            setMsgHasMore(Boolean(res.has_more));
-            setMessages(res.items.map((m): Message => ({
-              clientKey: dbKey(m.id),
-              id: m.id,
-              role: m.role as 'user' | 'assistant',
-              content: m.content,
-              sources: m.sources,
-              latency_ms: m.latency_ms,
-            })));
-            stickToBottomRef.current = true;
-            scrollToBottom(true);
-          }
-        })
-        .catch(err => {
-          console.error('加载历史消息失败:', err);
-        })
-        .finally(() => {
-          setLoading(false);
-        });
-    } else if (activeSessionId === null && sessionIdRef.current !== null) {
-      // 开启新对话
-      setSessionId(null);
-      setMessages([]);
-    }
-  }, [activeSessionId]);
+    const target = activeSessionId ?? null;
+    if (target === ownerSessionRef.current) return;
+
+    resetSessionScope();
+    ownerSessionRef.current = target;
+    clearSessionView();
+    if (target === null) return; // 外部新对话：视图已清空
+
+    const epoch = epochRef.current;
+    setHistoryLoading(true);
+    api.getSessionMessages(target, { limit: MSG_PAGE })
+      .then(res => {
+        if (epochRef.current !== epoch) return;
+        if (res.success && res.items) {
+          setSessionId(target);
+          setMsgHasMore(Boolean(res.has_more));
+          setMessages(res.items.map((m): Message => ({
+            clientKey: dbKey(m.id),
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            sources: m.sources,
+            latency_ms: m.latency_ms,
+          })));
+          stickToBottomRef.current = true;
+          scrollToBottom(true);
+        }
+      })
+      .catch(err => {
+        if (epochRef.current !== epoch) return;
+        console.error('加载历史消息失败:', err);
+      })
+      .finally(() => {
+        if (epochRef.current === epoch) setHistoryLoading(false);
+      });
+  }, [activeSessionId, resetSessionScope, clearSessionView]);
 
   const handleSendMessage = async (textToSend: string) => {
     const q = textToSend.trim();
-    if (!q || loading) return;
+    if (!q || generationRef.current !== null || historyLoading) return;
+
+    // 令牌必须在第一次 await 之前同步登记：generationRef 同时是"预检 + 流"整段的
+    // 重入守卫和失效开关。预检期间的第二次提交会被上面的守卫挡住；预检期间发生的
+    // 会话切换/新建/清空/卸载会把它置 null，下面每个 await 之后都要先确认自己仍有效。
+    const genId = newKey();
+    generationRef.current = genId;
+    setSending(true);
 
     try {
       const status = await api.getSettingsStatus();
+      if (generationRef.current !== genId) return;
       if (!status.chat_ready) {
+        generationRef.current = null;
+        setSending(false);
         setShowApiKeyMissing(true);
         return;
       }
     } catch {
       // Status check failing (e.g. offline) shouldn't block sending — the
       // real chat request will surface its own error.
+      if (generationRef.current !== genId) return;
     }
 
     setInput('');
     setIsExpanded(false);
     setShowEmoji(false);
-    setLoading(true);
-
-    const genId = newKey();
-    generationRef.current = genId;
     stickToBottomRef.current = true;
 
     const userKey = newKey();
@@ -488,6 +552,9 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
           if (rafRef.current == null) rafRef.current = requestAnimationFrame(flushDelta);
         } else if (event._event === 'meta') {
           if (event.session_id) {
+            // owner 必须先于 onSelectSession 同步更新：父级随后把 activeSessionId
+            // 设成这个 id 时，历史 effect 才会认出这是面板自己选的、不是外部切换。
+            ownerSessionRef.current = event.session_id;
             setSessionId(event.session_id);
             onSelectSession?.(event.session_id);
             setDrawerRefreshKey(k => k + 1);
@@ -512,12 +579,15 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
       }
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        // 用户主动停止：把这一轮的 assistant 标为「已停止」（本地视图态）
-        setMessages(prev =>
-          prev.map(m =>
-            m.clientKey === asstKey ? { ...m, isStreaming: false, interrupted: true } : m,
-          ),
-        );
+        // 只有仍是当前代才标记：用户点 Stop 时 handleStopGeneration 已自己标过；
+        // 会话切换/卸载造成的中止则不该再碰任何状态。
+        if (generationRef.current === genId) {
+          setMessages(prev =>
+            prev.map(m =>
+              m.clientKey === asstKey ? { ...m, isStreaming: false, interrupted: true } : m,
+            ),
+          );
+        }
         return;
       }
       patchAsst(() => ({
@@ -533,7 +603,9 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
         setMessages(prev =>
           prev.map(m => (m.clientKey === asstKey && m.isStreaming ? { ...m, isStreaming: false } : m)),
         );
-        setLoading(false);
+        // flush 之后再显式释放令牌，让"当前没有在途发送"能被守卫直接读出来
+        generationRef.current = null;
+        setSending(false);
       }
     }
   };
@@ -688,11 +760,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
 
           {(messages.length > 0 || sessionId) && (
             <button
-              onClick={() => {
-                setSessionId(null);
-                setMessages([]);
-                onSelectSession?.(null);
-              }}
+              onClick={handleNewChat}
               className="group relative flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium text-[var(--color-ink-muted)] hover:text-accent bg-white/80 hover:bg-white border border-black/[0.06] hover:border-accent/30 shadow-2xs hover:shadow-xs transition-all cursor-pointer overflow-hidden"
               title={t('clearChatDesc')}
             >
@@ -890,7 +958,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
               {messages.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setMessages([])}
+                  onClick={handleNewChat}
                   title={t('clearChat')}
                   className="hover:text-red-500 transition-colors flex items-center gap-1 cursor-pointer"
                 >
