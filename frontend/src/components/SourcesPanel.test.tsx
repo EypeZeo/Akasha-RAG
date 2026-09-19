@@ -176,17 +176,17 @@ describe('SourcesPanel collections list & pagination', () => {
     expect(screen.getByText(TRANSLATIONS.en.prevPage).closest('button')).toHaveProperty('disabled', true);
     expect(screen.getByText(TRANSLATIONS.en.nextPage).closest('button')).toHaveProperty('disabled', false);
 
-    // Root-caused via runtime instrumentation (see PR description): a bare
-    // `act(() => { element.click() })` can have its resulting state update
-    // computed but never committed under real full-suite process contention
-    // — React's scheduler primitive gets starved and the update never
-    // flushes, not just delayed (confirmed: the click handler's updater ran
-    // and computed the correct next page, but the corresponding re-render
-    // never happened even after a 10s wait). `userEvent.click()` properly
-    // awaits the update instead of assuming synchronous completion — this
-    // is the same pattern every other test file in this codebase already
-    // uses for clicks; this file was the only holdout using a raw
-    // `act()`+`.click()`, which is why this flake was unique to it.
+    // Root-caused via runtime instrumentation (see PR #24): a bare
+    // `act(() => { element.click() })` observably had its resulting state
+    // update computed but not reflected in a render within a 10s wait under
+    // real full-suite process contention (confirmed: the click handler's
+    // updater ran and computed the correct next page, but the corresponding
+    // re-render wasn't observed in time). The exact internal scheduling
+    // mechanism behind that isn't confirmed — what's fixed here is the test
+    // assuming a native `.click()`'s update completes synchronously.
+    // `userEvent.click()` properly awaits it instead, matching every other
+    // test file in this codebase; this file was the only holdout using a
+    // raw `act()`+`.click()`, which is why this flake was unique to it.
     await user.click(screen.getByText(TRANSLATIONS.en.nextPage));
 
     expect(await screen.findByText('Collection 3')).toBeTruthy();
@@ -210,8 +210,8 @@ describe('SourcesPanel collections list & pagination', () => {
 
     await screen.findByText('Collection 1');
     // See the pagination test above for why this uses userEvent.click()
-    // instead of a bare act()+.click() — root-caused to a real full-suite
-    // scheduler-starvation flake, not a component bug.
+    // instead of a bare act()+.click() — a real full-suite-only flake,
+    // not a component bug (the exact internal mechanism isn't confirmed).
     await user.click(screen.getByText(TRANSLATIONS.en.nextPage));
     expect(await screen.findByText('Collection 3')).toBeTruthy();
 
