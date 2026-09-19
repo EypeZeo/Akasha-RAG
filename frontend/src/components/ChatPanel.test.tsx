@@ -506,3 +506,447 @@ describe('ChatPanel composer', () => {
     expect(screen.queryByPlaceholderText(TRANSLATIONS.en.expandedPlaceholder)).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #21 — every async writer (preflight, stream, initial history, "load
+// earlier") must be invalidated by every session transition (switch, new chat,
+// clear, delete, unmount), and A's visible state must never survive into B.
+// ---------------------------------------------------------------------------
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+type HistoryResult = { success: boolean; items: api.MessageItem[]; has_more?: boolean };
+
+function historyItem(id: number, content: string, role: 'user' | 'assistant' = 'assistant'): api.MessageItem {
+  return { id, session_id: 0, role, content, route_type: 'rag', created_at: '2026-01-01T00:00:00Z' };
+}
+
+/** Every getSessionMessages call stays pending until the test resolves or
+ *  rejects it explicitly, so a test controls exactly when (and in which
+ *  order) A's and B's history responses land. Keyed by session id plus the
+ *  `before` cursor, so an initial load and a "load earlier" page are separate. */
+function makeHistoryController() {
+  const entries = new Map<string, ReturnType<typeof deferred<HistoryResult>>>();
+  const keyOf = (id: number, before?: number) => `${id}:${before ?? 'initial'}`;
+  const entryFor = (id: number, before?: number) => {
+    const key = keyOf(id, before);
+    let entry = entries.get(key);
+    if (!entry) {
+      entry = deferred<HistoryResult>();
+      entries.set(key, entry);
+    }
+    return entry;
+  };
+  vi.mocked(api.getSessionMessages).mockImplementation((id, opts) => entryFor(id, opts?.before).promise);
+  return {
+    resolve: (id: number, result: HistoryResult, before?: number) => entryFor(id, before).resolve(result),
+    reject: (id: number, reason: unknown, before?: number) => entryFor(id, before).reject(reason),
+  };
+}
+
+/** Capture animation-frame callbacks instead of running them, so a test can
+ *  hold "tokens are buffered but the frame has not fired yet" open. */
+function captureAnimationFrames() {
+  let nextId = 1;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation(cb => {
+    const id = nextId++;
+    callbacks.set(id, cb);
+    return id;
+  });
+  vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => { callbacks.delete(id); });
+  return {
+    runPending: () => {
+      const pending = [...callbacks.values()];
+      callbacks.clear();
+      pending.forEach(cb => cb(performance.now()));
+    },
+  };
+}
+
+/** Wires ChatPanel to the real zustand store exactly like Workspace.tsx does
+ *  (activeSessionId / setActiveSessionId), so the stream's own `meta` ->
+ *  onSelectSession -> store -> prop round trip goes through the real
+ *  useSyncExternalStore render timing. */
+function StoreConnectedPanel() {
+  const activeSessionId = useWorkspaceStore(s => s.activeSessionId);
+  const setActiveSessionId = useWorkspaceStore(s => s.setActiveSessionId);
+  return (
+    <I18nProvider>
+      <ChatPanel
+        collectionId="all"
+        statsRefreshKey={0}
+        activeSessionId={activeSessionId}
+        onSelectSession={setActiveSessionId}
+        active
+        onOpenSettings={vi.fn()}
+      />
+    </I18nProvider>
+  );
+}
+
+describe('ChatPanel session-scope invalidation (Issue #21)', () => {
+  let history: ReturnType<typeof makeHistoryController>;
+  // The composer's placeholder changes while loading, so it can't be located
+  // by placeholder text; it is the only <textarea> while the expanded editor
+  // modal is closed.
+  const inputEl = () => document.querySelector('textarea') as HTMLTextAreaElement;
+  const ok ={ success: true, chat_ready: true, ingest_ready: true };
+
+  beforeEach(() => {
+    history = makeHistoryController();
+    vi.mocked(api.deleteSession).mockResolvedValue({ success: true });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+
+  it('S1. a second submit during the settings preflight does not start a second stream', async () => {
+    const gate = deferred<typeof ok>();
+    vi.mocked(api.getSettingsStatus).mockReturnValue(gate.promise);
+    const { stream } = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValue(stream);
+    await setup();
+
+    const textarea = await screen.findByPlaceholderText(TRANSLATIONS.en.inputPlaceholder);
+    fireEvent.change(textarea, { target: { value: 'q' } });
+    await act(async () => { fireEvent.keyDown(textarea, { key: 'Enter' }); });
+    await act(async () => { fireEvent.keyDown(textarea, { key: 'Enter' }); });
+    await act(async () => { gate.resolve(ok); });
+
+    await waitFor(() => expect(api.chatAskStream).toHaveBeenCalled());
+    expect(api.chatAskStream).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByTestId('msg-row')).toHaveLength(2);
+  });
+
+  it('S2. switching sessions during the preflight cancels the pending send: nothing is sent or written into the new session', async () => {
+    const gate = deferred<typeof ok>();
+    vi.mocked(api.getSettingsStatus).mockReturnValue(gate.promise);
+    vi.mocked(api.chatAskStream).mockReturnValue(makeControllableStream().stream);
+    const h = await setup();
+
+    const textarea = await screen.findByPlaceholderText(TRANSLATIONS.en.inputPlaceholder);
+    fireEvent.change(textarea, { target: { value: 'pending question' } });
+    await act(async () => { fireEvent.keyDown(textarea, { key: 'Enter' }); });
+
+    await act(async () => { h.rerender({ activeSessionId: 5 }); });
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(1, 'B history')], has_more: false }); });
+    expect(await screen.findByText('B history')).toBeTruthy();
+
+    await act(async () => { gate.resolve(ok); });
+
+    expect(api.chatAskStream).not.toHaveBeenCalled();
+    // The unsent draft legitimately stays in the composer; what must not
+    // happen is a user/assistant row for it appearing in B's transcript.
+    const rows = screen.getAllByTestId('msg-row');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toBe('B history');
+  });
+
+  it('S3. switching sessions mid-stream aborts the old stream\'s signal', async () => {
+    const { stream } = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValue(stream);
+    const h = await setup();
+    await sendViaEnter('q');
+
+    const signal = vi.mocked(api.chatAskStream).mock.calls[0][4] as AbortSignal;
+    expect(signal.aborted).toBe(false);
+
+    await act(async () => { h.rerender({ activeSessionId: 5 }); });
+    expect(signal.aborted).toBe(true);
+  });
+
+  it('S4. a stale stream finishing after a switch cannot end the new session\'s loading state', async () => {
+    const old = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValue(old.stream);
+    const h = await setup();
+    await sendViaEnter('q');
+
+    await act(async () => { h.rerender({ activeSessionId: 5 }); });
+    expect(inputEl().disabled).toBe(true);
+
+    // The mock stream deliberately ignores the abort signal: this models the
+    // old generation's tail landing late, after the switch.
+    await act(async () => { old.end(); });
+    expect(inputEl().disabled).toBe(true);
+
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(1, 'B history')], has_more: false }); });
+    expect(await screen.findByText('B history')).toBeTruthy();
+    await waitFor(() => expect(inputEl().disabled).toBe(false));
+  });
+
+  it('S5. a late meta from the old stream can neither re-select the old session nor corrupt the new session id', async () => {
+    const a = makeControllableStream();
+    const b = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValueOnce(a.stream).mockReturnValueOnce(b.stream);
+    const onSelectSession = vi.fn();
+    const h = await setup({ onSelectSession });
+    await sendViaEnter('from A');
+
+    await act(async () => { h.rerender({ activeSessionId: 5 }); });
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(1, 'B history')], has_more: false }); });
+    await screen.findByText('B history');
+
+    await act(async () => { a.push({ _event: 'meta', session_id: 99, latency_ms: 1 }); });
+    expect(onSelectSession).not.toHaveBeenCalledWith(99);
+
+    await sendViaEnter('from B');
+    expect(vi.mocked(api.chatAskStream).mock.calls[1][1]).toBe(5);
+  });
+
+  it('S6a. tokens buffered but not yet flushed when Stop is clicked never leak into the next answer', async () => {
+    const frames = captureAnimationFrames();
+    const a = makeControllableStream();
+    const b = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValueOnce(a.stream).mockReturnValueOnce(b.stream);
+    await setup();
+    await sendViaEnter('A');
+
+    await act(async () => { a.push({ _event: 'delta', text: 'A-buffered' }); });
+    fireEvent.click(await screen.findByTitle(TRANSLATIONS.en.stopTooltip));
+
+    await sendViaEnter('B');
+    await act(async () => { b.push({ _event: 'delta', text: 'B-token' }); });
+    await act(async () => { frames.runPending(); });
+
+    expect(await screen.findByText('B-token')).toBeTruthy();
+    expect(screen.queryByText(/A-buffered/)).toBeNull();
+  });
+
+  it('S6b. tokens buffered when the user switches sessions never leak into the next answer', async () => {
+    const frames = captureAnimationFrames();
+    const a = makeControllableStream();
+    const b = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValueOnce(a.stream).mockReturnValueOnce(b.stream);
+    const h = await setup();
+    await sendViaEnter('A');
+
+    await act(async () => { a.push({ _event: 'delta', text: 'A-buffered' }); });
+    await act(async () => { h.rerender({ activeSessionId: 5 }); });
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(1, 'B history')], has_more: false }); });
+    await screen.findByText('B history');
+
+    await sendViaEnter('B');
+    await act(async () => { b.push({ _event: 'delta', text: 'B-token' }); });
+    await act(async () => { frames.runPending(); });
+
+    expect(await screen.findByText('B-token')).toBeTruthy();
+    expect(screen.queryByText(/A-buffered/)).toBeNull();
+  });
+
+  it('S7. an initial history response for A that arrives after B\'s cannot replace B, and the next send targets B', async () => {
+    const h = await setup({ activeSessionId: 5 });
+    await act(async () => { h.rerender({ activeSessionId: 6 }); });
+    await act(async () => { history.resolve(6, { success: true, items: [historyItem(2, 'B-content')], has_more: false }); });
+    expect(await screen.findByText('B-content')).toBeTruthy();
+
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(1, 'A-content')], has_more: false }); });
+    expect(screen.queryByText('A-content')).toBeNull();
+    expect(screen.getByText('B-content')).toBeTruthy();
+
+    vi.mocked(api.chatAskStream).mockReturnValue(makeControllableStream().stream);
+    await sendViaEnter('next');
+    expect(vi.mocked(api.chatAskStream).mock.calls[0][1]).toBe(6);
+  });
+
+  it('S8. a "load earlier" page for A that arrives after switching to B is not prepended into B', async () => {
+    const h = await setup({ activeSessionId: 5 });
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(10, 'A-newest')], has_more: true }); });
+    const loadEarlier = await screen.findByText(TRANSLATIONS.en.loadEarlierMessages);
+    await act(async () => { fireEvent.click(loadEarlier); });
+
+    await act(async () => { h.rerender({ activeSessionId: 6 }); });
+    await act(async () => { history.resolve(6, { success: true, items: [historyItem(20, 'B-content')], has_more: false }); });
+    await screen.findByText('B-content');
+
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(9, 'A-older')], has_more: false }, 10); });
+    expect(screen.queryByText('A-older')).toBeNull();
+    expect(screen.getAllByTestId('msg-row')).toHaveLength(1);
+  });
+
+  it('S9a. unmounting mid-stream aborts the request and later events never reach the parent', async () => {
+    const s = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValue(s.stream);
+    const onSelectSession = vi.fn();
+    const h = await setup({ onSelectSession });
+    await sendViaEnter('q');
+    const signal = vi.mocked(api.chatAskStream).mock.calls[0][4] as AbortSignal;
+
+    h.unmount();
+    expect(signal.aborted).toBe(true);
+
+    await act(async () => {
+      s.push({ _event: 'meta', session_id: 99, latency_ms: 1 });
+      s.push({ _event: 'delta', text: 'late' });
+      s.end();
+    });
+    expect(onSelectSession).not.toHaveBeenCalled();
+  });
+
+  it('S9b. unmounting with a "load earlier" in flight does not throw or log when it resolves late', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const h = await setup({ activeSessionId: 5 });
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(10, 'A-newest')], has_more: true }); });
+    await act(async () => { fireEvent.click(await screen.findByText(TRANSLATIONS.en.loadEarlierMessages)); });
+
+    h.unmount();
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(9, 'A-older')], has_more: false }, 10); });
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  async function startStreamInSession5(onSelectSession: (id: number | null) => void) {
+    vi.mocked(api.chatAskStream).mockReturnValue(makeControllableStream().stream);
+    const h = await setup({ activeSessionId: 5, onSelectSession });
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(1, 'old answer')], has_more: false }); });
+    await screen.findByText('old answer');
+    await sendViaEnter('q');
+    return { h, signal: vi.mocked(api.chatAskStream).mock.calls[0][4] as AbortSignal };
+  }
+
+  it.each([
+    ['the top "New chat" button', () => fireEvent.click(screen.getByTitle(TRANSLATIONS.en.clearChatDesc))],
+    ['the bottom "Clear" button', () => fireEvent.click(screen.getByTitle(TRANSLATIONS.en.clearChat))],
+  ])('S10. %s aborts the in-flight stream, resets the session, notifies the parent and clears the view', async (_name, trigger) => {
+    const onSelectSession = vi.fn();
+    const { signal } = await startStreamInSession5(onSelectSession);
+
+    await act(async () => { trigger(); });
+
+    expect(signal.aborted).toBe(true);
+    expect(onSelectSession).toHaveBeenLastCalledWith(null);
+    expect(screen.queryAllByTestId('msg-row')).toHaveLength(0);
+    expect(inputEl().disabled).toBe(false);
+  });
+
+  it('S10c. the parent selecting "no session" (new chat from outside) aborts the in-flight stream and clears the view', async () => {
+    const { h, signal } = await startStreamInSession5(vi.fn());
+
+    await act(async () => { h.rerender({ activeSessionId: null }); });
+
+    expect(signal.aborted).toBe(true);
+    expect(screen.queryAllByTestId('msg-row')).toHaveLength(0);
+    expect(inputEl().disabled).toBe(false);
+  });
+
+  it('S11. a stale stream\'s delta after a switch never shows up in the new session', async () => {
+    const frames = captureAnimationFrames();
+    const a = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValue(a.stream);
+    const h = await setup();
+    await sendViaEnter('q');
+
+    await act(async () => { h.rerender({ activeSessionId: 5 }); });
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(1, 'B history')], has_more: false }); });
+    await screen.findByText('B history');
+
+    await act(async () => { a.push({ _event: 'delta', text: 'stale' }); });
+    await act(async () => { frames.runPending(); });
+    expect(screen.queryByText(/stale/)).toBeNull();
+  });
+
+  it('S12. a brand-new chat that gets its session id from its own meta event (real store round trip) is not aborted or reloaded', async () => {
+    const s = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValue(s.stream);
+    await act(async () => { render(<StoreConnectedPanel />); });
+    await sendViaEnter('first question');
+    const signal = vi.mocked(api.chatAskStream).mock.calls[0][4] as AbortSignal;
+
+    await act(async () => { s.push({ _event: 'delta', text: 'Part1' }); });
+    await act(async () => { s.push({ _event: 'meta', session_id: 7, latency_ms: 5 }); });
+    expect(useWorkspaceStore.getState().activeSessionId).toBe(7);
+
+    await act(async () => { s.push({ _event: 'delta', text: '-Part2' }); s.end(); });
+
+    expect(await screen.findByText('Part1-Part2')).toBeTruthy();
+    expect(signal.aborted).toBe(false);
+    expect(api.getSessionMessages).not.toHaveBeenCalled();
+    await waitFor(() => {
+      const assistantRow = screen.getAllByTestId('msg-row').find(r => r.getAttribute('data-role') === 'assistant');
+      expect(assistantRow?.getAttribute('data-streaming')).toBe('false');
+    });
+  });
+
+  it('S13. after a stream completes normally the next send in the same session still works', async () => {
+    const a = makeControllableStream();
+    const b = makeControllableStream();
+    vi.mocked(api.chatAskStream).mockReturnValueOnce(a.stream).mockReturnValueOnce(b.stream);
+    await setup();
+    await sendViaEnter('first');
+    await act(async () => { a.push({ _event: 'delta', text: 'one' }); a.end(); });
+    await waitFor(() => expect(inputEl().disabled).toBe(false));
+
+    await sendViaEnter('second');
+    expect(api.chatAskStream).toHaveBeenCalledTimes(2);
+  });
+
+  it('S14a. switching to B clears A\'s messages and pagination immediately, before B\'s history returns', async () => {
+    const h = await setup({ activeSessionId: 5 });
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(10, 'A-content')], has_more: true }); });
+    await screen.findByText('A-content');
+    expect(screen.getByText(TRANSLATIONS.en.loadEarlierMessages)).toBeTruthy();
+
+    await act(async () => { h.rerender({ activeSessionId: 6 }); });
+
+    expect(screen.queryByText('A-content')).toBeNull();
+    expect(screen.queryByText(TRANSLATIONS.en.loadEarlierMessages)).toBeNull();
+    expect(inputEl().disabled).toBe(true);
+
+    await act(async () => { history.resolve(6, { success: true, items: [historyItem(20, 'B-content')], has_more: false }); });
+    expect(await screen.findByText('B-content')).toBeTruthy();
+  });
+
+  it('S14b. if B\'s history fails, A\'s messages and pagination are not restored', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const h = await setup({ activeSessionId: 5 });
+    await act(async () => { history.resolve(5, { success: true, items: [historyItem(10, 'A-content')], has_more: true }); });
+    await screen.findByText('A-content');
+
+    await act(async () => { h.rerender({ activeSessionId: 6 }); });
+    await act(async () => { history.reject(6, new Error('boom')); });
+
+    await waitFor(() => expect(inputEl().disabled).toBe(false));
+    expect(screen.queryByText('A-content')).toBeNull();
+    expect(screen.queryByText(TRANSLATIONS.en.loadEarlierMessages)).toBeNull();
+    expect(errorSpy).toHaveBeenCalled();
+  });
+
+  describe('deleting sessions from the drawer', () => {
+    const session = (id: number, title: string): api.SessionItem => ({
+      id, title, message_count: 2, last_message_at: new Date().toISOString(), created_at: new Date().toISOString(),
+    });
+
+    it('S15a. deleting the session whose history is still loading resets the panel and the parent selection', async () => {
+      vi.mocked(api.listSessions).mockResolvedValue({ success: true, items: [session(6, 'Session B')] });
+      await act(async () => { render(<StoreConnectedPanel />); });
+
+      fireEvent.click(await screen.findByText('Session B'));
+      await waitFor(() => expect(api.getSessionMessages).toHaveBeenCalledWith(6, expect.anything()));
+      expect(useWorkspaceStore.getState().activeSessionId).toBe(6);
+
+      await act(async () => { fireEvent.click(screen.getByTitle(TRANSLATIONS.en.deleteChat)); });
+      await waitFor(() => expect(useWorkspaceStore.getState().activeSessionId).toBeNull());
+
+      await act(async () => { history.resolve(6, { success: true, items: [historyItem(1, 'B-content')], has_more: false }); });
+      expect(screen.queryByText('B-content')).toBeNull();
+    });
+
+    it('S15b. deleting an unrelated session leaves the current session alone', async () => {
+      vi.mocked(api.listSessions).mockResolvedValue({ success: true, items: [session(6, 'Session B'), session(7, 'Session C')] });
+      await act(async () => { render(<StoreConnectedPanel />); });
+
+      fireEvent.click(await screen.findByText('Session B'));
+      await act(async () => { history.resolve(6, { success: true, items: [historyItem(1, 'B-content')], has_more: false }); });
+      await screen.findByText('B-content');
+
+      const deleteButtons = screen.getAllByTitle(TRANSLATIONS.en.deleteChat);
+      await act(async () => { fireEvent.click(deleteButtons[1]); });
+      await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith(7));
+
+      expect(useWorkspaceStore.getState().activeSessionId).toBe(6);
+      expect(screen.getByText('B-content')).toBeTruthy();
+    });
+  });
+});
