@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 
 import pytest
 
@@ -128,3 +129,120 @@ def test_producer_blocks_on_a_full_queue_without_dropping_items():
 
     assert not t.is_alive()
     assert items == [("delta", {"text": str(i)}) for i in range(5)] + [("done", {"ok": True})]
+
+
+# ---------------------------------------------------------------------------
+# Issue #28: a full queue must not blind the producer to cancellation.
+#
+# When the client disconnects the consumer stops draining. If the bounded
+# queue is full at that moment the producer is inside q.put(), which used to
+# wait out the whole _STREAM_PRODUCER_PUT_TIMEOUT_SECONDS (30 s) without ever
+# looking at cancel_event -- the model stream (and any gate slot held by the
+# generator) stayed occupied for that long. Still true and still documented:
+# an LLM call that is already in flight cannot be interrupted; cancellation
+# takes effect at event boundaries.
+# ---------------------------------------------------------------------------
+
+
+class _SpyQueue(queue.Queue):
+    """A queue that reports the moment put() is called while it is full, i.e.
+    the producer is about to block. Lets a test cancel *while* the producer is
+    stuck, without sleeping or guessing."""
+
+    def __init__(self, maxsize: int):
+        super().__init__(maxsize=maxsize)
+        self.put_on_full = threading.Event()
+
+    def put(self, item, block=True, timeout=None):
+        if self.full():
+            self.put_on_full.set()
+        return super().put(item, block, timeout)
+
+
+def test_cancel_is_noticed_within_a_short_bound_while_the_queue_is_full():
+    generator_closed = threading.Event()
+
+    def fake_gen():
+        try:
+            yield ("delta", {"text": "a"})  # fills the queue
+            yield ("delta", {"text": "b"})  # its put() has nowhere to go
+            yield ("done", {"ok": True})
+        finally:
+            generator_closed.set()
+
+    q = _SpyQueue(maxsize=1)
+    cancel_event = threading.Event()
+    t = threading.Thread(
+        target=chat_module._produce_stream_events, args=(fake_gen, q, cancel_event), daemon=True,
+    )
+    t.start()
+
+    assert q.put_on_full.wait(timeout=5), "the producer never reached a put() on the full queue"
+    started = time.monotonic()
+    cancel_event.set()  # the consumer is gone; nobody will ever drain the queue
+
+    assert generator_closed.wait(timeout=3), "the generator was still open long after the cancel"
+    t.join(timeout=3)
+    assert not t.is_alive()
+    assert time.monotonic() - started < 3
+
+
+def test_thread_exits_promptly_after_a_cancel_even_though_its_notice_puts_have_nowhere_to_go():
+    """After the cancel check fires the producer also tries to enqueue a
+    'cancelled' notice and, in the finally block, the end-of-stream sentinel.
+    With a full queue and nobody listening those puts must not keep the thread
+    alive for their own multi-second timeouts."""
+    closed = threading.Event()
+    at_checkpoint = threading.Event()
+    proceed = threading.Event()
+
+    def fake_gen():
+        try:
+            yield ("delta", {"text": "a"})  # fills the queue (maxsize=1)
+            at_checkpoint.set()
+            proceed.wait(timeout=5)
+            yield ("delta", {"text": "b"})  # the cancel check fires before this is queued
+        finally:
+            closed.set()
+
+    q: "queue.Queue" = queue.Queue(maxsize=1)
+    cancel_event = threading.Event()
+    t = threading.Thread(
+        target=chat_module._produce_stream_events, args=(fake_gen, q, cancel_event), daemon=True,
+    )
+    t.start()
+
+    assert at_checkpoint.wait(timeout=5)
+    cancel_event.set()
+    proceed.set()
+
+    assert closed.wait(timeout=3)
+    t.join(timeout=3)
+    assert not t.is_alive(), "the producer thread outlived its generator waiting on a queue nobody reads"
+
+
+def test_a_consumer_that_never_drains_and_never_cancels_still_makes_the_producer_give_up(monkeypatch):
+    """The pre-existing fallback: if the consumer neither reads nor signals
+    cancel (network trouble the ASGI layer has not reported yet) the producer
+    stops waiting after _STREAM_PRODUCER_PUT_TIMEOUT_SECONDS and closes the
+    generator. Shortened here so the test does not take half a minute."""
+    monkeypatch.setattr(chat_module, "_STREAM_PRODUCER_PUT_TIMEOUT_SECONDS", 0.3)
+    monkeypatch.setattr(chat_module, "_STREAM_PRODUCER_NOTICE_TIMEOUT_SECONDS", 0.3, raising=False)
+    closed = threading.Event()
+
+    def fake_gen():
+        try:
+            yield ("delta", {"text": "a"})
+            yield ("delta", {"text": "b"})
+            yield ("done", {"ok": True})
+        finally:
+            closed.set()
+
+    q: "queue.Queue" = queue.Queue(maxsize=1)
+    cancel_event = threading.Event()  # never set
+    t = threading.Thread(
+        target=chat_module._produce_stream_events, args=(fake_gen, q, cancel_event), daemon=True,
+    )
+    t.start()
+
+    assert closed.wait(timeout=3), "the producer never gave up on a queue that was never drained"

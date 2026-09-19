@@ -7,6 +7,7 @@ import json
 import logging
 import queue
 import threading
+import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -79,10 +80,45 @@ async def chat_ask(
 # 消费者检测到客户端断连后置位 cancel_event，生产者在事件之间检查它，
 # 命中就对 answer_stream() 生成器调 .close()（不能打断已经在途的一次 LLM
 # 网络调用，只能在下一次控制权回到生成器自己的帧时生效）。
+#
+# 队列满时生产者会停在 put() 里。put() 期间没人看 cancel_event，所以不能把整段
+# 30 秒超时压在一次 put() 上（否则客户端断连后，生成器——连同它握着的模型流、
+# 并发闸门槽位——最多还要被占 30 秒，Issue #28）；改成每隔
+# _STREAM_PRODUCER_PUT_POLL_SECONDS 醒一次去看 cancel_event，见 _put_or_give_up。
 _STREAM_QUEUE_MAXSIZE = 32
 _STREAM_PRODUCER_PUT_TIMEOUT_SECONDS = 30.0
+_STREAM_PRODUCER_PUT_POLL_SECONDS = 0.1
+# cancelled / error / 结束哨兵这类收尾条目的放入时限
+_STREAM_PRODUCER_NOTICE_TIMEOUT_SECONDS = 5.0
 _STREAM_SENTINEL = object()
 _STREAM_TERMINAL_EVENTS = ("done", "error", "cancelled")
+
+
+def _put_or_give_up(
+    q: "queue.Queue[Any]",
+    item: Any,
+    cancel_event: threading.Event,
+    timeout: float,
+) -> str:
+    """把 item 放进队列。队列满时最多等 `timeout` 秒，但每隔
+    _STREAM_PRODUCER_PUT_POLL_SECONDS 就回头看一次 cancel_event。
+
+    返回 "ok"（放进去了）、"cancelled"（队列一直满、消费者已通知取消——
+    没人会再读这个队列，不必再等）或 "timeout"（队列一直满、也没人喊取消）。
+    队列有空位时无论是否已经取消都直接放入：收尾用的 cancelled 条目和结束
+    哨兵靠这一点仍然进得去。
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        wait = min(_STREAM_PRODUCER_PUT_POLL_SECONDS, max(deadline - time.monotonic(), 0.0))
+        try:
+            q.put(item, timeout=wait)
+            return "ok"
+        except queue.Full:
+            if cancel_event.is_set():
+                return "cancelled"
+            if time.monotonic() >= deadline:
+                return "timeout"
 
 
 def _produce_stream_events(
@@ -92,41 +128,39 @@ def _produce_stream_events(
 ) -> None:
     """在独立 OS 线程运行：拉取 gen_factory() 产出的 (event, payload)，推入
     队列。每推送完一项就检查一次 cancel_event——检测粒度是"每个 SSE 事件
-    之间"，不是"每个 token 之间的任意时刻"（做不到，见上）。
+    之间"，不是"每个 token 之间的任意时刻"（做不到，见上）；队列满时则是
+    每 _STREAM_PRODUCER_PUT_POLL_SECONDS 检查一次。
     """
     gen = gen_factory()
     try:
         for event_name, payload in gen:
             if cancel_event.is_set():
                 gen.close()
-                try:
-                    q.put(("cancelled", {"message": "客户端已断开"}), timeout=5)
-                except queue.Full:
-                    pass
+                _put_or_give_up(
+                    q, ("cancelled", {"message": "客户端已断开"}), cancel_event,
+                    _STREAM_PRODUCER_NOTICE_TIMEOUT_SECONDS,
+                )
                 return
-            try:
-                q.put((event_name, payload), timeout=_STREAM_PRODUCER_PUT_TIMEOUT_SECONDS)
-            except queue.Full:
-                # 消费者长时间不取（网络异常但 ASGI 层还没报断连）：不能让
-                # 这个线程被无限期占用，自行判定消费者已经不在了。
+            if _put_or_give_up(
+                q, (event_name, payload), cancel_event, _STREAM_PRODUCER_PUT_TIMEOUT_SECONDS,
+            ) != "ok":
+                # "timeout"：消费者长时间不取（网络异常但 ASGI 层还没报断连）；
+                # "cancelled"：等队列腾位置的时候消费者已经走了。两种情况都不能
+                # 让这个线程（和它握着的模型流）继续被占用。
                 gen.close()
                 return
             if event_name in _STREAM_TERMINAL_EVENTS:
                 return
     except Exception as exc:
         logger.exception("流式问答生产线程异常")
-        try:
-            q.put(("error", {"message": str(exc)}), timeout=5)
-        except queue.Full:
-            pass
+        _put_or_give_up(
+            q, ("error", {"message": str(exc)}), cancel_event, _STREAM_PRODUCER_NOTICE_TIMEOUT_SECONDS,
+        )
     finally:
         # 保底：万一 answer_stream() 没有正常吐出 done/error 事件（比如上面
         # 的 return 分支已经处理过，这里对 Queue 的一次多余 put 是无害的
         # 幂等收尾），消费者也不会永久卡在 q.get()。
-        try:
-            q.put(_STREAM_SENTINEL, timeout=5)
-        except queue.Full:
-            pass
+        _put_or_give_up(q, _STREAM_SENTINEL, cancel_event, _STREAM_PRODUCER_NOTICE_TIMEOUT_SECONDS)
 
 
 @router.post("/ask/stream")
