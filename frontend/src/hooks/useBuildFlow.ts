@@ -59,9 +59,11 @@ export function useBuildFlow(t: TFunction, onBuildComplete: () => void) {
     clearTerminalTimeout();
     generationRef.current += 1;
     activeRef.current = false;
-    setBuilding(false);
-    setBuildTaskId(null);
-    setCancelling(false);
+    if (mountedRef.current) {
+      setBuilding(false);
+      setBuildTaskId(null);
+      setCancelling(false);
+    }
     try {
       localStorage.removeItem(ACTIVE_BUILD_KEY);
     } catch { /* ignore */ }
@@ -122,6 +124,7 @@ export function useBuildFlow(t: TFunction, onBuildComplete: () => void) {
         }
         terminalTimeoutRef.current = setTimeout(() => {
           terminalTimeoutRef.current = null;
+          if (!mountedRef.current || generationRef.current !== myGeneration) return;
           finishBuild();
           onBuildComplete();
         }, 900);
@@ -133,12 +136,27 @@ export function useBuildFlow(t: TFunction, onBuildComplete: () => void) {
 
   const setBuildTotalHint = useCallback((n: number) => setBuildTotal(n), []);
 
+  // Declared before restore so StrictMode's setup-cleanup-setup sequence marks
+  // the hook mounted again before the second restore pass.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      generationRef.current += 1;
+      activeRef.current = false;
+      stopBuildPoll();
+      clearTerminalTimeout();
+    };
+  }, [clearTerminalTimeout, stopBuildPoll]);
+
   // F5 刷新后恢复未完成的入库任务。`startBuildPolling`/`t` 的身份会随
-  // `onBuildComplete`（SourcesPanel 里 expandedId/videoPage 等变化时重新
-  // 生成）频繁变化，这个 effect 因此比"只在挂载时跑一次"更容易重跑——
-  // 如果不守卫，一次正常进行中的构建会被这类无关的重渲染意外重启（重新
-  // 走一遍 startBuildPolling，取消刚安排好的终态收尾）。只在"当前确实
-  // 没有活跃构建"时才尝试从 localStorage 恢复。
+  // `onBuildComplete`（调用方每次传入新的回调引用时都会变）变化，这个
+  // effect 因此比"只在挂载时跑一次"更容易重跑——如果不守卫，一次正常
+  // 进行中的构建会被这类无关的重渲染意外重启（重新走一遍
+  // startBuildPolling，取消刚安排好的终态收尾）。只在"当前确实没有活跃
+  // 构建"时才尝试从 localStorage 恢复。这个 effect 自己不带 cleanup：
+  // 它每次重跑都会执行 cleanup，会把一个正在进行的轮询误停掉；轮询的
+  // 停止统一由上面那个只在卸载时才清理的 effect 负责。
   useEffect(() => {
     if (activeRef.current) return;
     let saved: { task_id: string; typeLabel: string } | null = null;
@@ -162,26 +180,19 @@ export function useBuildFlow(t: TFunction, onBuildComplete: () => void) {
       try { localStorage.removeItem(ACTIVE_BUILD_KEY); } catch { /* ignore */ }
     }
     if (saved?.task_id) startBuildPolling(saved.task_id, saved.typeLabel || t('categoryContent'), true);
-    return () => stopBuildPoll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startBuildPolling, t]);
-
-  // 只在真正卸载时触发一次（空依赖数组），和上面那个会随 startBuildPolling
-  // 身份变化而重跑的 F5 恢复 effect 分开——避免把"重跑"误当成"卸载"。
-  useEffect(() => {
-    return () => {
-      mountedRef.current = false;
-      generationRef.current += 1;
-    };
-  }, []);
 
   const handleCancelBuild = async () => {
     if (!buildTaskId || cancelling) return;
+    // A response for a task that has since finished, been replaced or been unmounted is not ours to act on.
+    const generation = generationRef.current;
     setCancelling(true);
     try {
       await api.cancelSync(buildTaskId);
+      if (!mountedRef.current || generationRef.current !== generation) return;
       setBuildMessage(t('cancelling'));
     } catch (e: any) {
+      if (!mountedRef.current || generationRef.current !== generation) return;
       setCancelling(false);
       console.error('Cancel ingest failed:', e);
       alert(t('operationFailed'));

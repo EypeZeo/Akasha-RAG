@@ -21,6 +21,11 @@ export function useExportFlow(t: TFunction) {
   const [exportTask, setExportTask] = useState<ExportTaskState | null>(null);
   const exportPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const exportDownloadedRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+  const generationRef = useRef(0);
+  const pollInFlightRef = useRef<number | null>(null);
+  const translateRef = useRef(t);
+  translateRef.current = t;
 
   const stopExportPoll = useCallback(() => {
     if (exportPollRef.current) {
@@ -40,9 +45,19 @@ export function useExportFlow(t: TFunction) {
     a.remove();
   }, []);
 
-  const pollExportOnce = useCallback(async (taskId: string, mode: 'local' | 'browser') => {
+  const pollExportOnce = useCallback(async (
+    taskId: string,
+    mode: 'local' | 'browser',
+    generation: number,
+    autoDownload = true,
+  ) => {
+    // A slow response must not be perpetually superseded by newer interval
+    // ticks. Keep at most one request in flight for each task generation.
+    if (pollInFlightRef.current === generation) return;
+    pollInFlightRef.current = generation;
     try {
       const p = await api.getExportProgress(taskId);
+      if (!mountedRef.current || generationRef.current !== generation) return;
       if (!p || p.success === false) {
         // 任务已过期/不存在
         stopExportPoll();
@@ -58,27 +73,36 @@ export function useExportFlow(t: TFunction) {
         status: (p.status as ExportTaskState['status']) || 'running',
         progress: p.progress || 0,
         total: p.total || 0,
-        message: t('exporting'),
+        message: translateRef.current('exporting'),
         result: p.result,
       });
       if (p.status === 'done' || p.status === 'failed') {
         stopExportPoll();
-        if (p.status === 'done' && mode === 'browser') triggerBrowserDownload(taskId);
+        if (p.status === 'done' && mode === 'browser' && autoDownload) triggerBrowserDownload(taskId);
         if (p.status === 'failed') console.error('Export failed:', p.message);
       }
     } catch { /* 网络抖动，下次再试 */ }
-  }, [stopExportPoll, triggerBrowserDownload, t]);
+    finally {
+      if (pollInFlightRef.current === generation) pollInFlightRef.current = null;
+    }
+  }, [stopExportPoll, triggerBrowserDownload]);
 
   const startExportPolling = useCallback((taskId: string, mode: 'local' | 'browser') => {
+    if (!mountedRef.current) {
+      try { localStorage.setItem(ACTIVE_EXPORT_KEY, JSON.stringify({ id: taskId, mode })); } catch { /* ignore */ }
+      return;
+    }
     stopExportPoll();
+    const generation = ++generationRef.current;
     exportDownloadedRef.current = null;
-    setExportTask({ id: taskId, mode, status: 'queued', progress: 0, total: 0, message: t('exportQueued') });
+    setExportTask({ id: taskId, mode, status: 'queued', progress: 0, total: 0, message: translateRef.current('exportQueued') });
     try { localStorage.setItem(ACTIVE_EXPORT_KEY, JSON.stringify({ id: taskId, mode })); } catch { /* ignore */ }
-    pollExportOnce(taskId, mode);
-    exportPollRef.current = setInterval(() => pollExportOnce(taskId, mode), 1500);
-  }, [stopExportPoll, pollExportOnce, t]);
+    pollExportOnce(taskId, mode, generation);
+    exportPollRef.current = setInterval(() => pollExportOnce(taskId, mode, generation), 1500);
+  }, [stopExportPoll, pollExportOnce]);
 
   const dismissExportCard = useCallback(() => {
+    generationRef.current += 1;
     stopExportPoll();
     setExportTask(null);
     try {
@@ -91,17 +115,35 @@ export function useExportFlow(t: TFunction) {
 
   // F5 刷新后恢复未完成的导出任务
   useEffect(() => {
+    mountedRef.current = true;
     let saved: { id: string; mode: 'local' | 'browser' } | null = null;
     try {
       const raw = localStorage.getItem(ACTIVE_EXPORT_KEY);
-      if (raw) saved = JSON.parse(raw);
-    } catch { /* ignore */ }
-    if (saved?.id) {
-      exportDownloadedRef.current = saved.id; // 恢复时不自动重下，交给用户点按钮
-      pollExportOnce(saved.id, saved.mode);
-      exportPollRef.current = setInterval(() => pollExportOnce(saved!.id, saved!.mode), 1500);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && typeof parsed.id === 'string' && parsed.id &&
+            (parsed.mode === 'local' || parsed.mode === 'browser')) {
+          saved = { id: parsed.id, mode: parsed.mode };
+        } else {
+          localStorage.removeItem(ACTIVE_EXPORT_KEY);
+        }
+      }
+    } catch {
+      try { localStorage.removeItem(ACTIVE_EXPORT_KEY); } catch { /* ignore */ }
     }
-    return () => stopExportPoll();
+    if (saved?.id) {
+      const generation = ++generationRef.current;
+      // Restored browser tasks never auto-download. Keep the download marker
+      // clear so the explicit Download button still works exactly once.
+      exportDownloadedRef.current = null;
+      pollExportOnce(saved.id, saved.mode, generation, false);
+      exportPollRef.current = setInterval(() => pollExportOnce(saved!.id, saved!.mode, generation, false), 1500);
+    }
+    return () => {
+      mountedRef.current = false;
+      generationRef.current += 1;
+      stopExportPoll();
+    };
   }, [pollExportOnce, stopExportPoll]);
 
   return {
