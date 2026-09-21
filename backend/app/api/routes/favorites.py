@@ -4,11 +4,13 @@
 提供收藏夹同步、列表查询、视频列表等接口。
 """
 import logging
+from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.services.collection_scope import AmbiguousCollectionError
 from app.services.favorites_service import favorites_service
 
 logger = logging.getLogger(__name__)
@@ -160,7 +162,7 @@ async def sync_favorites(
 
 @router.get("/collections")
 async def list_collections(
-    platform: str | None = Query(None, description="平台过滤: douyin | bilibili | all"),
+    platform: Literal["all", "douyin", "bilibili"] | None = Query(None, description="平台过滤: douyin | bilibili | all"),
     db: Session = Depends(get_db),
 ):
     """
@@ -182,8 +184,8 @@ async def list_collections(
 
 @router.get("/collections/{collection_id}/videos")
 async def list_collection_videos(
-    collection_id: str,
-    platform: str | None = Query(None, description="平台过滤: douyin | bilibili | all"),
+    collection_id: str = Path(max_length=64),
+    platform: Literal["all", "douyin", "bilibili"] | None = Query(None, description="平台过滤: douyin | bilibili | all"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=2000),
     cursor: str | None = Query(None, description="基于不可变本地 ID 的不透明游标"),
@@ -203,7 +205,9 @@ async def list_collection_videos(
         items, total, next_cursor, has_more = favorites_service.list_collection_videos(
             db, collection_id, page=page, size=size, platform=platform, cursor=cursor
         )
-    except ValueError as exc:
+    except AmbiguousCollectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:  # e.g. an invalid cursor
         return {"success": False, "message": str(exc), "items": [], "total": 0}
     video_count, note_count = favorites_service.count_videos_by_kind(
         db, collection_id, platform=platform

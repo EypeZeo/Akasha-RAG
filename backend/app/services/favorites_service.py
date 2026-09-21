@@ -27,11 +27,10 @@ from app.models.entities import (
     ContentItem,
     ContentPart,
     FavoriteCollection,
-    FavoriteVideo,
     IngestionItem,
-    VideoCache,
 )
 from app.services.chroma_service import get_chroma_service
+from app.services.collection_scope import resolve_collection
 from app.services.douyin_collector import (
     FavoriteScrapedCollection,
     FavoriteScrapedVideo,
@@ -811,14 +810,7 @@ class FavoritesService:
             )
 
         # 指定收藏夹
-        col_query = select(FavoriteCollection).where(
-            FavoriteCollection.remote_collection_id == collection_id,
-            FavoriteCollection.is_active.is_(True),
-        )
-        if platform and platform != "all":
-            col_query = col_query.where(FavoriteCollection.platform == platform)
-
-        collection = db.scalar(col_query)
+        collection = resolve_collection(db, collection_id, platform)
         if collection is None:
             return [], 0, None, False
 
@@ -871,13 +863,8 @@ class FavoritesService:
             if platform and platform != "all":
                 base = base.where(ContentItem.platform == platform)
         else:
-            col_query = select(FavoriteCollection.id).where(
-                FavoriteCollection.remote_collection_id == collection_id,
-                FavoriteCollection.is_active.is_(True),
-            )
-            if platform and platform != "all":
-                col_query = col_query.where(FavoriteCollection.platform == platform)
-            col_pk = db.scalar(col_query)
+            collection = resolve_collection(db, collection_id, platform)
+            col_pk = collection.id if collection else None
             if col_pk is None:
                 return 0, 0
             base = (

@@ -96,6 +96,7 @@ def _run(task_id: str, params: dict) -> None:
                 result = batch_export_service.export_to_local_directory(
                     db=db,
                     collection_id=params.get("collection_id"),
+                    platform=params.get("platform"),
                     selected_ids=params.get("selected_ids"),
                     content_type=params.get("content_type", "both"),
                     export_format=params.get("format", "markdown"),
@@ -108,6 +109,7 @@ def _run(task_id: str, params: dict) -> None:
                 buffer, filename, mime = batch_export_service.export_batch(
                     db=db,
                     collection_id=params.get("collection_id"),
+                    platform=params.get("platform"),
                     selected_ids=params.get("selected_ids"),
                     content_type=params.get("content_type", "both"),
                     export_format=params.get("format", "markdown"),

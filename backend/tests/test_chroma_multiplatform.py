@@ -4,8 +4,6 @@ Chroma 多平台向量检索与分P隔离单测
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-import pytest
-
 from app.services.chroma_service import ChromaService
 
 
@@ -155,3 +153,18 @@ def test_cross_platform_search_merges_by_score():
     results = svc.search([0.1] * 8, top_k=2, use_mmr=False)
 
     assert [item["platform"] for item in results] == ["bilibili", "douyin"]
+
+
+def test_scope_never_queries_another_platform_with_the_same_remote_id():
+    dy = SimpleNamespace(count=Mock(return_value=1), query=Mock(return_value={
+        "ids": [["same:0"]], "distances": [[0.2]],
+        "metadatas": [[{"platform": "douyin", "platform_item_id": "same", "title": "inside"}]],
+        "documents": [["inside"]],
+    }))
+    bili = SimpleNamespace(count=Mock(return_value=1), query=Mock())
+    service = object.__new__(ChromaService)
+    service._collections = {"douyin": dy, "bilibili": bili}
+    result = service.search([0.1], scope_ids={("douyin", "same")})
+    assert [hit["title"] for hit in result] == ["inside"]
+    assert dy.query.call_args.kwargs["where"] == {"platform_item_id": {"$in": ["same"]}}
+    bili.query.assert_not_called()

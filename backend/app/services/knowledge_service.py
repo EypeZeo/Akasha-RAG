@@ -23,13 +23,11 @@ from app.models.entities import (
     CollectionItemRelation,
     ContentItem,
     ContentPart,
-    FavoriteCollection,
-    FavoriteVideo,
     IngestionItem,
-    VideoCache,
 )
 from app.services.asr_service import asr_service
 from app.services.chroma_service import get_chroma_service
+from app.services.collection_scope import resolve_collection
 from app.services.llm_service import embedding_client
 from app.services.media_service import download_audio
 from app.services.text_processing import build_fixed_chunks, clean_title_for_index
@@ -78,8 +76,6 @@ class KnowledgeService:
         :param platform: 可选，限定平台 (douyin | bilibili | all)
         :return: {"task_id": ..., "pending_count": ...}
         """
-        from app.models.entities import FavoriteCollection
-
         if scope == "selected" and not selected_ids:
             return {"task_id": None, "pending_count": 0, "message": "未选择待入库内容"}
 
@@ -123,12 +119,8 @@ class KnowledgeService:
         else:
             # scope == "all": 按 collection_id 与 content_type 在数据库中全量提取
             if collection_id and collection_id != "all":
-                coll = db.scalar(
-                    select(FavoriteCollection.id).where(
-                        FavoriteCollection.remote_collection_id == collection_id,
-                        FavoriteCollection.is_active.is_(True),
-                    )
-                )
+                collection = resolve_collection(db, collection_id, platform)
+                coll = collection.id if collection else None
                 if coll:
                     query = query.join(
                         CollectionItemRelation,
@@ -788,12 +780,8 @@ class KnowledgeService:
             base_query = base_query.where(ContentItem.platform == platform)
 
         if collection_id and collection_id != "all":
-            coll = db.scalar(
-                select(FavoriteCollection.id).where(
-                    FavoriteCollection.remote_collection_id == collection_id,
-                    FavoriteCollection.is_active.is_(True),
-                )
-            )
+            collection = resolve_collection(db, collection_id, platform)
+            coll = collection.id if collection else None
             if coll:
                 base_query = base_query.join(
                     CollectionItemRelation,

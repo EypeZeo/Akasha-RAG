@@ -17,17 +17,17 @@ import re
 import time
 from typing import Iterable
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.entities import (
     ChatMessage,
     ChatSession,
-    FavoriteVideo,
     VideoCache,
 )
 from app.services.chroma_service import get_chroma_service
+from app.services.collection_scope import ContentScope, resolve_collection
 from app.services.llm_service import embedding_client, llm_client
 
 logger = logging.getLogger(__name__)
@@ -200,7 +200,7 @@ class RagService:
     def _dense_retrieve(
         self,
         query: str,
-        scope_ids: set[str] | None = None,
+        scope_ids: ContentScope | None = None,
         platform: str | None = None,
         top_k: int | None = None,
     ) -> list[dict]:
@@ -235,28 +235,25 @@ class RagService:
 
         # 按收藏夹范围过滤（同样必须用 is not None，理由同上）
         if scope_ids is not None:
-            hits = [h for h in hits if h["platform_item_id"] in scope_ids]
+            hits = [h for h in hits if (h.get("platform", "douyin"), h["platform_item_id"]) in scope_ids]
         return hits[:k]
 
     def _resolve_collection_scope(
-        self, db: Session, collection_id: str
-    ) -> set[str]:
+        self, db: Session, collection_id: str, platform: str | None = None
+    ) -> ContentScope:
         """
-        解析收藏夹 ID → 包含的 remote_item_id 集合
+        解析收藏夹 ID → 包含的 (platform, remote_item_id) 集合
 
         :param db: 数据库会话
         :param collection_id: 收藏夹 remote_collection_id
         :return: 内容 ID 集合
         """
-        from app.models.entities import CollectionItemRelation, ContentItem, FavoriteCollection
-        collection = db.query(FavoriteCollection).filter(
-            FavoriteCollection.remote_collection_id == collection_id,
-            FavoriteCollection.is_active.is_(True),
-        ).first()
+        from app.models.entities import CollectionItemRelation, ContentItem
+        collection = resolve_collection(db, collection_id, platform)
         if not collection:
             return set()
         rows = (
-            db.query(ContentItem.remote_item_id)
+            db.query(ContentItem.platform, ContentItem.remote_item_id)
             .join(CollectionItemRelation, CollectionItemRelation.content_item_id == ContentItem.id)
             .filter(
                 CollectionItemRelation.collection_id == collection.id,
@@ -265,7 +262,7 @@ class RagService:
             )
             .all()
         )
-        return {r[0] for r in rows if r[0]}
+        return {(r[0], r[1]) for r in rows if r[1]}
 
     # ------------------------------------------------------------------
     # 上下文构建
@@ -279,7 +276,7 @@ class RagService:
         query: str = "",
         *,
         platform: str | None = None,
-        scope_ids: set[str] | None = None,
+        scope_ids: ContentScope | None = None,
     ) -> str:
         """
         根据路由类型构建 LLM 上下文
@@ -289,7 +286,7 @@ class RagService:
         :param db: 数据库会话
         :param query: 用户问题（用于 Map-Reduce 压缩）
         :param platform: 检索范围限定平台（db_* 路由也遵守）
-        :param scope_ids: 检索范围限定的 remote_item_id 集合（特定收藏夹）
+        :param scope_ids: 检索范围限定的 (platform, remote_item_id) 集合
         :return: 格式化后的上下文文本
         """
         if route == "db_list":
@@ -311,7 +308,7 @@ class RagService:
         route: str,
         query: str,
         db: Session,
-        scope_ids: set[str] | None,
+        scope_ids: ContentScope | None,
         platform: str | None,
     ) -> list[dict]:
         """给定路由决定是否要做向量检索——`answer()`/`answer_stream()` 共用
@@ -353,7 +350,7 @@ class RagService:
 
     @staticmethod
     def _scoped_done_query(
-        db: Session, platform: str | None, scope_ids: set[str] | None
+        db: Session, platform: str | None, scope_ids: ContentScope | None
     ):
         """完成态入库项查询，遵守检索范围（平台 / 特定收藏夹）。"""
         from app.models.entities import ContentItem
@@ -365,7 +362,7 @@ class RagService:
                 q = q.filter(ContentItem.platform == platform)
             if scope_ids is not None:
                 # 空集合 = 该收藏夹无内容 → 返回空，绝不回退到全库
-                q = q.filter(ContentItem.remote_item_id.in_(scope_ids or {"__none__"}))
+                q = q.filter(tuple_(ContentItem.platform, ContentItem.remote_item_id).in_(scope_ids))
         return q
 
     def _db_list_context(
@@ -373,7 +370,7 @@ class RagService:
         db: Session,
         *,
         platform: str | None = None,
-        scope_ids: set[str] | None = None,
+        scope_ids: ContentScope | None = None,
     ) -> str:
         """构建视频列表上下文（遵守检索范围）。"""
         rows = (
@@ -392,7 +389,7 @@ class RagService:
         db: Session,
         *,
         platform: str | None = None,
-        scope_ids: set[str] | None = None,
+        scope_ids: ContentScope | None = None,
     ) -> str:
         """构建内容摘要上下文（遵守检索范围）。"""
         rows = (
@@ -687,10 +684,10 @@ class RagService:
         # Step 2: 检索（支持平台与收藏夹筛选）
         t0 = time.perf_counter()
         platform_filter = platform if platform and platform not in ("all", "") else None
-        # 解析收藏夹范围 → remote_item_id 集合（vector 与 db_* 路由都遵守）
-        scope_ids: set[str] | None = None
+        # 收藏夹与内容身份都保留平台，vector 与 db_* 路由共用同一作用域。
+        scope_ids: ContentScope | None = None
         if collection_id and collection_id not in ("all", ""):
-            scope_ids = self._resolve_collection_scope(db, collection_id)
+            scope_ids = self._resolve_collection_scope(db, collection_id, platform_filter)
         hits = self._retrieve_hits_for_route(route, normalized, db, scope_ids, platform_filter)
         t_dense = time.perf_counter() - t0
 
@@ -866,9 +863,9 @@ class RagService:
 
         t1 = time.perf_counter()
         platform_filter = platform if platform and platform not in ("all", "") else None
-        scope_ids: set[str] | None = None
+        scope_ids: ContentScope | None = None
         if collection_id and collection_id not in ("all", ""):
-            scope_ids = self._resolve_collection_scope(db, collection_id)
+            scope_ids = self._resolve_collection_scope(db, collection_id, platform_filter)
         hits = self._retrieve_hits_for_route(route, normalized, db, scope_ids, platform_filter)
         t_dense = time.perf_counter() - t1
 

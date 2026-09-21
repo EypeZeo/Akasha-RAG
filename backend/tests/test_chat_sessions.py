@@ -88,7 +88,7 @@ def test_db_routes_respect_platform_and_collection_scope(db):
     only_bili = rag_service._db_list_context(db, platform="bilibili")
     assert "B站视频一" in only_bili and "抖音视频一" not in only_bili
 
-    scoped = rag_service._db_list_context(db, scope_ids={"bv-2"})
+    scoped = rag_service._db_list_context(db, scope_ids={("bilibili", "bv-2")})
     assert scoped.strip() == "- B站视频二 (bv-2)"
 
     # empty scope must NOT fall back to the whole library
