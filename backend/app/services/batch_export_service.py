@@ -22,12 +22,13 @@ from typing import Callable, List, Optional
 
 ProgressCb = Optional[Callable[[int, int, str], None]]
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.entities import FavoriteVideo, VideoCache
+from app.models.entities import CollectionItemRelation, FavoriteVideo, VideoCache
+from app.services.collection_scope import AmbiguousCollectionError, CollectionNotFoundError, resolve_collection
 from app.services.export_common import display_author, display_link
-from app.services.markdown_export import export_ai_organized, export_original
+from app.services.markdown_export import export_ai_organized
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +36,38 @@ logger = logging.getLogger(__name__)
 class BatchExportService:
     """批量导出服务"""
 
+    def validate_scope(
+        self,
+        db: Session,
+        collection_id: Optional[str] = None,
+        selected_ids: Optional[List[str]] = None,
+        platform: str | None = None,
+    ):
+        """拒绝无法唯一确定范围的导出请求；返回解析出的收藏夹（未指定收藏夹时为 None）。
+
+        路由在**入队之前**调用它（歧义/找不到立即 400/404，不创建任务）；
+        `get_exportable_videos` 在 worker 里再调用一次，因为两次之间数据可能变化。
+        """
+        collection = None
+        if collection_id and collection_id != "all":
+            collection = resolve_collection(db, collection_id, platform)  # may raise AmbiguousCollectionError
+            if collection is None:
+                raise CollectionNotFoundError("Collection not found for the requested platform")
+        if selected_ids and (not platform or platform == "all"):
+            ambiguous = db.scalar(select(FavoriteVideo.remote_item_id).where(
+                FavoriteVideo.remote_item_id.in_(selected_ids),
+                FavoriteVideo.is_active.is_(True),
+            ).group_by(FavoriteVideo.remote_item_id).having(func.count() > 1).limit(1))
+            if ambiguous:
+                raise AmbiguousCollectionError("Ambiguous selected_ids; specify platform")
+        return collection
+
     def get_exportable_videos(
         self,
         db: Session,
         collection_id: Optional[str] = None,
         selected_ids: Optional[List[str]] = None,
+        platform: str | None = None,
     ) -> List[tuple[VideoCache, Optional[FavoriteVideo]]]:
         """
         获取符合导出条件的视频列表（已入库 done 状态）
@@ -52,30 +80,31 @@ class BatchExportService:
         # load the relationship and reuse it directly as `fv` (they are the
         # same row via the FK, not a lookup by the non-unique-across-platforms
         # platform_item_id string, which could collide between platforms).
+        collection = self.validate_scope(db, collection_id, selected_ids, platform)
         query = (
             select(VideoCache)
+            .join(VideoCache.content_item)
             .options(selectinload(VideoCache.content_item))
-            .where(VideoCache.status == "done")
+            .where(VideoCache.status == "done", FavoriteVideo.is_active.is_(True))
         )
 
+        if platform and platform != "all":
+            query = query.where(FavoriteVideo.platform == platform)
+
+        if collection is not None:
+            query = query.where(FavoriteVideo.id.in_(
+                select(CollectionItemRelation.content_item_id).where(
+                    CollectionItemRelation.collection_id == collection.id,
+                    CollectionItemRelation.is_active.is_(True),
+                )
+            ))
+
         if selected_ids:
-            query = query.join(VideoCache.content_item).where(
-                FavoriteVideo.remote_item_id.in_(selected_ids)
-            )
+            query = query.where(FavoriteVideo.remote_item_id.in_(selected_ids))
 
         caches = db.execute(query).scalars().all()
 
-        results = []
-        for cache in caches:
-            fv = cache.content_item
-
-            if collection_id and collection_id != "all":
-                if not fv or str(fv.collection_id) != str(collection_id):
-                    continue
-
-            results.append((cache, fv))
-
-        return results
+        return [(cache, cache.content_item) for cache in caches]
 
     def _prewarm_ai_summaries(
         self, db, items: list, content_type: str, progress_cb: ProgressCb
@@ -108,13 +137,14 @@ class BatchExportService:
         export_format: str = "markdown",  # "markdown" | "word" | "excel" | "ppt" | "pdf"
         pack_mode: str = "single",  # "single" | "zip"
         progress_cb: ProgressCb = None,
+        platform: str | None = None,
     ) -> tuple[io.BytesIO, str, str]:
         """
         执行批量导出
 
         :return: (文件流 buffer, 文件名 filename, MIME 类型 mime_type)
         """
-        items = self.get_exportable_videos(db, collection_id, selected_ids)
+        items = self.get_exportable_videos(db, collection_id, selected_ids, platform)
         if not items:
             raise ValueError("没有可导出的入库视频内容，请先执行入库")
 
@@ -162,6 +192,7 @@ class BatchExportService:
         target_dir: str = "",
         auto_open: bool = True,
         progress_cb: ProgressCb = None,
+        platform: str | None = None,
     ) -> dict:
         """
         导出并直接保存至本地自定义文件夹路径
@@ -177,7 +208,7 @@ class BatchExportService:
         target_path = Path(target_dir.strip())
         target_path.mkdir(parents=True, exist_ok=True)
 
-        items = self.get_exportable_videos(db, collection_id, selected_ids)
+        items = self.get_exportable_videos(db, collection_id, selected_ids, platform)
         if not items:
             raise ValueError("没有可导出的入库视频内容，请先执行入库")
 
@@ -188,7 +219,7 @@ class BatchExportService:
             # would just re-run the same per-item loop (and double-fire
             # progress_cb) since the summaries are already cached by then.
             buffer, filename, _ = self.export_batch(
-                db, collection_id, selected_ids, content_type, export_format, "single", progress_cb=progress_cb
+                db, collection_id, selected_ids, content_type, export_format, "single", progress_cb=progress_cb, platform=platform
             )
             out_file = target_path / filename
             with open(out_file, "wb") as f:
@@ -229,7 +260,7 @@ class BatchExportService:
             else:
                 # Excel / PPT 等导出为单个结构化文件
                 buffer, filename, _ = self.export_batch(
-                    db, collection_id, selected_ids, content_type, export_format, "single"
+                    db, collection_id, selected_ids, content_type, export_format, "single", platform=platform
                 )
                 out_file = target_path / filename
                 with open(out_file, "wb") as f:

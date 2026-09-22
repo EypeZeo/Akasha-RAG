@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.db.session import get_db
+from app.services.collection_scope import AmbiguousCollectionError
 from app.services.rag_service import rag_service
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,9 @@ async def chat_ask(
         )
         return {"success": True, **result}
     except Exception as exc:
-        logger.exception("问答失败")
+        # A request that names no unique collection is the caller's mistake, not a server fault.
+        if not isinstance(exc, AmbiguousCollectionError):
+            logger.exception("问答失败")
         return {
             "success": False,
             "message": str(exc),
@@ -152,7 +155,8 @@ def _produce_stream_events(
             if event_name in _STREAM_TERMINAL_EVENTS:
                 return
     except Exception as exc:
-        logger.exception("流式问答生产线程异常")
+        if not isinstance(exc, AmbiguousCollectionError):
+            logger.exception("流式问答生产线程异常")
         _put_or_give_up(
             q, ("error", {"message": str(exc)}), cancel_event, _STREAM_PRODUCER_NOTICE_TIMEOUT_SECONDS,
         )

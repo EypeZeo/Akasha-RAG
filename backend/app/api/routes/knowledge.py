@@ -4,17 +4,19 @@
 提供收藏夹一键入库、入库进度查询、知识库统计、视频内容导出等接口。
 """
 import logging
-from typing import Literal
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.db.session import get_db
-from app.models.entities import CollectionItemRelation, ContentItem, FavoriteCollection, VideoCache
+from app.models.entities import CollectionItemRelation, ContentItem, VideoCache
+from app.services.batch_export_service import batch_export_service
+from app.services.collection_scope import AmbiguousCollectionError, CollectionNotFoundError, resolve_collection
 from app.services.knowledge_service import knowledge_service
 from app.services.markdown_export import export_ai_organized, export_original
 from app.services.worker import worker
@@ -24,11 +26,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/knowledge", tags=["知识库"])
 
 
+# Every identifier that reaches a lookup is bounded, not just the list that holds it.
+RemoteId = Annotated[str, StringConstraints(max_length=64)]
+
+
 class SyncRequest(BaseModel):
     scope: Literal["all", "selected"] = "all"
-    collection_id: str | None = None
+    collection_id: str | None = Field(default=None, max_length=64)
     content_type: Literal["all", "video", "note"] = "all"
-    selected_ids: list[str] = []
+    selected_ids: list[RemoteId] = Field(default_factory=list, max_length=10000)
     platform: Literal["all", "douyin", "bilibili"] = "all"
 
 @router.post("/sync")
@@ -43,14 +49,14 @@ async def sync_knowledge(body: SyncRequest, db: Session = Depends(get_db)):
     :param db: 数据库会话
     :return: 任务 ID 和待处理数量
     """
-    result = knowledge_service.start_sync(
-        db,
-        scope=body.scope or "all",
-        collection_id=body.collection_id,
-        content_type=body.content_type or "all",
-        selected_ids=body.selected_ids or None,
-        platform=body.platform or "all",
-    )
+    try:
+        result = knowledge_service.start_sync(
+            db, scope=body.scope, collection_id=body.collection_id,
+            content_type=body.content_type, selected_ids=body.selected_ids or None,
+            platform=body.platform,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"success": True, **result}
 
 
@@ -87,9 +93,9 @@ async def cancel_sync(task_id: str):
 
 @router.get("/pending")
 async def list_pending_items(
-    collection_id: str | None = Query(None),
+    collection_id: str | None = Query(None, max_length=64),
     content_type: str = Query("all", pattern="^(all|video|note)$"),
-    platform: str | None = Query(None, description="平台过滤: douyin | bilibili | all"),
+    platform: Literal["all", "douyin", "bilibili"] | None = Query(None, description="平台过滤: douyin | bilibili | all"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -105,14 +111,13 @@ async def list_pending_items(
     :param db: 数据库会话
     :return: 包含 items, total, video_count, note_count, page, page_size, has_more
     """
-    data = knowledge_service.list_pending_items(
-        db,
-        collection_id=collection_id,
-        content_type=content_type,
-        page=page,
-        page_size=page_size,
-        platform=platform,
-    )
+    try:
+        data = knowledge_service.list_pending_items(
+            db, collection_id=collection_id, content_type=content_type,
+            page=page, page_size=page_size, platform=platform,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"success": True, **data}
 
 
@@ -223,28 +228,42 @@ async def export_video_markdown(
 
 
 class BatchExportRequest(BaseModel):
-    collection_id: str | None = None
-    selected_ids: list[str] | None = None
-    content_type: str = "both"  # "original" | "ai" | "both"
-    format: str = "markdown"    # "markdown" | "word" | "excel" | "ppt" | "pdf"
-    pack_mode: str = "single"   # "single" | "zip"
-    target_dir: str | None = None
+    collection_id: str | None = Field(default=None, max_length=64)
+    platform: Literal["all", "douyin", "bilibili"] = "all"
+    selected_ids: list[RemoteId] | None = Field(default=None, max_length=10000)
+    content_type: Literal["original", "ai", "both"] = "both"
+    format: Literal["markdown", "word", "excel", "ppt", "pdf"] = "markdown"
+    pack_mode: Literal["single", "zip"] = "single"
+    target_dir: str | None = Field(default=None, max_length=4096)
     auto_open: bool = True
 
 
 @router.post("/export/batch")
-async def export_batch_knowledge(body: BatchExportRequest):
+async def export_batch_knowledge(body: BatchExportRequest, db: Session = Depends(get_db)):
     """
     提交批量导出为后台任务，立即返回 task_id。
 
     支持 Markdown / Word / Excel / PPT / PDF，单文件合并或多文件独立。
     指定 target_dir → 直接写入本地目录（可自动打开）；否则产物暂存供浏览器下载。
     导出（尤其含 AI 整理时逐条调 LLM）耗时较长，进度用 GET /export/batch/{task_id} 轮询。
+
+    收藏夹或 selected_ids 无法唯一确定时在**入队之前**就拒绝（400/404），
+    不会先返回一个"成功"的任务、再让它在后台失败。
     """
     from app.services import export_worker
 
+    try:
+        await run_in_threadpool(
+            batch_export_service.validate_scope, db, body.collection_id, body.selected_ids, body.platform,
+        )
+    except AmbiguousCollectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except CollectionNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     task_id = export_worker.submit_export({
         "collection_id": body.collection_id,
+        "platform": body.platform,
         "selected_ids": body.selected_ids,
         "content_type": body.content_type,
         "format": body.format,
@@ -286,8 +305,8 @@ async def download_export_artifact(task_id: str):
 
 
 class ClearAllRequest(BaseModel):
-    collection_id: str | None = None
-    platform: str | None = None
+    collection_id: str | None = Field(default=None, max_length=64)
+    platform: Literal["all", "douyin", "bilibili"] | None = None
 
 
 @router.post("/clear-all")
@@ -324,13 +343,8 @@ def _clear_all_knowledge_sync(db: Session, body: ClearAllRequest) -> dict:
         chroma = get_chroma_service()
         if body.collection_id and body.collection_id != "all":
             # 仅清空特定收藏夹
-            collection_query = select(FavoriteCollection.id).where(
-                FavoriteCollection.remote_collection_id == body.collection_id,
-                FavoriteCollection.is_active.is_(True),
-            )
-            if body.platform and body.platform != "all":
-                collection_query = collection_query.where(FavoriteCollection.platform == body.platform)
-            collection_pk = db.scalar(collection_query)
+            collection = resolve_collection(db, body.collection_id, body.platform)
+            collection_pk = collection.id if collection else None
             if collection_pk is None:
                 return {"success": False, "message": "指定收藏夹不存在或平台不匹配"}
             rows = db.execute(
@@ -376,6 +390,10 @@ def _clear_all_knowledge_sync(db: Session, body: ClearAllRequest) -> dict:
             db.commit()
             return {"success": True, "reset_count": result.rowcount}
 
+    except AmbiguousCollectionError as exc:
+        # A bad request, not a server fault: same 400 as every other endpoint, no error log.
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("清空入库数据失败")
         db.rollback()

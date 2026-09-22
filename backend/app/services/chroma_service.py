@@ -88,7 +88,7 @@ class ChromaService:
         return chunk_ids
 
     def search(self, query_vector: list[float], top_k: int = 20, platform: str | None = None,
-               scope_ids: set[str] | None = None, use_mmr: bool = True, fetch_k: int = 32,
+               scope_ids: set[tuple[str, str]] | None = None, use_mmr: bool = True, fetch_k: int = 32,
                lambda_mult: float = 0.55) -> list[dict]:
         if top_k <= 0:
             return []
@@ -100,6 +100,9 @@ class ChromaService:
         candidates: list[dict] = []
         n_fetch = max(fetch_k, top_k * 3)
         for target in self._target_platforms(platform):
+            target_ids = {remote for owner, remote in scope_ids if owner == target} if scope_ids is not None else None
+            if target_ids is not None and not target_ids:
+                continue
             collection = self._collection_for(target)
             count = int(collection.count())
             if count == 0:
@@ -107,7 +110,7 @@ class ChromaService:
             query_kw = {"query_embeddings": [query_vector], "n_results": min(n_fetch, count),
                         "include": ["metadatas", "distances", "documents"]}
             if scope_ids is not None:
-                query_kw["where"] = {"platform_item_id": {"$in": list(scope_ids)}}
+                query_kw["where"] = {"platform_item_id": {"$in": list(target_ids)}}
             try:
                 result = collection.query(**query_kw)
             except Exception as exc:
@@ -125,9 +128,11 @@ class ChromaService:
                     continue
                 item_id = metadata.get("platform_item_id") or metadata.get("remote_item_id")
                 chunk_id = ids[idx] if idx < len(ids) else metadata.get("chunk_id")
-                if not item_id or not chunk_id or (scope_ids is not None and item_id not in scope_ids):
+                if not item_id or not chunk_id:
                     continue
                 source_platform = str(metadata.get("platform", target))
+                if source_platform != target or (scope_ids is not None and (source_platform, item_id) not in scope_ids):
+                    continue
                 url = metadata.get("canonical_url") or (f"https://www.bilibili.com/video/{item_id}" if source_platform == "bilibili" else f"https://www.douyin.com/video/{item_id}")
                 candidates.append({"chunk_id": str(chunk_id), "platform": source_platform,
                     "platform_item_id": str(item_id), "remote_item_id": str(item_id),
