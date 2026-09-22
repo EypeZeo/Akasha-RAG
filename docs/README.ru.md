@@ -179,6 +179,7 @@ version.txt                        единственный источник в�
 | POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | Пакетный экспорт (фоновая задача) |
 | POST | `/api/system/pick-directory` | Нативный выбор папки |
 | POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | Чат |
+| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | История чата (до 200 на страницу; `snapshot` фиксирует границу экспорта) |
 
 ## Стоимость
 

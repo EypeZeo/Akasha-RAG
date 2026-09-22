@@ -179,6 +179,7 @@ version.txt                        संस्करण का एकल स्
 | POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | बैच एक्सपोर्ट (बैकग्राउंड टास्क) |
 | POST | `/api/system/pick-directory` | नेटिव फ़ोल्डर चयन |
 | POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | चैट |
+| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | चैट इतिहास (प्रति पृष्ठ ≤ 200; `snapshot` निर्यात की सीमा तय करता है) |
 
 ## लागत
 

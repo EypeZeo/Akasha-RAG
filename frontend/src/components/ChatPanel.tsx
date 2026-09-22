@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, FormEvent } from 'react';
-import { flushSync } from 'react-dom';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import * as api from '../api';
 import ChatSessionDrawer from './ChatSessionDrawer';
-import { exportChatToMarkdown, exportChatToWord, exportChatToText, type ChatExportLabels } from '../utils/chatExport';
+import type { ChatExportLabels } from '../utils/chatExport';
+import { freezeMessages, messageFromItem } from '../utils/chatHistory';
+import { useChatExport } from '../hooks/useChatExport';
+import ChatPrintDocument from './ChatPrintDocument';
 import { useI18n } from '../i18n';
 import { useWorkspaceStore, type Platform } from '../store/workspace';
 import { isNearBottom } from '../utils/chatScroll';
@@ -31,8 +33,6 @@ const newKey = (): string => {
     return `k-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 };
-
-const dbKey = (id: number) => `db:${id}`;
 
 export default function ChatPanel({ collectionId, platform, statsRefreshKey, activeSessionId, onSelectSession, active = true, onOpenSettings }: Props) {
   const { t, lang } = useI18n();
@@ -64,7 +64,8 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const emojiWrapRef = useRef<HTMLDivElement>(null);
-  const [printAll, setPrintAll] = useState(false);
+  const { progress: exportProgress, printSnapshot, start: startExport, cancel: cancelExport,
+    invalidate: invalidateExport, nativeSnapshotRef } = useChatExport(t);
   const [animatingKeys, setAnimatingKeys] = useState<Set<string>>(() => new Set());
 
   // 请求代际隔离：只有当前代的流事件可以更新对应消息
@@ -101,15 +102,17 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
   const invalidateAsyncOperations = useCallback(() => {
     epochRef.current += 1;
     invalidateSend();
-  }, [invalidateSend]);
+    invalidateExport();
+  }, [invalidateSend, invalidateExport]);
 
   /** 仍挂载时的会话转换第一步：失效 + 复位各个忙碌标志。 */
   const resetSessionScope = useCallback(() => {
     invalidateAsyncOperations();
+    cancelExport();
     setSending(false);
     setHistoryLoading(false);
     setLoadingEarlier(false);
-  }, [invalidateAsyncOperations]);
+  }, [invalidateAsyncOperations, cancelExport]);
 
   /** 清掉旧会话留在面板上的全部可见状态（owner 由调用方先行写入）。 */
   const clearSessionView = useCallback(() => {
@@ -183,10 +186,9 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
 
   // 面板从 hidden 变可见 / 虚拟器首次就绪：把已有会话贴到底部
   useEffect(() => {
-    if (scrollElReady && messagesRef.current.length && !printAll) {
+    if (scrollElReady && messagesRef.current.length) {
       scrollToBottom(true);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollElReady]);
 
   const markAnimating = (keys: string[]) => {
@@ -240,20 +242,15 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
     try {
       const res = await api.getSessionMessages(sid, { before: oldest, limit: MSG_PAGE });
       if (epochRef.current !== epoch) return; // 会话已切换：旧会话的分页结果不得写入新会话
-      if (res.success && res.items && res.items.length) {
-        pendingAnchorRef.current = { prependCount: res.items.length };
+      if (res.success && res.items) {
         setMsgHasMore(Boolean(res.has_more));
-        setMessages(prev => [
-          ...res.items.map((m): Message => ({
-            clientKey: dbKey(m.id),
-            id: m.id,
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-            sources: m.sources,
-            latency_ms: m.latency_ms,
-          })),
-          ...prev,
-        ]);
+        const ids = new Set(messagesRef.current.map(message => message.id));
+        const earlier = res.items.filter(item => !ids.has(item.id)).map(messageFromItem);
+        // A page with nothing new must not set an anchor: anchoring at row 0 scrolls the view to the top.
+        if (earlier.length) {
+          pendingAnchorRef.current = { prependCount: earlier.length };
+          setMessages(prev => [...earlier, ...prev]);
+        }
       }
     } catch { /* ignore */ } finally {
       if (epochRef.current === epoch) setLoadingEarlier(false);
@@ -316,46 +313,30 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
   });
 
   const handleExportMd = () => {
-    const title = sessionId ? `${t('sessionPrefix')}_${sessionId}` : t('sessionFileTitle');
-    exportChatToMarkdown(messages, title, getExportLabels());
-    setShowExportMenu(false);
+    runExport('markdown');
   };
 
   const handleExportDoc = () => {
-    const title = sessionId ? `${t('sessionPrefix')}_${sessionId}` : t('sessionFileTitle');
-    exportChatToWord(messages, title, getExportLabels());
-    setShowExportMenu(false);
+    runExport('word');
   };
 
   const handleExportTxt = () => {
-    const title = sessionId ? `${t('sessionPrefix')}_${sessionId}` : t('sessionFileTitle');
-    exportChatToText(messages, title, getExportLabels());
-    setShowExportMenu(false);
+    runExport('text');
   };
 
   const handleExportPdf = () => {
-    setShowExportMenu(false);
-    // 打印前全量渲染（跳过虚拟化），布局稳定后再 print
-    flushSync(() => setPrintAll(true));
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        window.print();
-        setPrintAll(false);
-      }),
-    );
+    runExport('pdf');
   };
 
-  // 系统快捷键 Ctrl+P 也要全量渲染
-  useEffect(() => {
-    const before = () => flushSync(() => setPrintAll(true));
-    const after = () => setPrintAll(false);
-    window.addEventListener('beforeprint', before);
-    window.addEventListener('afterprint', after);
-    return () => {
-      window.removeEventListener('beforeprint', before);
-      window.removeEventListener('afterprint', after);
-    };
-  }, []);
+  const exportTitle = () => sessionId ? `${t('sessionPrefix')}_${sessionId}` : t('sessionFileTitle');
+  const runExport = (format: 'markdown' | 'word' | 'text' | 'pdf') => {
+    setShowExportMenu(false);
+    startExport(format, ownerSessionRef.current, messagesRef.current, exportTitle(), getExportLabels());
+  };
+  nativeSnapshotRef.current = () => active && messagesRef.current.length ? {
+    messages: freezeMessages(messagesRef.current), title: exportTitle(), labels: getExportLabels(),
+    notice: t('printLoadedMessagesOnly'),
+  } : null;
 
   // 记录用户是否在底部附近（决定流式时是否自动跟随）
   const handleScroll = () => {
@@ -457,14 +438,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
         if (res.success && res.items) {
           setSessionId(target);
           setMsgHasMore(Boolean(res.has_more));
-          setMessages(res.items.map((m): Message => ({
-            clientKey: dbKey(m.id),
-            id: m.id,
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-            sources: m.sources,
-            latency_ms: m.latency_ms,
-          })));
+          setMessages(res.items.map(messageFromItem));
           stickToBottomRef.current = true;
           scrollToBottom(true);
         }
@@ -540,7 +514,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
     };
 
     try {
-      const stream = api.chatAskStream(q, sessionId, collectionId, platform, controller.signal);
+      const stream = api.chatAskStream(q, sessionId, collectionId, platform, controller.signal, { user: userKey, assistant: asstKey });
 
       for await (const event of stream) {
         if (generationRef.current !== genId) break; // 已被新请求取代
@@ -634,6 +608,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
 
   return (
     <div className="h-full flex bg-[var(--color-panel)]">
+      {printSnapshot && <ChatPrintDocument snapshot={printSnapshot} />}
       <ChatSessionDrawer
         refreshKey={drawerRefreshKey}
         onSessionDeleted={handleSessionDeleted}
@@ -686,12 +661,26 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
 
         {/* Action Controls */}
         <div className="flex items-center gap-2">
+          {exportProgress !== null && (
+            <div className="flex items-center gap-2 text-xs text-[var(--color-ink-soft)]">
+              <span role="status">{t('exportLoadingHistory', { count: exportProgress })}</span>
+              <button
+                type="button"
+                onClick={cancelExport}
+                className="px-2.5 py-1 rounded-full text-xs text-[var(--color-ink-soft)] hover:bg-black/5 transition-colors cursor-pointer"
+              >
+                {t('cancel')}
+              </button>
+            </div>
+          )}
           {/* 导出对话下拉菜单 */}
           {messages.length > 0 && (
             <div className="relative" ref={exportMenuRef}>
               <button
                 type="button"
                 onClick={() => setShowExportMenu(prev => !prev)}
+                disabled={exportProgress !== null || historyLoading}
+                aria-busy={exportProgress !== null}
                 className="group flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium text-accent bg-accent/8 hover:bg-accent/15 border border-accent/25 shadow-2xs hover:shadow-xs transition-all cursor-pointer"
                 title={t('exportChatTooltip')}
               >
@@ -826,33 +815,25 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
               </div>
             )}
 
-            {printAll ? (
-              <div className="flex flex-col gap-6 pb-2">
-                {messages.map(msg => (
-                  <ChatMessageRow key={msg.clientKey} msg={msg} animating={false} />
-                ))}
-              </div>
-            ) : (
-              <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
-                {rowVirtualizer.getVirtualItems().map(vi => {
-                  const msg = messages[vi.index];
-                  if (!msg) return null;
-                  return (
-                    <div
-                      key={msg.clientKey}
-                      data-index={vi.index}
-                      data-key={msg.clientKey}
-                      ref={rowVirtualizer.measureElement}
-                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
-                    >
-                      <div className="pb-6">
-                        <ChatMessageRow msg={msg} animating={animatingKeys.has(msg.clientKey)} />
-                      </div>
+            <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+              {rowVirtualizer.getVirtualItems().map(vi => {
+                const msg = messages[vi.index];
+                if (!msg) return null;
+                return (
+                  <div
+                    key={msg.clientKey}
+                    data-index={vi.index}
+                    data-key={msg.clientKey}
+                    ref={rowVirtualizer.measureElement}
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
+                  >
+                    <div className="pb-6">
+                      <ChatMessageRow msg={msg} animating={animatingKeys.has(msg.clientKey)} />
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </div>

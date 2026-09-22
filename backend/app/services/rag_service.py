@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import time
 from typing import Iterable
 
 from sqlalchemy import desc, func, tuple_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
 from app.models.entities import (
@@ -759,6 +760,7 @@ class RagService:
             "content_item_id": h.get("content_item_id"),
             "title": h.get("title", ""),
             "url": h.get("canonical_url", ""),
+            "score": round(h.get("score", 0), 4),
         } for h in hits] if hits else []
         retrieved_chunk_ids = (
             [h["chunk_id"] for h in hits] if hits else []
@@ -835,6 +837,7 @@ class RagService:
         session_id: int | None,
         collection_id: str | None = None,
         platform: str | None = None,
+        client_keys: dict[str, str] | None = None,
     ) -> Iterable[tuple[str, dict]]:
         """
         SSE 流式 RAG 问答
@@ -850,8 +853,6 @@ class RagService:
         :yield: (event_name, payload) 元组
         """
         started = time.perf_counter()
-
-        t_start = time.perf_counter()
 
         # Step 1-4 与非流式一致
         t0 = time.perf_counter()
@@ -946,6 +947,7 @@ class RagService:
                 "content_item_id": h.get("content_item_id"),
                 "title": h.get("title", ""),
                 "url": h.get("canonical_url", ""),
+                "score": round(h.get("score", 0), 4),
             } for h in hits] if hits else []
             retrieved_chunk_ids = (
                 [h["chunk_id"] for h in hits] if hits else []
@@ -955,6 +957,7 @@ class RagService:
                 ChatMessage(
                     session_id=session.id,
                     role="user",
+                    client_key=(client_keys or {}).get("user"),
                     content=query,
                     route_type=route,
                     retrieved_video_ids=json.dumps(retrieved_ids),
@@ -966,6 +969,7 @@ class RagService:
                 ChatMessage(
                     session_id=session.id,
                     role="assistant",
+                    client_key=(client_keys or {}).get("assistant"),
                     content=answer,
                     route_type=route,
                     retrieved_video_ids=json.dumps(retrieved_ids),
@@ -1082,6 +1086,7 @@ class RagService:
         session_id: int,
         before: int | None = None,
         limit: int | None = None,
+        until: int | None = None,
     ) -> list[dict] | None:
         """
         获取会话消息历史（时间升序）。
@@ -1100,6 +1105,8 @@ class RagService:
         )
         if before is not None:
             base = base.filter(ChatMessage.id < before)
+        if until is not None:
+            base = base.filter(ChatMessage.id <= until)
 
         if limit is not None:
             # 取最新的 limit 条（id 降序），再翻转成时间升序返回
@@ -1122,19 +1129,22 @@ class RagService:
                 except Exception:
                     pass
 
-        cache_map: dict[str, VideoCache] = {}
+        cache_map: dict[str, VideoCache | None] = {}
         if all_vids:
             caches = (
                 db.query(VideoCache)
+                .options(selectinload(VideoCache.content_item))
                 .filter(VideoCache.platform_item_id.in_(all_vids))
                 .all()
             )
             for c in caches:
-                cache_map[c.platform_item_id] = c
+                key = c.platform_item_id
+                cache_map[key] = None if key in cache_map else c
 
         results = []
         for row in rows:
             msg_sources = []
+            seen_sources = set()
             if row.role == "assistant" and row.retrieved_video_ids:
                 try:
                     vids = json.loads(row.retrieved_video_ids)
@@ -1143,7 +1153,10 @@ class RagService:
                             if isinstance(vid, dict):
                                 platform = str(vid.get("platform") or "douyin")
                                 remote_id = str(vid.get("platform_item_id") or "")
-                                if remote_id:
+                                key = (platform, remote_id)
+                                if remote_id and key not in seen_sources:
+                                    seen_sources.add(key)
+                                    score = vid.get("score")
                                     msg_sources.append({
                                         "platform": platform,
                                         "platform_item_id": remote_id,
@@ -1152,24 +1165,28 @@ class RagService:
                                             f"https://www.bilibili.com/video/{remote_id}" if platform == "bilibili"
                                             else f"https://www.douyin.com/video/{remote_id}"
                                         )),
-                                        "score": 0.95,
+                                        **({"score": score} if isinstance(score, (int, float)) and math.isfinite(score) else {}),
                                     })
                                 continue
                             c = cache_map.get(str(vid))
                             if c:
                                 item = c.content_item
+                                key = (item.platform if item else "douyin", str(vid))
+                                if key in seen_sources:
+                                    continue
+                                seen_sources.add(key)
                                 msg_sources.append({
                                     "platform_item_id": str(vid),
                                     "title": c.title,
                                     "platform": item.platform if item else "douyin",
                                     "url": item.canonical_url if item and item.canonical_url else f"https://www.douyin.com/video/{vid}",
-                                    "score": 0.95,
                                 })
                 except Exception:
                     pass
 
             results.append({
                 "id": row.id,
+                "client_key": row.client_key,
                 "session_id": row.session_id,
                 "role": row.role,
                 "content": row.content,
@@ -1199,4 +1216,3 @@ class RagService:
 
 # 全局单例
 rag_service = RagService()
-

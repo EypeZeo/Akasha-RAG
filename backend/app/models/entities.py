@@ -14,7 +14,7 @@
 import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, event, func, select
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, event, func, select, text
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
@@ -412,6 +412,14 @@ class ChatMessage(Base):
     """
 
     __tablename__ = "chat_messages"
+    __table_args__ = (
+        # One client key names one message within a session. Rows without a key (older rows, or
+        # messages sent without one) are not constrained.
+        Index("uq_chat_messages_session_client_key", "session_id", "client_key", unique=True,
+              sqlite_where=text("client_key IS NOT NULL")),
+    )
+
+    client_key: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     """主键 ID"""

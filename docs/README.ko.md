@@ -179,6 +179,7 @@ version.txt                        버전 단일 출처 (release-please 가 관�
 | POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | 일괄 내보내기 (백그라운드 작업) |
 | POST | `/api/system/pick-directory` | 네이티브 폴더 선택 |
 | POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | 대화 |
+| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | 대화 기록 (페이지당 최대 200개, `snapshot`이 내보내기 경계를 고정) |
 
 ## 비용
 

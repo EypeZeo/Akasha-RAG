@@ -427,6 +427,7 @@ export async function* chatAskStream(
   collectionId?: string | null,
   platformOrSignal?: string | AbortSignal,
   maybeSignal?: AbortSignal,
+  clientKeys?: { user: string; assistant: string },
 ): AsyncGenerator<any> {
   const platform = typeof platformOrSignal === 'string' ? platformOrSignal : undefined;
   const signal = platformOrSignal instanceof AbortSignal ? platformOrSignal : maybeSignal;
@@ -439,6 +440,7 @@ export async function* chatAskStream(
       session_id: sessionId ?? null,
       collection_id: collectionId ?? null,
       platform: platform && platform !== 'all' ? platform : null,
+      client_keys: clientKeys,
     }),
     signal,
   });
@@ -496,13 +498,20 @@ export async function listSessions(q?: string): Promise<{ success: boolean; item
 
 export async function getSessionMessages(
   sessionId: number,
-  opts?: { before?: number; limit?: number },
+  opts?: { before?: number; limit?: number; until?: number; signal?: AbortSignal },
 ): Promise<{ success: boolean; items: MessageItem[]; has_more?: boolean }> {
   const params = new URLSearchParams();
   if (opts?.before != null) params.set('before', String(opts.before));
   if (opts?.limit != null) params.set('limit', String(opts.limit));
+  if (opts?.until != null) params.set('until', String(opts.until));
   const qs = params.toString();
-  return request(`/chat/sessions/${sessionId}/messages${qs ? `?${qs}` : ''}`);
+  return request(`/chat/sessions/${sessionId}/messages${qs ? `?${qs}` : ''}`, { signal: opts?.signal });
+}
+
+export async function getSessionSnapshot(sessionId: number, signal?: AbortSignal): Promise<{
+  success: boolean; session_id: number; snapshot_id: number; total: number;
+}> {
+  return request(`/chat/sessions/${sessionId}/snapshot`, { signal });
 }
 
 export async function renameSession(sessionId: number, title: string): Promise<{ success: boolean }> {
@@ -596,7 +605,7 @@ export interface SourceItem {
   platform_item_id: string;
   title: string;
   url: string;
-  score: number;
+  score?: number;
   platform?: string;
 }
 
@@ -610,6 +619,7 @@ export interface SessionItem {
 
 export interface MessageItem {
   id: number;
+  client_key?: string | null;
   session_id: number;
   role: 'user' | 'assistant';
   content: string;

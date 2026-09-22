@@ -381,7 +381,9 @@ describe('ChatPanel KB-stats empty state', () => {
       fireEvent.click(chip);
     });
     await waitFor(() => {
-      expect(api.chatAskStream).toHaveBeenCalledWith(chipLabel, null, 'all', undefined, expect.any(AbortSignal));
+      expect(api.chatAskStream).toHaveBeenCalledWith(chipLabel, null, 'all', undefined, expect.any(AbortSignal), {
+        user: expect.any(String), assistant: expect.any(String),
+      });
     });
   });
 });
@@ -426,9 +428,11 @@ describe('ChatPanel export menu', () => {
     fireEvent.click(exportToggle);
     fireEvent.click(screen.getByText(TRANSLATIONS.en.exportTxtTitle));
     expect(chatExport.exportChatToText).toHaveBeenCalledTimes(1);
+    // A chat that has not been saved has no server history to fetch.
+    expect(api.getSessionSnapshot).not.toHaveBeenCalled();
   });
 
-  it('8b. the PDF menu item renders every message unvirtualized and calls window.print', async () => {
+  it('8b. the PDF menu item prints a dedicated print document holding every message, then removes it after printing', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
     await setupWithCompletedMessage();
@@ -436,19 +440,26 @@ describe('ChatPanel export menu', () => {
     const exportToggle = screen.getByTitle(TRANSLATIONS.en.exportChatTooltip);
     fireEvent.click(exportToggle);
 
-    // handleExportPdf does flushSync(() => setPrintAll(true)) then two nested
-    // requestAnimationFrame calls before window.print() — the inner rAF is
-    // only scheduled once the outer one's callback runs, so two separate
-    // advanceTimersToNextFrame() calls aren't guaranteed to catch a
-    // just-scheduled-mid-tick inner callback. Advancing by two frames'
-    // worth of fake time in one go processes anything scheduled along the
-    // way, including the inner rAF.
+    // The print document is mounted first, then two nested requestAnimationFrame
+    // calls run before window.print() — the inner rAF is only scheduled once
+    // the outer one's callback runs, so two separate advanceTimersToNextFrame()
+    // calls aren't guaranteed to catch a just-scheduled-mid-tick inner
+    // callback. Advancing by two frames' worth of fake time in one go
+    // processes anything scheduled along the way, including the inner rAF.
+    let printedDocument = '';
+    printSpy.mockImplementation(() => {
+      printedDocument = document.querySelector('.chat-print-document')?.textContent ?? '';
+    });
     await act(async () => {
       fireEvent.click(screen.getByText(TRANSLATIONS.en.exportPdfTitle));
       await vi.advanceTimersByTimeAsync(32);
     });
 
     expect(printSpy).toHaveBeenCalledTimes(1);
+    expect(printedDocument).toContain('hello there');
+    expect(printedDocument).toContain('Hi');
+    act(() => { window.dispatchEvent(new Event('afterprint')); });
+    expect(document.querySelector('.chat-print-document')).toBeNull();
   });
 });
 
@@ -501,7 +512,9 @@ describe('ChatPanel composer', () => {
     });
 
     await waitFor(() => {
-      expect(api.chatAskStream).toHaveBeenCalledWith('expanded draft', null, 'all', undefined, expect.any(AbortSignal));
+      expect(api.chatAskStream).toHaveBeenCalledWith('expanded draft', null, 'all', undefined, expect.any(AbortSignal), {
+        user: expect.any(String), assistant: expect.any(String),
+      });
     });
     expect(screen.queryByPlaceholderText(TRANSLATIONS.en.expandedPlaceholder)).toBeNull();
   });
@@ -948,5 +961,236 @@ describe('ChatPanel session-scope invalidation (Issue #21)', () => {
       expect(useWorkspaceStore.getState().activeSessionId).toBe(6);
       expect(screen.getByText('B-content')).toBeTruthy();
     });
+  });
+});
+
+describe('ChatPanel full-history export', () => {
+  const stored = (id: number, content: string, session = 7): api.MessageItem => ({
+    id, session_id: session, role: id % 2 ? 'user' : 'assistant', content, route_type: 'rag', created_at: '2026-01-01T00:00:00Z',
+  });
+  const snapshotOf = (snapshot_id: number, total: number, session_id = 7) => ({ success: true, session_id, snapshot_id, total });
+  const toggle = () => screen.getByTitle(TRANSLATIONS.en.exportChatTooltip) as HTMLButtonElement;
+  const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(r => { resolve = r; }); return { promise, resolve }; };
+
+  /** A saved session whose newest two messages are on screen and whose older ones are only on the server. */
+  async function openSavedSession() {
+    vi.mocked(api.getSessionMessages).mockResolvedValue({
+      success: true, items: [stored(31, 'loaded one'), stored(32, 'loaded two')], has_more: true,
+    });
+    const view = await setup({ activeSessionId: 7 });
+    await screen.findByText('loaded two');
+    return view;
+  }
+  async function chooseMarkdown() {
+    fireEvent.click(toggle());
+    await act(async () => { fireEvent.click(screen.getByText('Markdown (.md)')); });
+  }
+  const exportedContents = () =>
+    (vi.mocked(chatExport.exportChatToMarkdown).mock.calls[0][0] as Array<{ content: string }>).map(m => m.content);
+
+  it('Q1. shows progress and a cancel button, disables the export button, and exports nothing after cancel', async () => {
+    const snapshot = deferred<ReturnType<typeof snapshotOf>>();
+    vi.mocked(api.getSessionSnapshot).mockReturnValue(snapshot.promise);
+    await openSavedSession();
+
+    await chooseMarkdown();
+    expect(screen.getByRole('status').textContent).toContain('Preparing complete history');
+    expect(toggle().disabled).toBe(true);
+
+    await act(async () => { fireEvent.click(screen.getByText(TRANSLATIONS.en.cancel)); });
+    expect(toggle().disabled).toBe(false);
+    expect(screen.queryByRole('status')).toBeNull();
+    await act(async () => { snapshot.resolve(snapshotOf(32, 4)); });
+    expect(chatExport.exportChatToMarkdown).not.toHaveBeenCalled();
+  });
+
+  it('Q2. exports the server history and the loaded window as one transcript, oldest first, once the pages arrive', async () => {
+    vi.mocked(api.getSessionSnapshot).mockResolvedValue(snapshotOf(32, 4));
+    await openSavedSession();
+    vi.mocked(api.getSessionMessages).mockResolvedValue({
+      success: true, has_more: false,
+      items: [stored(1, 'old one'), stored(2, 'old two'), stored(31, 'loaded one'), stored(32, 'loaded two')],
+    });
+
+    await chooseMarkdown();
+
+    await waitFor(() => expect(chatExport.exportChatToMarkdown).toHaveBeenCalledTimes(1));
+    expect(exportedContents()).toEqual(['old one', 'old two', 'loaded one', 'loaded two']);
+    expect(api.getSessionMessages).toHaveBeenLastCalledWith(7, expect.objectContaining({ until: 32, limit: 200 }));
+  });
+
+  it('Q3. shows how many messages have been fetched while the pages arrive', async () => {
+    vi.mocked(api.getSessionSnapshot).mockResolvedValue(snapshotOf(32, 4));
+    await openSavedSession();
+    const secondPage = deferred<Awaited<ReturnType<typeof api.getSessionMessages>>>();
+    vi.mocked(api.getSessionMessages)
+      .mockResolvedValueOnce({ success: true, items: [stored(31, 'loaded one'), stored(32, 'loaded two')], has_more: true })
+      .mockReturnValueOnce(secondPage.promise);
+
+    await chooseMarkdown();
+    expect(screen.getByRole('status').textContent).toContain('2');
+
+    await act(async () => { secondPage.resolve({ success: true, items: [stored(1, 'old one'), stored(2, 'old two')], has_more: false }); });
+    await waitFor(() => expect(chatExport.exportChatToMarkdown).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('Q4. switching sessions while the history is being fetched aborts the request and exports nothing', async () => {
+    const snapshot = deferred<ReturnType<typeof snapshotOf>>();
+    let requestSignal: AbortSignal | undefined;
+    vi.mocked(api.getSessionSnapshot).mockImplementation((_id, signal) => { requestSignal = signal; return snapshot.promise; });
+    vi.mocked(api.getSessionMessages).mockImplementation(async id => ({
+      success: true, has_more: false,
+      items: id === 7 ? [stored(31, 'seven')] : [stored(60, 'eight', 8)],
+    }));
+    const view = await setup({ activeSessionId: 7 });
+    await screen.findByText('seven');
+
+    await chooseMarkdown();
+    await act(async () => { view.rerender({ activeSessionId: 8 }); });
+    await screen.findByText('eight');
+
+    expect(requestSignal?.aborted).toBe(true);
+    await act(async () => { snapshot.resolve(snapshotOf(31, 1)); });
+    expect(chatExport.exportChatToMarkdown).not.toHaveBeenCalled();
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(toggle().disabled).toBe(false);
+  });
+
+  it('Q5. a failed snapshot request tells the user, exports nothing, and the export can be retried', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(api.getSessionSnapshot).mockRejectedValueOnce(new Error('500: boom')).mockResolvedValueOnce(snapshotOf(32, 2));
+    await openSavedSession();
+
+    await chooseMarkdown();
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(TRANSLATIONS.en.operationFailed));
+    expect(chatExport.exportChatToMarkdown).not.toHaveBeenCalled();
+    expect(toggle().disabled).toBe(false);
+    expect(screen.queryByRole('status')).toBeNull();
+
+    await chooseMarkdown();
+    await waitFor(() => expect(chatExport.exportChatToMarkdown).toHaveBeenCalledTimes(1));
+    expect(exportedContents()).toEqual(['loaded one', 'loaded two']);
+  });
+
+  it('Q6. a transcript over the limits is refused with the limits explained, and nothing is exported', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(api.getSessionSnapshot).mockRejectedValue(new Error('413: History export exceeds the message or byte limit'));
+    await openSavedSession();
+
+    await chooseMarkdown();
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(TRANSLATIONS.en.exportTooLarge));
+    expect(chatExport.exportChatToMarkdown).not.toHaveBeenCalled();
+  });
+
+  it('Q7. the PDF of a saved session is printed from the complete history, not only the loaded window', async () => {
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    vi.mocked(api.getSessionSnapshot).mockResolvedValue(snapshotOf(32, 3));
+    await openSavedSession();
+    vi.mocked(api.getSessionMessages).mockResolvedValue({
+      success: true, has_more: false, items: [stored(2, 'old two'), stored(31, 'loaded one'), stored(32, 'loaded two')],
+    });
+    let printedDocument = '';
+    printSpy.mockImplementation(() => { printedDocument = document.querySelector('.chat-print-document')?.textContent ?? ''; });
+    vi.useFakeTimers(); // only now: findBy* would wait on a faked clock while the panel opens
+
+    fireEvent.click(toggle());
+    await act(async () => {
+      fireEvent.click(screen.getByText(TRANSLATIONS.en.exportPdfTitle));
+      await vi.advanceTimersByTimeAsync(64);
+    });
+
+    expect(printSpy).toHaveBeenCalledTimes(1);
+    expect(printedDocument.indexOf('old two')).toBeGreaterThan(-1);
+    expect(printedDocument.indexOf('old two')).toBeLessThan(printedDocument.indexOf('loaded one'));
+    expect(printedDocument).toContain('loaded two');
+  });
+
+  it('Q8. Ctrl+P prints the loaded messages under a notice that says the history is incomplete', async () => {
+    await openSavedSession();
+
+    act(() => { window.dispatchEvent(new Event('beforeprint')); });
+    const printedDocument = document.querySelector('.chat-print-document')?.textContent ?? '';
+    act(() => { window.dispatchEvent(new Event('afterprint')); });
+
+    expect(printedDocument).toContain(TRANSLATIONS.en.printLoadedMessagesOnly);
+    expect(printedDocument).toContain('loaded one');
+    expect(printedDocument).toContain('loaded two');
+    expect(document.querySelector('.chat-print-document')).toBeNull();
+  });
+});
+
+describe('ChatPanel "load earlier"', () => {
+  const stored = (id: number, content: string): api.MessageItem => ({
+    id, session_id: 7, role: id % 2 ? 'user' : 'assistant', content, route_type: 'rag', created_at: '2026-01-01T00:00:00Z',
+  });
+  const scrollList = () => document.querySelector('.chat-virtual-list') as HTMLDivElement;
+
+  // Fake timers from the start, and the initial "stick to the bottom" retries (16 to 500 ms, each
+  // sets scrollTop to scrollHeight, which is 0 in jsdom) are run out before a test sets a scroll position.
+  async function openWithEarlierAvailable() {
+    vi.useFakeTimers();
+    vi.mocked(api.getSessionMessages).mockResolvedValueOnce({
+      success: true, items: [stored(31, 'loaded one'), stored(32, 'loaded two')], has_more: true,
+    });
+    await setup({ activeSessionId: 7 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(700); });
+    expect(screen.getByText('loaded two')).toBeTruthy();
+  }
+  const loadEarlier = async () => {
+    await act(async () => { fireEvent.click(screen.getByText(TRANSLATIONS.en.loadEarlierMessages)); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(700); }); // the scroll anchor retries for 600 ms
+  };
+
+  it('L1. a page with nothing new does not move the scroll position, and ends the paging', async () => {
+    await openWithEarlierAvailable();
+    scrollList().scrollTop = 500;
+    vi.mocked(api.getSessionMessages).mockResolvedValueOnce({ success: true, items: [], has_more: false });
+
+    await loadEarlier();
+
+    expect(scrollList().scrollTop).toBe(500);
+    expect(screen.queryByText(TRANSLATIONS.en.loadEarlierMessages)).toBeNull();
+  });
+
+  it('L2. a page with earlier messages puts them above and keeps the reader on the message they were reading', async () => {
+    await openWithEarlierAvailable();
+    scrollList().scrollTop = 0;
+    vi.mocked(api.getSessionMessages).mockResolvedValueOnce({
+      success: true, items: [stored(29, 'older one'), stored(30, 'older two')], has_more: false,
+    });
+
+    await loadEarlier();
+
+    const rows = screen.getAllByTestId('msg-row').map(row => row.textContent);
+    expect(rows).toEqual(['older one', 'older two', 'loaded one', 'loaded two']);
+    expect(scrollList().scrollTop).toBe(200); // two rows of the fake virtualizer's 100px are now above the reader
+  });
+
+  it('L3. a message that is already on screen is not added again when a page repeats it', async () => {
+    await openWithEarlierAvailable();
+    vi.mocked(api.getSessionMessages).mockResolvedValueOnce({
+      success: true, items: [stored(30, 'older one'), stored(31, 'loaded one')], has_more: false,
+    });
+
+    await loadEarlier();
+
+    expect(screen.getAllByText('loaded one')).toHaveLength(1);
+    expect(screen.getAllByTestId('msg-row').map(row => row.textContent)).toEqual(['older one', 'loaded one', 'loaded two']);
+  });
+
+  it('L4. a second click while a page is loading does not request the same page twice', async () => {
+    await openWithEarlierAvailable();
+    let release!: (page: Awaited<ReturnType<typeof api.getSessionMessages>>) => void;
+    vi.mocked(api.getSessionMessages).mockReturnValueOnce(new Promise(resolve => { release = resolve; }));
+
+    await act(async () => { fireEvent.click(screen.getByText(TRANSLATIONS.en.loadEarlierMessages)); });
+    await act(async () => { fireEvent.click(screen.getByText(TRANSLATIONS.en.loadingVideos)); });
+
+    expect(api.getSessionMessages).toHaveBeenCalledTimes(2); // the initial history plus exactly one earlier page
+    await act(async () => { release({ success: true, items: [stored(30, 'older one')], has_more: false }); });
   });
 });
