@@ -11,9 +11,11 @@ interface Props {
   collectionId: string;
   collectionTitle: string;
   doneCount: number;
+  /** 这个收藏夹所属的平台（"全部收藏"行则是当前平台视图）；随 collectionId 一起构成导出范围。 */
+  platform?: string;
 }
 
-export default function ExportModal({ onClose, onExportStarted, collectionId, collectionTitle, doneCount }: Props) {
+export default function ExportModal({ onClose, onExportStarted, collectionId, collectionTitle, doneCount, platform = 'all' }: Props) {
   const { t } = useI18n();
   const titleId = useId();
   const [scope, setScope] = useState<'current' | 'all'>('current');
@@ -61,6 +63,7 @@ export default function ExportModal({ onClose, onExportStarted, collectionId, co
     try {
       const res = await api.exportBatchStart({
         collection_id: scope === 'current' && collectionId !== 'all' ? collectionId : null,
+        platform: scope === 'current' ? platform : 'all',
         content_type: contentType,
         format: format,
         pack_mode: packMode,

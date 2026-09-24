@@ -30,6 +30,7 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
   const activeTab = useWorkspaceStore(s => s.activeTab);
   const setActiveTab = useWorkspaceStore(s => s.setActiveTab);
   const selectedCollectionId = useWorkspaceStore(s => s.selectedCollectionId);
+  const selectedCollectionPlatform = useWorkspaceStore(s => s.selectedCollectionPlatform);
   const selectedPlatform = useWorkspaceStore(s => s.selectedPlatform);
   const activeSessionId = useWorkspaceStore(s => s.activeSessionId);
   const setActiveSessionId = useWorkspaceStore(s => s.setActiveSessionId);
@@ -282,7 +283,9 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
           >
             <ChatPanel
               collectionId={selectedCollectionId}
-              platform={selectedPlatform}
+              // A remote collection id is only unique per platform, so chat is scoped to the platform the
+              // selected collection actually belongs to; the browse filter only applies without one.
+              platform={selectedCollectionId !== 'all' && selectedCollectionPlatform ? selectedCollectionPlatform : selectedPlatform}
               statsRefreshKey={statsRefreshKey}
               activeSessionId={activeSessionId}
               onSelectSession={setActiveSessionId}

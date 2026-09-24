@@ -14,7 +14,9 @@ import { useBuildFlow } from '../hooks/useBuildFlow';
 interface Props {
   onBuildDone: () => void;
   selectedId: string;
-  onSelectCollection: (id: string) => void;
+  /** 选中的收藏夹当初是在哪个平台下选的。远端收藏夹 ID 只在平台内唯一，单靠 selectedId 说不清选的是哪一个。 */
+  selectedOwner?: string;
+  onSelectCollection: (id: string, owner?: string) => void;
   statsRefreshKey: number;
   /** 收藏夹分类每页显示条数；0 表示不分页、全部显示 */
   collectionsPerPage: number;
@@ -23,9 +25,61 @@ interface Props {
   onOpenSettings: () => void;
 }
 
+/** 一次收藏夹列表请求最多等多久；超时按失败处理并释放"在途"占位，否则一次挂死的请求会让轮询永远发不出下一次（Issue #27）。 */
+const COLLECTIONS_REQUEST_DEADLINE_MS = 7000;
+const COLLECTIONS_POLL_INTERVAL_MS = 2000;
+const COLLECTIONS_POLL_MAX_ATTEMPTS = 12;
+
+/** 平台的权威当前值：异步续接执行时渲染闭包里的 platformFilter 早已过期，而平台还能在面板之外（ChatPanel）被改掉。 */
+const currentPlatform = () => useWorkspaceStore.getState().selectedPlatform;
+
+interface CollectionsRequest {
+  platform: string;
+  controller: AbortController;
+}
+
+interface CollectionsData {
+  platform: string;
+  items: api.CollectionItem[];
+  /** 这个平台一次数据都没拿到（首次加载失败）。 */
+  failed: boolean;
+  /** 已有这个平台的旧数据，但最近一次刷新失败了：列表可操作，只是可能过期。 */
+  stale: boolean;
+}
+
+/** 一次视频请求（也是一份已加载视频）的完整作用域。 */
+interface VideoScope {
+  collectionId: string;
+  platform: string;
+  page: number;
+  pageSize: number;
+}
+
+interface VideoData extends VideoScope {
+  items: api.VideoItem[];
+  total: number;
+  /** 整栏（非当前页）视频/图文数量，来自服务端 */
+  videoCount: number;
+  noteCount: number;
+}
+
+/** 收藏夹的身份是（所属平台, 远端 ID），不是裸 ID：两个平台可以有同一个远端 ID。合成的"全部收藏"行没有所属平台。 */
+interface CollectionIdentity { id: string; owner: string; title: string }
+interface ActionScope { id: string; platform: string; title: string }
+const rowIdentity = (row: api.CollectionItem): CollectionIdentity => ({
+  id: row.collection_id, owner: row.collection_id === 'all' ? '' : row.platform || '', title: row.title,
+});
+/** 某行在当前平台视图下是否还有意义：无所属平台的行、"全部"视图、或视图恰好就是它的平台。 */
+const compatible = (row: CollectionIdentity | null, view: string) =>
+  row !== null && (!row.owner || view === 'all' || row.owner === view);
+const rowKey = (row: CollectionIdentity) => JSON.stringify([row.owner, row.id]);
+/** 对这一行发起请求时该带的平台：行自己的平台优先，合成行才用当前视图。 */
+const requestPlatform = (row: CollectionIdentity, view: string) => row.owner || view;
+
 export default function SourcesPanel({
   onBuildDone,
   selectedId,
+  selectedOwner,
   onSelectCollection,
   statsRefreshKey,
   collectionsPerPage,
@@ -35,10 +89,18 @@ export default function SourcesPanel({
   const { t } = useI18n();
   const platformFilter = useWorkspaceStore(s => s.selectedPlatform);
   const setSelectedPlatform = useWorkspaceStore(s => s.setSelectedPlatform);
-  const [collections, setCollections] = useState<api.CollectionItem[]>([]);
+  // 列表连同它所属的平台一起存：读取时只认与当前平台一致的那份，平台刚切换、新列表还没到的那一帧，
+  // 旧平台的行根本不会被画出来，也点不到（不靠 effect 事后清理）。
+  const [collectionsData, setCollectionsData] = useState<CollectionsData | null>(null);
+  const collectionsReady = collectionsData?.platform === platformFilter;
+  const collections = collectionsReady ? collectionsData.items : [];
   const [stats, setStats] = useState<any>(null);
   const [syncing, setSyncing] = useState(false);
   const [showBuildConfirm, setShowBuildConfirm] = useState(false);
+  // 打开确认弹窗那一刻的作用域快照：弹窗开着期间选中项/平台再变，也不影响这次入库/导出的目标。
+  const [buildScope, setBuildScope] = useState<ActionScope | null>(null);
+  const [exportScope, setExportScope] = useState<ActionScope | null>(null);
+  const mountedRef = useRef(true);
   const [buildInitialType, setBuildInitialType] = useState<'all' | 'video' | 'note'>('all');
   const [showApiKeyMissing, setShowApiKeyMissing] = useState(false);
   // 提交中互斥：syncKnowledge() 还没返回时 building 仍是 false，这段窗口
@@ -50,22 +112,56 @@ export default function SourcesPanel({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isSubmittingRef = useRef(false);
 
-  // 展开收藏夹与分页
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [expandedVideos, setExpandedVideos] = useState<api.VideoItem[]>([]);
+  // 展开收藏夹与分页。展开的是一个（所属平台, 远端 ID）身份，不是裸 ID；在与它不兼容的平台视图下它算"没展开"。
+  const [expandedRow, setExpandedRow] = useState<CollectionIdentity | null>(null);
+  const expanded = compatible(expandedRow, platformFilter) ? expandedRow : null;
+  const expandedId = expanded?.id ?? null;
   const [loadingVideos, setLoadingVideos] = useState(false);
-  const [videoPage, setVideoPage] = useState(1);
   const [videoPageSize, setVideoPageSize] = useState(videosPerPage);
-  const [videoTotal, setVideoTotal] = useState(0);
-  // 整栏（非当前页）视频/图文数量，来自服务端，用于分类计数与"是否隐藏分类筛选行"的判定
-  const [expandedVideoCount, setExpandedVideoCount] = useState(0);
-  const [expandedNoteCount, setExpandedNoteCount] = useState(0);
+  // 已加载的视频连同它所属的完整作用域（平台 + 收藏夹 + 页码 + 每页数量）一起存，渲染时只展示与
+  // 「当前平台 + 当前展开的收藏夹」一致的那份：平台在面板之外被切换的那一次渲染里，旧内容在同一帧就不可见。
+  const [videoData, setVideoData] = useState<VideoData | null>(null);
   const [videoSearch, setVideoSearch] = useState('');
   const videoCursorsRef = useRef<Map<number, string | undefined>>(new Map([[1, undefined]]));
+  // 「此刻」的权威作用域。异步续接（同步/删除/清空/构建完成……）执行时渲染闭包早已过期，一律读这些 ref
+  // （handler 里改状态时同步写 ref，再发请求），不读闭包。
+  const expandedIdRef = useRef<string | null>(null);
+  const expandedRowRef = useRef<CollectionIdentity | null>(null);
+  const videoPageSizeRef = useRef(videosPerPage);
+  const videoScopeRef = useRef<VideoScope | null>(null);
+  const changePageSize = (size: number) => {
+    videoPageSizeRef.current = size;
+    setVideoPageSize(size);
+  };
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'video' | 'note'>('all');
+  // 收藏夹列表页码属于一个"作用域"（平台 + 每页数量）：作用域一变，就在这次渲染里回到第 1 页——渲染期调整
+  // state（React 会丢掉这次渲染、立刻带着新 state 重来，用户看不到中间帧），而不是用 effect 去复位。
+  // effect 在提交之后才异步执行：用户恰好在"列表已渲染、effect 还没跑"的窗口里点了"下一页"，点击的更新先入队、
+  // effect 的复位后入队，结果 1→2→1，点击被吞（Issue #27）。列表长度变化不复位——safeCollectionPage 的钳制已经
+  // 覆盖"列表变短"。
   const [collectionPage, setCollectionPage] = useState(1);
+  const [pageScope, setPageScope] = useState({ platform: platformFilter, perPage: collectionsPerPage });
+  if (pageScope.platform !== platformFilter || pageScope.perPage !== collectionsPerPage) {
+    setPageScope({ platform: platformFilter, perPage: collectionsPerPage });
+    setCollectionPage(1);
+  }
   const [clearing, setClearing] = useState(false);
+
+  // 请求令牌：每次发起 +1，只有仍是"在途那一次"的响应才允许提交状态。收起 / 平台切换 / 卸载也会使在途请求整体失效。
+  const activeCollectionsRef = useRef<CollectionsRequest | null>(null);
+  const videosReqRef = useRef(0);
+  // 卸载：只改 ref、不调用任何 setter，并中止在途的列表请求。
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      activeCollectionsRef.current?.controller.abort();
+      activeCollectionsRef.current = null;
+      videosReqRef.current += 1;
+      videoScopeRef.current = null;
+    };
+  }, []);
 
   // 批量导出后台任务（进度常驻，弹窗关 / F5 刷新都能恢复）
   const {
@@ -86,13 +182,48 @@ export default function SourcesPanel({
     return () => clearTimeout(timer);
   }, [videoSearch]);
 
-  const fetchCollections = useCallback(async (plat?: string) => {
+  /**
+   * 拉取收藏夹列表。不接受平台参数：发起时读 store 的当前平台。任何新请求都会中止在途的那一个
+   * （挂载、手动刷新、平台切换一律"以最新意图为准"）；被取代 / 卸载 / 平台已变的响应静默丢弃。
+   * 每个请求有 deadline：超时按失败处理并释放在途占位，否则一次挂死的请求会让轮询永远发不出下一次。
+   * 返回实际提交的列表；被取代、平台已变、卸载或失败时返回 null。
+   */
+  const requestCollections = useCallback(async (source: 'mount' | 'poll' | 'manual'): Promise<api.CollectionItem[] | null> => {
+    if (!mountedRef.current) return null;
+    const platform = currentPlatform();
+    activeCollectionsRef.current?.controller.abort();
+    const request: CollectionsRequest = { platform, controller: new AbortController() };
+    activeCollectionsRef.current = request;
+    const isCurrent = () =>
+      mountedRef.current && activeCollectionsRef.current === request && currentPlatform() === platform;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     try {
-      const activePlat = plat !== undefined ? plat : platformFilter;
-      const r = await api.listCollections(activePlat);
-      if (r.success) setCollections(r.items);
-    } catch {}
-  }, [platformFilter]);
+      const timedOut = new Promise<never>((_, reject) => {
+        deadline = setTimeout(() => {
+          request.controller.abort();
+          reject(new Error('Collection request timed out'));
+        }, COLLECTIONS_REQUEST_DEADLINE_MS);
+      });
+      const r = await Promise.race([api.listCollections(platform, request.controller.signal), timedOut]);
+      if (!isCurrent()) return null;
+      if (!r.success) throw new Error('Collection request failed');
+      setCollectionsData({ platform, items: r.items, failed: false, stale: false });
+      return r.items;
+    } catch {
+      if (isCurrent()) {
+        setCollectionsData(prev => {
+          // 这个平台还没有任何数据：给出"失败"结论，界面不再一直转圈
+          if (prev?.platform !== platform) return { platform, items: [], failed: true, stale: false };
+          // 轮询是后台自愈，它自己失败不该打扰用户；用户主动触发的刷新失败，才把旧列表标成"可能过期"
+          return source === 'poll' ? prev : { ...prev, stale: true };
+        });
+      }
+      return null;
+    } finally {
+      clearTimeout(deadline);
+      if (activeCollectionsRef.current === request) activeCollectionsRef.current = null;
+    }
+  }, []);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -101,27 +232,109 @@ export default function SourcesPanel({
     } catch {}
   }, []);
 
+  /**
+   * 拉取展开收藏夹的某一页视频。不接受平台/每页数量参数：一律读此刻的权威值（ref + store）。
+   * 发起时若该收藏夹已不是展开的那个，直接不发。提交前确认：仍是最新一次、平台仍适用——
+   * 任何一项不成立，视频、计数、spinner、游标一概不写。
+   */
+  const fetchVideos = useCallback(async (collectionId: string, page: number) => {
+    const row = expandedRowRef.current;
+    if (!mountedRef.current || !row || collectionId !== row.id || !compatible(row, currentPlatform())) return;
+    const scope: VideoScope = {
+      collectionId,
+      platform: requestPlatform(row, currentPlatform()),
+      page,
+      pageSize: videoPageSizeRef.current,
+    };
+    const token = ++videosReqRef.current;
+    videoScopeRef.current = scope;
+    // 第 1 页换一张新的游标表；其余页沿用同一张
+    if (page === 1) videoCursorsRef.current = new Map([[1, undefined]]);
+    const cursors = videoCursorsRef.current;
+    const isCurrent = () =>
+      mountedRef.current && token === videosReqRef.current &&
+      compatible(row, currentPlatform()) && scope.platform === requestPlatform(row, currentPlatform());
+    // 失败也要给这个作用域一个结论，否则界面会一直转圈：同作用域的旧数据保留，否则提交空列表
+    const settleWithoutData = () => setVideoData(prev =>
+      prev && prev.collectionId === scope.collectionId && prev.platform === scope.platform
+        ? prev
+        : { ...scope, items: [], total: 0, videoCount: 0, noteCount: 0 });
+    setLoadingVideos(true);
+    try {
+      const r = await api.listCollectionVideos(collectionId, page, scope.pageSize, scope.platform, cursors.get(page));
+      if (!isCurrent()) return;
+      if (r.success) {
+        setVideoData({
+          ...scope,
+          items: r.items,
+          total: r.total,
+          videoCount: r.video_count ?? 0,
+          noteCount: r.note_count ?? 0,
+        });
+        if (r.next_cursor) cursors.set(page + 1, r.next_cursor);
+      } else {
+        settleWithoutData();
+      }
+    } catch (e) {
+      console.error('加载视频列表失败:', e);
+      if (isCurrent()) settleWithoutData();
+    } finally {
+      if (isCurrent()) setLoadingVideos(false);
+    }
+  }, []);
+
+  /**
+   * 所有「操作完成后刷新展开视频」的续接统一走这里：读此刻展开的收藏夹与所在页，不用发起时的闭包。
+   * scopeId / platform：这次操作只针对某个收藏夹/平台（如清空该收藏夹）时传入；用户已经换了目标就不用刷新了。
+   */
+  const refreshExpandedVideos = useCallback(
+    (opts: { scopeId?: string; platform?: string; page?: number } = {}): Promise<void> => {
+      const id = expandedIdRef.current;
+      if (!id) return Promise.resolve();
+      if (opts.scopeId !== undefined && opts.scopeId !== id) return Promise.resolve();
+      const row = expandedRowRef.current;
+      if (opts.platform && row && opts.platform !== requestPlatform(row, currentPlatform())) return Promise.resolve();
+      const scope = videoScopeRef.current;
+      return fetchVideos(id, opts.page ?? (scope && scope.collectionId === id ? scope.page : 1));
+    },
+    [fetchVideos],
+  );
+
+  // 收藏夹与统计：挂载、父级刷新键变化、平台变化（含 ChatPanel 等面板之外的切换）时重拉。
+  // requestCollections 发起时读 store，所以平台要显式列为依赖。
   useEffect(() => {
-    fetchCollections();
+    requestCollections('mount');
     fetchStats();
-  }, [fetchCollections, fetchStats, statsRefreshKey]);
+  }, [requestCollections, fetchStats, statsRefreshKey, platformFilter]);
+
+  const changeExpanded = useCallback((row: CollectionIdentity | null) => {
+    expandedRowRef.current = row;
+    expandedIdRef.current = row?.id ?? null;
+    setExpandedRow(row);
+  }, []);
+
+  // 平台变化：不兼容的展开项收起（它属于另一个平台，换回来也不该"复活"）；仍适用于新视图的真实行保持展开、
+  // 不重载；合成的"全部收藏"行按新平台重拉第 1 页。在途的视频请求随之失效。
+  useEffect(() => {
+    const row = expandedRowRef.current;
+    if (row?.owner && compatible(row, platformFilter)) return;
+    videosReqRef.current += 1;
+    videoScopeRef.current = null;
+    if (row && !compatible(row, platformFilter)) {
+      changeExpanded(null);
+      setLoadingVideos(false);
+    } else {
+      refreshExpandedVideos({ page: 1 });
+    }
+  }, [platformFilter, refreshExpandedVideos, changeExpanded]);
 
   // 用户在设置里调整「作品每页显示」→ 同步页大小、失效旧游标、必要时按新页大小重取第 1 页
   useEffect(() => {
+    videoPageSizeRef.current = videosPerPage;
     setVideoPageSize(videosPerPage);
-    setVideoPage(1);
     videoCursorsRef.current = new Map([[1, undefined]]);
-    if (expandedId) {
-      fetchVideos(expandedId, 1, videosPerPage);
-    }
-    // fetchVideos / expandedId 故意不入依赖：只在持久化设置变化时触发
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [videosPerPage]);
-
-  // 平台切换或收藏夹数量变化后，把分类分页复位到第 1 页
-  useEffect(() => {
-    setCollectionPage(1);
-  }, [platformFilter, collectionsPerPage, collections.length]);
+    refreshExpandedVideos({ page: 1 });
+  }, [videosPerPage, refreshExpandedVideos]);
 
   // 当收藏夹列表为空时自适应轻量轮询检测（针对初次扫码后后台异步持久化的场景），免去用户手动 F5 刷新
   useEffect(() => {
@@ -130,36 +343,35 @@ export default function SourcesPanel({
     let isActive = true;
     const timer = setInterval(async () => {
       if (!isActive) return;
-      attempts++;
-      if (attempts > 12) {
+      // 同一平台已有请求在途（挂载请求、上一次轮询或手动刷新）：这一拍不重复发起，也不消耗次数
+      if (activeCollectionsRef.current?.platform === platformFilter) return;
+      if (attempts >= COLLECTIONS_POLL_MAX_ATTEMPTS) {
         clearInterval(timer);
         return;
       }
-      try {
-        const r = await api.listCollections(platformFilter);
-        if (r.success && r.items && r.items.length > 0) {
-          if (isActive) {
-            setCollections(r.items);
-            fetchStats();
-          }
-          clearInterval(timer);
-        }
-      } catch {}
-    }, 2000);
+      attempts++;
+      const items = await requestCollections('poll');
+      if (isActive && items && items.length > 0) {
+        fetchStats();
+        clearInterval(timer);
+      }
+    }, COLLECTIONS_POLL_INTERVAL_MS);
     return () => {
       isActive = false;
       clearInterval(timer);
     };
-  }, [collections.length, fetchStats, platformFilter]);
+    // platformFilter 只用来重新起算：切到另一个平台后，它的空列表也要有完整的 12 次自愈机会
+  }, [collections.length, requestCollections, fetchStats, platformFilter]);
 
   const handleSync = async () => {
     setSyncing(true);
     try {
       const r = await api.syncFavorites(platformFilter);
       if (r.success) {
-        await fetchCollections();
+        // 续接：刷新「此刻」展示的内容，而不是发起同步时的平台/收藏夹/页码
+        await requestCollections('manual');
         await fetchStats();
-        if (expandedId) await fetchVideos(expandedId, videoPage, videoPageSize, platformFilter);
+        await refreshExpandedVideos();
         // UI-01: when platform="all", the backend returns BOTH a top-level
         // aggregate (added_videos, ...) AND a `results[]` breakdown for the
         // same numbers — summing both double-counts. aggregateSyncCounts()
@@ -220,6 +432,9 @@ export default function SourcesPanel({
   };
 
   const openBuildModal = async (type: 'all' | 'video' | 'note' = 'all') => {
+    if (!actionScope) return;
+    // 点击那一刻的作用域快照：readiness 检查期间选中项/平台再变，这次入库的目标仍是用户点的那个。
+    const target = { ...actionScope };
     try {
       const status = await api.getSettingsStatus();
       if (!status.ingest_ready) {
@@ -230,37 +445,16 @@ export default function SourcesPanel({
       // Status check failing (e.g. offline) shouldn't block the user from
       // trying to build — the real ingest call will surface its own error.
     }
+    setBuildScope(target);
     setBuildInitialType(type);
     setShowBuildConfirm(true);
   };
 
-  const fetchVideos = useCallback(async (collectionId: string, page: number, size: number, plat?: string) => {
-    setLoadingVideos(true);
-    try {
-      if (page === 1) videoCursorsRef.current = new Map([[1, undefined]]);
-      const activePlat = plat !== undefined ? plat : platformFilter;
-      const r = await api.listCollectionVideos(
-        collectionId, page, size, activePlat, videoCursorsRef.current.get(page),
-      );
-      if (r.success) {
-        setExpandedVideos(r.items);
-        setVideoTotal(r.total);
-        setExpandedVideoCount(r.video_count ?? 0);
-        setExpandedNoteCount(r.note_count ?? 0);
-        setVideoPage(page);
-        if (r.next_cursor) videoCursorsRef.current.set(page + 1, r.next_cursor);
-      }
-    } catch (e) {
-      console.error('加载视频列表失败:', e);
-    }
-    setLoadingVideos(false);
-  }, [platformFilter]);
-
   const onBuildComplete = useCallback(() => {
     onBuildDone();
     fetchStats();
-    if (expandedId) fetchVideos(expandedId, videoPage, videoPageSize);
-  }, [onBuildDone, fetchStats, fetchVideos, expandedId, videoPage, videoPageSize]);
+    refreshExpandedVideos();
+  }, [onBuildDone, fetchStats, refreshExpandedVideos]);
 
   const {
     building,
@@ -279,6 +473,7 @@ export default function SourcesPanel({
     contentType?: 'all' | 'video' | 'note',
     scope: 'all' | 'selected' = 'all',
     buildPlat?: string,
+    target?: ActionScope,
   ) => {
     if (building || isSubmittingRef.current || (scope === 'selected' && !selectedIds?.length)) return;
     isSubmittingRef.current = true;
@@ -290,10 +485,10 @@ export default function SourcesPanel({
     try {
       const r = await api.syncKnowledge({
         scope: isAll ? 'all' : 'selected',
-        collectionId: expandedId || selectedId || 'all',
+        collectionId: target?.id ?? actionScope?.id ?? 'all',
         contentType: contentType || 'all',
         selectedIds: isAll ? [] : selectedIds,
-        platform: buildPlat || platformFilter,
+        platform: target?.platform ?? buildPlat ?? actionScope?.platform ?? platformFilter,
       });
       if (r.success && r.task_id) {
         if (r.pending_count) setBuildTotalHint(r.pending_count);
@@ -312,36 +507,49 @@ export default function SourcesPanel({
   };
 
   const handlePlatformChange = (newPlatform: 'all' | 'douyin' | 'bilibili') => {
-    setSelectedPlatform(newPlatform);
-    fetchCollections(newPlatform);
-    if (expandedId) {
-      fetchVideos(expandedId, 1, videoPageSize, newPlatform);
-    }
-  };
-
-  const handleCollectionClick = async (collectionId: string) => {
-    onSelectCollection(collectionId);
-    if (expandedId === collectionId) {
-      setExpandedId(null);
+    if (newPlatform === currentPlatform()) {
+      // 点当前平台 = 显式刷新（AC2 的第三个复位来源）：store 值没变、平台 effect 不会触发，所以这里自己刷，
+      // 并回到第 1 页。
+      setCollectionPage(1);
+      requestCollections('manual');
+      refreshExpandedVideos({ page: 1 });
       return;
     }
-    setExpandedId(collectionId);
+    // 真正的切换只改 store：收藏夹/统计/展开视频的重拉统一由 [platformFilter] 的 effect 负责，
+    // 这样面板之外（ChatPanel）触发的平台切换走的是同一条路径。
+    setSelectedPlatform(newPlatform);
+  };
+
+  const handleCollectionClick = async (col: api.CollectionItem) => {
+    const row = rowIdentity(col);
+    onSelectCollection(row.id, row.owner || undefined);
+    if (expandedRowRef.current && rowKey(expandedRowRef.current) === rowKey(row)) {
+      changeExpanded(null);
+      // 收起：让在途的视频请求整体失效
+      videosReqRef.current += 1;
+      videoScopeRef.current = null;
+      setLoadingVideos(false);
+      return;
+    }
+    changeExpanded(row);
     setVideoSearch('');
     setTypeFilter('all');
-    fetchVideos(collectionId, 1, videoPageSize);
+    fetchVideos(row.id, 1);
   };
 
   const handlePageChange = (newPage: number) => {
-    if (!expandedId) return;
+    const id = expandedIdRef.current;
+    if (!id) return;
     setVideoSearch(''); // 切换分页时清空搜索，避免混淆
-    fetchVideos(expandedId, newPage, videoPageSize);
+    fetchVideos(id, newPage);
   };
 
   const handlePageSizeChange = (newSize: number) => {
-    setVideoPageSize(newSize);
-    if (!expandedId) return;
+    changePageSize(newSize);
+    const id = expandedIdRef.current;
+    if (!id) return;
     setVideoSearch(''); // 调整每页数量时清空搜索
-    fetchVideos(expandedId, 1, newSize);
+    fetchVideos(id, 1);
   };
 
   const handleExport = (platformItemId: string, platform: string, mode: 'original' | 'ai') => {
@@ -354,7 +562,7 @@ export default function SourcesPanel({
     try {
       await api.deleteVideo(platformItemId, platform);
       fetchStats();
-      if (expandedId) fetchVideos(expandedId, videoPage, videoPageSize);
+      refreshExpandedVideos();
     } catch (e: any) {
       console.error('Delete ingested data failed:', e);
       alert(t('operationFailed'));
@@ -362,16 +570,21 @@ export default function SourcesPanel({
   };
 
   const handleClearAll = async () => {
-    const scopeMsg = expandedId && expandedId !== 'all' ? t('clearScopeCurrent') : t('clearScopeAll');
+    if (!actionScope) return;
+    // 与入库/导出共用同一份已解析的作用域；收起收藏夹不该把"清空这个收藏夹"悄悄放大成"清空全库"。
+    const target = { ...actionScope };
+    const clearScopeId = target.id !== 'all' ? target.id : undefined;
+    const scopeMsg = clearScopeId ? t('clearScopeCurrent') : t('clearScopeAll');
     if (!confirm(t('clearKnowledgeConfirm', { scope: scopeMsg }))) return;
 
     setClearing(true);
     try {
-      const r = await api.clearAllKnowledge(expandedId && expandedId !== 'all' ? expandedId : undefined, platformFilter);
+      const r = await api.clearAllKnowledge(clearScopeId, target.platform);
       if (r.success) {
         alert(t('clearKnowledgeSuccess', { count: r.reset_count }));
         await fetchStats();
-        if (expandedId) fetchVideos(expandedId, 1, videoPageSize);
+        // 只针对某个收藏夹的清空：用户已经切到别的收藏夹就不刷新旧的那个
+        refreshExpandedVideos({ scopeId: clearScopeId, platform: target.platform, page: 1 });
         onBuildDone();
       } else {
         alert(t('operationFailed'));
@@ -404,6 +617,20 @@ export default function SourcesPanel({
     ? (totalVideo + totalNote)
     : (doneCount + pendingCount + failedCount + processingCount);
 
+  // 只展示与「当前平台 + 当前展开的收藏夹」一致的那份已加载视频。作用域对不上的那一帧（例如平台刚在面板之外
+  // 被切换、新数据还没到）旧内容根本不会被画出来，视图显示 loading。
+  const shownVideos =
+    videoData && expanded && videoData.platform === requestPlatform(expanded, platformFilter) && videoData.collectionId === expandedId
+      ? videoData
+      : null;
+  const expandedVideos = shownVideos?.items ?? [];
+  const videoTotal = shownVideos?.total ?? 0;
+  const videoPage = shownVideos?.page ?? 1;
+  // 整栏（非当前页）视频/图文数量，来自服务端，用于分类计数与"是否隐藏分类筛选行"的判定
+  const expandedVideoCount = shownVideos?.videoCount ?? 0;
+  const expandedNoteCount = shownVideos?.noteCount ?? 0;
+  const videosLoading = loadingVideos || (expandedId !== null && shownVideos === null);
+
   // 分类计数：优先用服务端整栏口径（跨分页稳定）；服务端字段缺失时回退到当前页统计
   const pageVideoCount = expandedVideos.filter(v => (v.item_type === 'video' || (v.duration ?? 0) > 0)).length;
   const pageNoteCount = expandedVideos.filter(v => (v.item_type === 'note' || (v.duration ?? 0) === 0)).length;
@@ -423,8 +650,28 @@ export default function SourcesPanel({
   });
 
   const totalPages = Math.ceil(videoTotal / videoPageSize) || 1;
-  const currentCollection = collections.find(c => c.collection_id === (expandedId || selectedId));
-  const currentTitle = currentCollection?.title === '全部收藏' ? t('allFavorites') : (currentCollection?.title || t('allFavorites'));
+
+  // 选中项必须唯一对应一行：没记录所属平台、同一个远端 ID 又出现在多个平台时是"歧义"，不猜第一个。
+  const selectedMatches = collections.filter(c =>
+    c.collection_id === selectedId && (!selectedOwner || (c.platform || '') === selectedOwner));
+  const selectedRow = selectedMatches.length === 1 ? rowIdentity(selectedMatches[0]) : null;
+  // 入库 / 导出 / 清空共用的目标：展开的那行优先，其次是选中行。列表还没到 / 加载失败 / 选中歧义 / 与当前平台
+  // 不兼容时没有目标（null），所有依赖它的入口都不可点，也不会悄悄退回到"全库"。
+  const targetRow: CollectionIdentity | null =
+    expanded ?? (selectedId === 'all' ? { id: 'all', owner: '', title: '全部收藏' } : selectedRow);
+  const actionScope: ActionScope | null =
+    collectionsReady && !collectionsData.failed && targetRow && compatible(targetRow, platformFilter)
+      ? {
+        id: targetRow.id,
+        platform: requestPlatform(targetRow, platformFilter),
+        title: targetRow.title === '全部收藏' ? t('allFavorites') : targetRow.title,
+      }
+      : null;
+  const openScopedExport = () => {
+    if (!actionScope) return;
+    setExportScope({ ...actionScope });
+    openExportModal();
+  };
 
   // 收藏夹分类客户端分页：合成「全部收藏」行恒钉在最前、不参与翻页
   const allRow = collections.filter(c => c.collection_id === 'all');
@@ -432,13 +679,16 @@ export default function SourcesPanel({
   const collectionPageSize = collectionsPerPage > 0 ? collectionsPerPage : realCollections.length || 1;
   const collectionTotalPages = Math.max(1, Math.ceil(realCollections.length / collectionPageSize));
   const safeCollectionPage = Math.min(collectionPage, collectionTotalPages);
+  // 翻页基于"当前显示的页"（已钳制），而不是 state 里可能已经越界的页码。
+  const goToCollectionPage = (delta: number) =>
+    setCollectionPage(p => Math.max(1, Math.min(collectionTotalPages, Math.min(p, collectionTotalPages) + delta)));
   const pagedRealStart = (safeCollectionPage - 1) * collectionPageSize;
   const pagedReal = realCollections.slice(pagedRealStart, pagedRealStart + collectionPageSize);
   // 选中/展开的收藏夹若不在当前页，追加钉住一行，避免"看不见自己选的收藏夹"
-  const stickyId = expandedId || selectedId;
+  const stickyRow = expanded ?? selectedRow;
   const stickyExtra =
-    stickyId && stickyId !== 'all' && !pagedReal.some(c => c.collection_id === stickyId)
-      ? realCollections.filter(c => c.collection_id === stickyId)
+    stickyRow && stickyRow.id !== 'all' && !pagedReal.some(c => rowKey(rowIdentity(c)) === rowKey(stickyRow))
+      ? realCollections.filter(c => rowKey(rowIdentity(c)) === rowKey(stickyRow))
       : [];
   const visibleCollections = [...allRow, ...stickyExtra, ...pagedReal];
   const showCollectionPager = collectionsPerPage > 0 && collectionTotalPages > 1;
@@ -464,8 +714,8 @@ export default function SourcesPanel({
           </div>
           <div className="flex items-center gap-1.5">
             <button
-              onClick={() => openExportModal()}
-              disabled={doneCount === 0}
+              onClick={openScopedExport}
+              disabled={doneCount === 0 || !actionScope}
               className="group flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-accent bg-accent/10 hover:bg-accent/18 active:scale-95 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-accent/10 shadow-2xs cursor-pointer"
               title={t('batchExportTooltip')}
             >
@@ -594,14 +844,26 @@ export default function SourcesPanel({
 
         {/* Collections */}
         <div className="flex flex-col gap-2">
+          {!collectionsReady && (
+            <div aria-busy="true" aria-label={t('loadingVideos')}>
+              {[0, 1, 2].map(i => <div key={i} aria-hidden="true" className="h-10 my-2 rounded-xl bg-black/5 animate-pulse" />)}
+            </div>
+          )}
+          {collectionsReady && collectionsData.failed && (
+            <p role="alert" className="text-xs text-[var(--color-ink-muted)]">{t('operationFailed')}</p>
+          )}
+          {collectionsReady && collectionsData.stale && !collectionsData.failed && (
+            <p role="alert" className="text-xs text-amber">{t('collectionsMayBeStale')}</p>
+          )}
           {visibleCollections.map(col => {
-            const isSelected = selectedId === col.collection_id;
-            const isExpanded = expandedId === col.collection_id;
+            const identity = rowIdentity(col);
+            const isSelected = selectedRow !== null && rowKey(selectedRow) === rowKey(identity);
+            const isExpanded = expanded !== null && rowKey(expanded) === rowKey(identity);
             const displayTitle = col.title === '全部收藏' ? t('allFavorites') : col.title;
             return (
-              <div key={col.collection_id} className="rounded-xl transition-all">
+              <div key={rowKey(identity)} className="rounded-xl transition-all">
                 <button
-                  onClick={() => handleCollectionClick(col.collection_id)}
+                  onClick={() => handleCollectionClick(col)}
                   className={`w-full text-left p-2.5 rounded-xl transition-all border ${
                     isSelected
                       ? 'border-accent/40 bg-accent-light shadow-sm'
@@ -693,7 +955,7 @@ export default function SourcesPanel({
                       )}
                     </div>
 
-                    {loadingVideos ? (
+                    {videosLoading ? (
                       <div className="flex items-center justify-center py-4 text-xs text-[var(--color-ink-muted)]">
                         <span className="animate-spin mr-1.5">⏳</span> {t('loadingVideos')}
                       </div>
@@ -811,7 +1073,7 @@ export default function SourcesPanel({
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => handlePageChange(videoPage - 1)}
-                              disabled={videoPage <= 1 || loadingVideos}
+                              disabled={videoPage <= 1 || videosLoading}
                               className="px-2 py-0.5 rounded bg-black/3 hover:bg-black/8 disabled:opacity-30 cursor-pointer"
                             >
                               {t('prevPage')}
@@ -819,7 +1081,7 @@ export default function SourcesPanel({
                             <span>{t('pageInfo', { current: videoPage, total: totalPages, count: videoTotal })}</span>
                             <button
                               onClick={() => handlePageChange(videoPage + 1)}
-                              disabled={videoPage >= totalPages || loadingVideos}
+                              disabled={videoPage >= totalPages || videosLoading}
                               className="px-2 py-0.5 rounded bg-black/3 hover:bg-black/8 disabled:opacity-30 cursor-pointer"
                             >
                               {t('nextPage')}
@@ -848,7 +1110,7 @@ export default function SourcesPanel({
           {showCollectionPager && (
             <div className="flex items-center justify-center gap-2 pt-1 text-[11px] text-[var(--color-ink-soft)]">
               <button
-                onClick={() => setCollectionPage(p => Math.max(1, p - 1))}
+                onClick={() => goToCollectionPage(-1)}
                 disabled={safeCollectionPage <= 1}
                 className="px-2 py-0.5 rounded bg-black/3 hover:bg-black/8 disabled:opacity-30 cursor-pointer"
               >
@@ -856,7 +1118,7 @@ export default function SourcesPanel({
               </button>
               <span>{t('collectionPageInfo', { current: safeCollectionPage, total: collectionTotalPages })}</span>
               <button
-                onClick={() => setCollectionPage(p => Math.min(collectionTotalPages, p + 1))}
+                onClick={() => goToCollectionPage(1)}
                 disabled={safeCollectionPage >= collectionTotalPages}
                 className="px-2 py-0.5 rounded bg-black/3 hover:bg-black/8 disabled:opacity-30 cursor-pointer"
               >
@@ -878,7 +1140,7 @@ export default function SourcesPanel({
             {doneCount > 0 && !building && !isSubmitting && (
               <button
                 onClick={handleClearAll}
-                disabled={clearing}
+                disabled={clearing || !actionScope}
                 className="text-[11px] text-red-500 hover:text-red-700 hover:underline flex items-center gap-1 disabled:opacity-50 cursor-pointer"
                 title={t('confirmClearAll')}
               >
@@ -968,7 +1230,7 @@ export default function SourcesPanel({
                       if (!result.success) alert(t('taskStillRunning'));
                       else {
                         fetchStats();
-                        if (expandedId) fetchVideos(expandedId, videoPage, videoPageSize);
+                        refreshExpandedVideos();
                       }
                     }
                     catch (e: any) { console.error('Reset failed:', e); alert(t('operationFailed')); }
@@ -988,7 +1250,7 @@ export default function SourcesPanel({
               <div className="grid grid-cols-2 gap-2 mt-1">
                 <button
                   onClick={() => openBuildModal('all')}
-                  disabled={pendingCount === 0}
+                  disabled={pendingCount === 0 || !actionScope}
                   className="group py-2.5 rounded-xl bg-gradient-to-r from-accent to-accent-hover text-white text-xs font-bold shadow-sm hover:shadow active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <svg className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -998,8 +1260,8 @@ export default function SourcesPanel({
                   <span>{t('oneClickIngest')} ({pendingCount})</span>
                 </button>
                 <button
-                  onClick={() => openExportModal()}
-                  disabled={doneCount === 0}
+                  onClick={openScopedExport}
+                  disabled={doneCount === 0 || !actionScope}
                   className="group py-2.5 rounded-xl border border-accent/35 bg-accent-light hover:bg-accent/20 text-accent text-xs font-bold transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
                 >
                   <svg className="w-3.5 h-3.5 shrink-0 group-hover:-translate-y-0.5 transition-transform duration-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1016,7 +1278,8 @@ export default function SourcesPanel({
                 <div className="flex gap-1.5">
                   <button
                     onClick={() => openBuildModal('video')}
-                    className="flex-1 py-1.5 px-2 rounded-lg text-[10px] bg-blue-50/80 hover:bg-blue-100 text-blue-700 border border-blue-200/60 font-medium transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1"
+                    disabled={!actionScope}
+                    className="flex-1 py-1.5 px-2 rounded-lg text-[10px] bg-blue-50/80 hover:bg-blue-100 text-blue-700 border border-blue-200/60 font-medium transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-1"
                     title={`${t('onlyIngestVideo')} (${videoPending})`}
                   >
                     <svg className="w-3 h-3 text-blue-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1027,7 +1290,8 @@ export default function SourcesPanel({
                   </button>
                   <button
                     onClick={() => openBuildModal('note')}
-                    className="flex-1 py-1.5 px-2 rounded-lg text-[10px] bg-purple-50/80 hover:bg-purple-100 text-purple-700 border border-purple-200/60 font-medium transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-1"
+                    disabled={!actionScope}
+                    className="flex-1 py-1.5 px-2 rounded-lg text-[10px] bg-purple-50/80 hover:bg-purple-100 text-purple-700 border border-purple-200/60 font-medium transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-1"
                     title={`${t('onlyIngestNote')} (${notePending})`}
                   >
                     <svg className="w-3 h-3 text-purple-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1045,17 +1309,17 @@ export default function SourcesPanel({
 
       </div>
 
-      {showBuildConfirm && (
+      {showBuildConfirm && buildScope && (
         <BuildConfirmModal
           pendingCount={pendingCount}
           initialType={buildInitialType}
-          collectionId={expandedId || selectedId || 'all'}
-          collectionTitle={currentTitle}
-          platform={platformFilter}
+          collectionId={buildScope.id}
+          collectionTitle={buildScope.title}
+          platform={buildScope.platform}
           onClose={() => setShowBuildConfirm(false)}
           onConfirm={(selectedIds, contentType, scope, buildPlat) => {
             setShowBuildConfirm(false);
-            handleBuild(selectedIds, contentType, scope, buildPlat);
+            handleBuild(selectedIds, contentType, scope, buildPlat, buildScope);
           }}
         />
       )}
@@ -1068,10 +1332,11 @@ export default function SourcesPanel({
         />
       )}
 
-      {showExportModal && (
+      {showExportModal && exportScope && (
         <ExportModal
-          collectionId={expandedId || selectedId}
-          collectionTitle={currentTitle}
+          collectionId={exportScope.id}
+          collectionTitle={exportScope.title}
+          platform={exportScope.platform}
           doneCount={doneCount}
           onClose={closeExportModal}
           onExportStarted={(taskId, mode) => startExportPolling(taskId, mode)}

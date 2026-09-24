@@ -25,6 +25,7 @@ export default function SourcesStudio({
 }: Props) {
   const { t } = useI18n();
   const selectedCollectionId = useWorkspaceStore(s => s.selectedCollectionId);
+  const selectedCollectionPlatform = useWorkspaceStore(s => s.selectedCollectionPlatform);
   const setSelectedCollectionId = useWorkspaceStore(s => s.setSelectedCollectionId);
   const setActiveTab = useWorkspaceStore(s => s.setActiveTab);
 
@@ -62,6 +63,7 @@ export default function SourcesStudio({
         <SourcesPanel
           onBuildDone={onBuildDone}
           selectedId={selectedCollectionId}
+          selectedOwner={selectedCollectionPlatform ?? undefined}
           onSelectCollection={setSelectedCollectionId}
           statsRefreshKey={statsRefreshKey}
           collectionsPerPage={collectionsPerPage}
