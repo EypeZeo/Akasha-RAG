@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { useBuildFlow } from './useBuildFlow';
@@ -488,5 +489,147 @@ describe('useBuildFlow', () => {
 
     await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
     expect(api.getSyncProgress).not.toHaveBeenCalled();
+  });
+
+  describe('StrictMode (main.tsx renders the app under it; dev builds run setup, cleanup, setup)', () => {
+    it('18a. F5 restore keeps exactly one poll alive across the simulated remount', async () => {
+      vi.useFakeTimers();
+      localStorage.setItem(ACTIVE_BUILD_KEY, JSON.stringify({ task_id: 'task-18a', typeLabel: '视频' }));
+      vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
+      const { result } = renderHook(() => useBuildFlow(t, vi.fn()), { wrapper: StrictMode });
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(result.current.buildTaskId).toBe('task-18a');
+
+      vi.mocked(api.getSyncProgress).mockClear();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      expect(api.getSyncProgress).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      expect(api.getSyncProgress).toHaveBeenCalledTimes(2);
+    });
+
+    it('18b. a build started after the remount is polled, not treated as if the hook were unmounted', async () => {
+      vi.useFakeTimers();
+      vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
+      const { result } = renderHook(() => useBuildFlow(t, vi.fn()), { wrapper: StrictMode });
+
+      await act(async () => {
+        result.current.startBuildPolling('task-18b', '视频');
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(api.getSyncProgress).toHaveBeenCalledWith('task-18b');
+      expect(result.current.buildProgress).toBe(1);
+
+      vi.mocked(api.getSyncProgress).mockClear();
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+      expect(api.getSyncProgress).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('18c. a re-render that hands in a new callback does not stop a running poll', async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
+    const firstCallback = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ onBuildComplete }) => useBuildFlow(t, onBuildComplete),
+      { initialProps: { onBuildComplete: firstCallback } },
+    );
+    await act(async () => {
+      result.current.startBuildPolling('task-18c', '视频');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    rerender({ onBuildComplete: vi.fn() }); // a new callback identity gives startBuildPolling a new identity too
+
+    vi.mocked(api.getSyncProgress).mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(api.getSyncProgress).toHaveBeenCalledTimes(1);
+    expect(result.current.building).toBe(true);
+  });
+
+  it('18d. unmounting stops the poll', async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
+    const { result, unmount } = renderHook(() => useBuildFlow(t, vi.fn()));
+    await act(async () => {
+      result.current.startBuildPolling('task-18d', '视频');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    unmount();
+    vi.mocked(api.getSyncProgress).mockClear();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+
+    expect(api.getSyncProgress).not.toHaveBeenCalled();
+  });
+
+  it('19. unmounting inside the 900ms terminal window means onBuildComplete never fires', async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'done', total: 10 });
+    const onBuildComplete = vi.fn();
+    const { result, unmount } = renderHook(() => useBuildFlow(t, onBuildComplete));
+
+    await act(async () => {
+      result.current.startBuildPolling('task-19', '视频');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.buildMessage).toBe('ingestCompleted'); // terminal seen, 900ms timer pending
+
+    unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+
+    expect(onBuildComplete).not.toHaveBeenCalled();
+  });
+
+  describe('20. a cancel response that outlives its task', () => {
+    // Task A's cancel request is in flight when task B takes over; the test then settles A's request.
+    async function cancelThenReplace() {
+      vi.useFakeTimers();
+      vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 10 });
+      let settle!: { resolve: () => void; reject: (reason: Error) => void };
+      vi.mocked(api.cancelSync).mockReturnValue(new Promise<{ success: boolean }>((resolve, reject) => {
+        settle = { resolve: () => resolve({ success: true }), reject };
+      }));
+      const rendered = renderHook(() => useBuildFlow(t, vi.fn()));
+
+      await act(async () => {
+        rendered.result.current.startBuildPolling('task-a', '视频');
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      act(() => { void rendered.result.current.handleCancelBuild(); });
+      await act(async () => {
+        rendered.result.current.startBuildPolling('task-b', '视频'); // supersedes A while A's cancel is in flight
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(rendered.result.current.buildTaskId).toBe('task-b');
+      return { ...rendered, settle };
+    }
+
+    it('20a. arriving successfully, it does not rewrite the new task\'s message', async () => {
+      const { result, settle } = await cancelThenReplace();
+      const before = result.current.buildMessage;
+
+      await act(async () => {
+        settle.resolve();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(result.current.buildMessage).toBe(before);
+      expect(result.current.buildMessage).not.toBe('cancelling');
+    });
+
+    it('20b. arriving as a failure, it does not alert about a task the user is no longer looking at', async () => {
+      const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { result, settle } = await cancelThenReplace();
+
+      await act(async () => {
+        settle.reject(new Error('cancel failed'));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(alertSpy).not.toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(result.current.buildTaskId).toBe('task-b');
+    });
   });
 });
