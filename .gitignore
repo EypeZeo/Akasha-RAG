@@ -55,3 +55,6 @@ Thumbs.db
 
 # Local Claude Code preview config
 .claude/launch.json
+
+# PR C stability-loop output (frontend/scripts/run_vitest_loop.py)
+.artifacts/pr-c-vitest-loop.jsonl

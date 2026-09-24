@@ -161,9 +161,9 @@ export async function syncFavorites(platform: string = 'douyin'): Promise<{
   return request(`/favorites/sync?platform=${platform}`, { method: 'POST' });
 }
 
-export async function listCollections(platform?: string): Promise<{ success: boolean; items: CollectionItem[]; total: number }> {
+export async function listCollections(platform?: string, signal?: AbortSignal): Promise<{ success: boolean; items: CollectionItem[]; total: number }> {
   const query = platform && platform !== 'all' ? `?platform=${platform}` : '';
-  return request(`/favorites/collections${query}`);
+  return request(`/favorites/collections${query}`, { signal });
 }
 
 export async function listCollectionVideos(
@@ -291,6 +291,8 @@ export async function clearAllKnowledge(collectionId?: string, platform?: string
 
 export interface BatchExportParams {
   collection_id?: string | null;
+  /** 收藏夹所属平台。远端收藏夹 ID 只在平台内唯一，同一个 ID 可能同时出现在两个平台。 */
+  platform?: string;
   selected_ids?: string[];
   content_type: 'original' | 'ai' | 'both';
   format: 'markdown' | 'word' | 'excel' | 'ppt' | 'pdf';

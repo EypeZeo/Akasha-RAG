@@ -176,17 +176,15 @@ describe('SourcesPanel collections list & pagination', () => {
     expect(screen.getByText(TRANSLATIONS.en.prevPage).closest('button')).toHaveProperty('disabled', true);
     expect(screen.getByText(TRANSLATIONS.en.nextPage).closest('button')).toHaveProperty('disabled', false);
 
-    // Root-caused via runtime instrumentation (see PR #24): a bare
-    // `act(() => { element.click() })` observably had its resulting state
-    // update computed but not reflected in a render within a 10s wait under
-    // real full-suite process contention (confirmed: the click handler's
-    // updater ran and computed the correct next page, but the corresponding
-    // re-render wasn't observed in time). The exact internal scheduling
-    // mechanism behind that isn't confirmed — what's fixed here is the test
-    // assuming a native `.click()`'s update completes synchronously.
-    // `userEvent.click()` properly awaits it instead, matching every other
-    // test file in this codebase; this file was the only holdout using a
-    // raw `act()`+`.click()`, which is why this flake was unique to it.
+    // `userEvent.click()` yields before it dispatches, so it never lands in the window between the
+    // list committing and its passive effects flushing. That window was a real component race, not
+    // a test artifact: the collection-page reset used to live in a passive effect keyed on
+    // `collections.length`, and a click inside the window was overwritten (page 1 -> 2 -> 1). It is
+    // pinned directly, red on the old effect and green on the derived page state, by P1a/P1b in
+    // SourcesPanel.platform-scope.test.tsx (Issue #27) — this test does not exercise it.
+    // What has NOT been shown is that this race is what caused the full-suite-only flake fixed in
+    // PR #24: that link was inferred from traces, and the earlier claim that this file was "the only
+    // holdout using a raw act()+click()" was never demonstrated.
     await user.click(screen.getByText(TRANSLATIONS.en.nextPage));
 
     expect(await screen.findByText('Collection 3')).toBeTruthy();
@@ -209,9 +207,8 @@ describe('SourcesPanel collections list & pagination', () => {
     setup({ collectionsPerPage: 2 });
 
     await screen.findByText('Collection 1');
-    // See the pagination test above for why this uses userEvent.click()
-    // instead of a bare act()+.click() — a real full-suite-only flake,
-    // not a component bug (the exact internal mechanism isn't confirmed).
+    // Ordinary interaction via userEvent — see the pagination test above for what that does and
+    // does not show about the earlier flake.
     await user.click(screen.getByText(TRANSLATIONS.en.nextPage));
     expect(await screen.findByText('Collection 3')).toBeTruthy();
 
