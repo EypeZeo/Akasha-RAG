@@ -178,6 +178,7 @@ version.txt                        バージョンの単一ソース（release-p
 | POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | 一括エクスポート（バックグラウンドタスク） |
 | POST | `/api/system/pick-directory` | OS ネイティブのフォルダ選択 |
 | POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | 対話 |
+| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | 対話履歴（1 ページ最大 200 件。`snapshot` はエクスポートの境界を固定） |
 
 ## コスト
 

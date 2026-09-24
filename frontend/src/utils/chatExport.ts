@@ -76,7 +76,7 @@ export function exportChatToMarkdown(messages: ExportMessage[], sessionTitle: st
         md += `#### 📎 ${labels.sources}:\n`;
         msg.sources.forEach((s, sIdx) => {
           const score = s.score ? ` (${labels.match}: ${(s.score * 100).toFixed(0)}%)` : '';
-          md += `- [${sIdx + 1}] [${s.title}](${s.url})${score}\n`;
+          md += `- [${sIdx + 1}] [${s.title}](${safePlainExportUrl(s.url)})${score}\n`;
         });
         md += `\n`;
       }
@@ -92,8 +92,7 @@ export function exportChatToMarkdown(messages: ExportMessage[], sessionTitle: st
 /**
  * 导出为高保真 Word 文档 (.doc)
  */
-export function exportChatToWord(messages: ExportMessage[], sessionTitle: string, labels: ChatExportLabels) {
-  const safeTitle = sessionTitle.replace(/[\\/:*?"<>|]/g, '_').trim() || labels.heading;
+export function buildChatWordDocument(messages: ExportMessage[], sessionTitle: string, labels: ChatExportLabels): string {
   const now = new Date().toLocaleString(labels.locale);
 
   let htmlBody = `
@@ -138,6 +137,9 @@ export function exportChatToWord(messages: ExportMessage[], sessionTitle: string
       </div>
       `;
     }
+    else if (msg.role === 'system') {
+      htmlBody += `<div style="margin: 18px 0; white-space: pre-wrap;"><b>${labels.system}</b>: ${escapeHtml(msg.content)}</div>`;
+    }
   });
 
   htmlBody += `
@@ -147,11 +149,11 @@ export function exportChatToWord(messages: ExportMessage[], sessionTitle: string
   </div>
   `;
 
-  const wordDocument = `
+  return `
     <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
     <head>
       <meta charset='utf-8'>
-      <title>${sessionTitle}</title>
+      <title>${escapeHtml(sessionTitle)}</title>
     </head>
     <body>
       ${htmlBody}
@@ -159,7 +161,11 @@ export function exportChatToWord(messages: ExportMessage[], sessionTitle: string
     </html>
   `;
 
-  downloadFile(wordDocument, `${safeTitle}_${getTimestampStr()}.doc`, 'application/msword;charset=utf-8');
+}
+
+export function exportChatToWord(messages: ExportMessage[], sessionTitle: string, labels: ChatExportLabels) {
+  const safeTitle = sessionTitle.replace(/[\\/:*?"<>|]/g, '_').trim() || labels.heading;
+  downloadFile(buildChatWordDocument(messages, sessionTitle, labels), `${safeTitle}_${getTimestampStr()}.doc`, 'application/msword;charset=utf-8');
 }
 
 /**
@@ -177,7 +183,7 @@ export function exportChatToText(messages: ExportMessage[], sessionTitle: string
     if (msg.sources && msg.sources.length > 0) {
       text += `${labels.sources}:\n`;
       msg.sources.forEach((s, sIdx) => {
-        text += `  [${sIdx + 1}] ${s.title} (${s.url})\n`;
+        text += `  [${sIdx + 1}] ${s.title} (${safePlainExportUrl(s.url)})\n`;
       });
       text += `\n`;
     }
@@ -203,6 +209,15 @@ function safeExportUrl(value: string): string {
   try {
     const url = new URL(value);
     return url.protocol === 'https:' || url.protocol === 'http:' ? escapeHtml(url.href) : '#';
+  } catch {
+    return '#';
+  }
+}
+
+function safePlainExportUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : '#';
   } catch {
     return '#';
   }

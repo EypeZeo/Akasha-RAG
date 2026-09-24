@@ -9,21 +9,36 @@ import queue
 import threading
 import time
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.db.session import get_db
 from app.services.collection_scope import AmbiguousCollectionError
 from app.services.rag_service import rag_service
+from app.models.entities import ChatMessage, ChatSession
+from app.services.chat_history import MAX_EXPORT_BYTES, MAX_EXPORT_MESSAGES
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["对话"])
+
+
+class ClientMessageKeys(BaseModel):
+    user: str = Field(min_length=1, max_length=128)
+    assistant: str = Field(min_length=1, max_length=128)
+
+    @model_validator(mode="after")
+    def _keys_differ(self) -> "ClientMessageKeys":
+        # The export merges messages by these keys, so one key has to name one message.
+        if self.user == self.assistant:
+            raise ValueError("user and assistant client keys must differ")
+        return self
 
 
 class AskRequest(BaseModel):
@@ -35,10 +50,11 @@ class AskRequest(BaseModel):
     :field collection_id: 限定检索的收藏夹 ID（可选，"all" 或空表示全库检索）
     :field platform: 限定检索的平台（可选，"douyin" | "bilibili" | "all"）
     """
-    query: str
+    query: str = Field(min_length=1, max_length=50000)
     session_id: int | None = None
-    collection_id: str | None = None
-    platform: str | None = None
+    collection_id: str | None = Field(default=None, max_length=64)
+    platform: Literal["all", "douyin", "bilibili"] | None = None
+    client_keys: ClientMessageKeys | None = None
 
 
 # ------------------------------------------------------------------
@@ -167,6 +183,15 @@ def _produce_stream_events(
         _put_or_give_up(q, _STREAM_SENTINEL, cancel_event, _STREAM_PRODUCER_NOTICE_TIMEOUT_SECONDS)
 
 
+def _client_keys_in_use(session_id: int, keys: dict[str, str]) -> bool:
+    from app.db.session import session_factory
+
+    with session_factory() as db:
+        return db.scalar(select(ChatMessage.id).where(
+            ChatMessage.session_id == session_id, ChatMessage.client_key.in_(list(keys.values())),
+        ).limit(1)) is not None
+
+
 @router.post("/ask/stream")
 async def chat_ask_stream(body: AskRequest, request: Request):
     """
@@ -190,6 +215,11 @@ async def chat_ask_stream(body: AskRequest, request: Request):
     :param request: 用于轮询客户端是否已断开连接
     :return: SSE 事件流
     """
+    if body.client_keys is not None and body.session_id is not None:
+        # Checked before the stream starts: a duplicate must not cost a model call.
+        if await run_in_threadpool(_client_keys_in_use, body.session_id, body.client_keys.model_dump()):
+            raise HTTPException(409, "Client message key already used in this session")
+
     cancel_event = threading.Event()
     q: "queue.Queue[Any]" = queue.Queue(maxsize=_STREAM_QUEUE_MAXSIZE)
 
@@ -197,8 +227,11 @@ async def chat_ask_stream(body: AskRequest, request: Request):
         from app.db.session import session_factory
 
         with session_factory() as thread_db:
+            stream_kwargs: dict[str, Any] = {"platform": body.platform}
+            if body.client_keys is not None:
+                stream_kwargs["client_keys"] = body.client_keys.model_dump()
             yield from rag_service.answer_stream(
-                thread_db, body.query, body.session_id, body.collection_id, platform=body.platform
+                thread_db, body.query, body.session_id, body.collection_id, **stream_kwargs,
             )
 
     threading.Thread(
@@ -272,27 +305,50 @@ async def rename_session(
     return {"success": ok, "session_id": session_id}
 
 
+@router.get("/sessions/{session_id}/snapshot")
+def get_session_snapshot(session_id: int, db: Session = Depends(get_db)):
+    if db.get(ChatSession, session_id) is None:
+        raise HTTPException(404, "Session not found")
+    # One statement defines the append-only history boundary. Only the count is bounded here;
+    # bytes are bounded per page (the client bounds the whole export, with the same measure).
+    snapshot_id, count = db.execute(
+        select(func.max(ChatMessage.id), func.count(ChatMessage.id)).where(ChatMessage.session_id == session_id)
+    ).one()
+    if count > MAX_EXPORT_MESSAGES:
+        raise HTTPException(413, "History export exceeds the message limit")
+    return {"success": True, "session_id": session_id, "snapshot_id": snapshot_id or 0, "total": count}
+
+
 @router.get("/sessions/{session_id}/messages")
-async def get_session_messages(
+def get_session_messages(
     session_id: int,
     before: int | None = Query(None, description="仅返回 id < before 的更早消息"),
-    limit: int | None = Query(None, ge=1, le=200, description="最多返回条数（配合 before 加载更早）"),
+    limit: int = Query(200, ge=1, le=200, description="最多返回条数（配合 before 加载更早）"),
+    until: int | None = Query(None, ge=0),
     db: Session = Depends(get_db),
 ):
     """
     获取指定会话的消息历史（时间升序）。
 
-    不带参数返回全部（后兼容）。带 `limit` 返回最新 N 条；再带 `before`
+    默认最多返回 200 条。带 `limit` 返回最新 N 条；再带 `before`
     向上翻页加载更早的消息。
     """
-    messages = rag_service.get_messages(db, session_id, before=before, limit=limit)
+    messages = rag_service.get_messages(db, session_id, before=before, limit=limit + 1, until=until)
     if messages is None:
         return {
             "success": False,
             "message": f"会话不存在: {session_id}",
         }
-    # 拿满一页就可能还有更早的；前端「加载更早」再取一次即可确认
-    has_more = bool(limit) and len(messages) == limit
+    has_more = len(messages) > limit
+    messages = messages[-limit:]
+    # The client's measure: UTF-8 bytes of the content plus of the compact JSON of the sources.
+    page_bytes = sum(
+        len(m["content"].encode("utf-8"))
+        + len(json.dumps(m["sources"], ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        for m in messages
+    )
+    if page_bytes > MAX_EXPORT_BYTES:
+        raise HTTPException(413, "History page exceeds byte limit")
     return {
         "success": True,
         "session_id": session_id,

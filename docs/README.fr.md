@@ -179,6 +179,7 @@ version.txt                        source unique de la version (gérée par rele
 | POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | Export par lot (tâche en arrière-plan) |
 | POST | `/api/system/pick-directory` | Sélecteur de dossier natif |
 | POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | Chat |
+| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | Historique du chat (≤ 200 par page ; `snapshot` fixe la limite d'un export) |
 
 ## Coûts
 

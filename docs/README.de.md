@@ -179,6 +179,7 @@ version.txt                        einzige Quelle der Version (von release-pleas
 | POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | Batch-Export (Hintergrund-Task) |
 | POST | `/api/system/pick-directory` | Nativer Ordner-Auswahldialog |
 | POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | Chat |
+| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | Chat-Verlauf (≤ 200 pro Seite; `snapshot` legt die Exportgrenze fest) |
 
 ## Kosten
 

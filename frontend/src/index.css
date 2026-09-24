@@ -514,7 +514,21 @@ body {
 /* ==========================================================================
    Print / PDF Export Mode Stylesheet
    ========================================================================== */
+.chat-print-document { display: none; }
+
 @media print {
+  body.chat-printing > :not(.chat-print-document) { display: none !important; }
+  body.chat-printing > .chat-print-document { display: block !important; color: #111; background: white; font: 12pt/1.5 sans-serif; }
+  .chat-print-document section { margin: 1.5em 0; }
+  .chat-print-document h2 { font-size: 12pt; }
+  .chat-print-document a { overflow-wrap: anywhere; }
+  .chat-print-content { overflow-wrap: anywhere; }
+  .chat-print-plain { white-space: pre-wrap; }
+  .chat-print-markdown table { border-collapse: collapse; }
+  .chat-print-markdown th, .chat-print-markdown td { border: 1px solid #999; padding: 2pt 6pt; }
+  .chat-print-markdown pre { white-space: pre-wrap; border: 1px solid #ccc; padding: 6pt; font: 10pt/1.4 monospace; }
+  .chat-print-markdown code { font-family: monospace; }
+  .chat-print-markdown blockquote { margin: 0.5em 0; padding-left: 8pt; border-left: 3pt solid #ccc; }
   body {
     background-color: #ffffff !important;
     color: #111827 !important;

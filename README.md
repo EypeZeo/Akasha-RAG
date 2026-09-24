@@ -183,6 +183,7 @@ version.txt                        版本号单一来源（release-please 维护
 | POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | 批量导出（后台任务） |
 | POST | `/api/system/pick-directory` | 系统原生目录选择框 |
 | POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | 对话 |
+| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | 对话历史（每页 ≤ 200 条；`snapshot` 固定导出边界） |
 
 ## 费用说明
 

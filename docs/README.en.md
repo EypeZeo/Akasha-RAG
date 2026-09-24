@@ -178,6 +178,7 @@ version.txt                        single source of truth for the version (maint
 | POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | Batch export (background task) |
 | POST | `/api/system/pick-directory` | Native folder picker |
 | POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | Chat |
+| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | Chat history (≤ 200 per page; `snapshot` pins an export) |
 
 ## Costs
 
