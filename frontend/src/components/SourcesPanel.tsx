@@ -151,6 +151,11 @@ export default function SourcesPanel({
   // 请求令牌：每次发起 +1，只有仍是"在途那一次"的响应才允许提交状态。收起 / 平台切换 / 卸载也会使在途请求整体失效。
   const activeCollectionsRef = useRef<CollectionsRequest | null>(null);
   const videosReqRef = useRef(0);
+  // 全局统计没有平台/收藏夹参数，所以单独一个单调令牌（不复用上面两个）：只有最新一次发起的响应能提交，
+  // 更早发起、更晚返回的成功或失败都不覆盖新状态。
+  const statsReqRef = useRef(0);
+  // 「一键入库」的就绪检查（getSettingsStatus）期间用户可能又点了别的入口：只有最新一次点击能打开弹窗。
+  const buildModalReqRef = useRef(0);
   // 卸载：只改 ref、不调用任何 setter，并中止在途的列表请求。
   useEffect(() => {
     mountedRef.current = true;
@@ -226,9 +231,11 @@ export default function SourcesPanel({
   }, []);
 
   const fetchStats = useCallback(async () => {
+    if (!mountedRef.current) return; // 面板已卸载：迟到的续接不再发请求
+    const token = ++statsReqRef.current;
     try {
       const r = await api.getKnowledgeStats();
-      if (r.success) setStats(r);
+      if (mountedRef.current && token === statsReqRef.current && r.success) setStats(r);
     } catch {}
   }, []);
 
@@ -363,6 +370,9 @@ export default function SourcesPanel({
     // platformFilter 只用来重新起算：切到另一个平台后，它的空列表也要有完整的 12 次自愈机会
   }, [collections.length, requestCollections, fetchStats, platformFilter]);
 
+  // 面板已卸载后，迟到的续接不再弹窗：alert 是模态的，会打断用户此刻正在做的事，而这个面板已经不在了。
+  const notify = (message: string) => { if (mountedRef.current) alert(message); };
+
   const handleSync = async () => {
     setSyncing(true);
     try {
@@ -415,17 +425,17 @@ export default function SourcesPanel({
           const platformNames = failedPlatforms
             .map((p) => (p === 'bilibili' ? t('platformBilibili') : t('platformDouyin')))
             .join('、');
-          alert(`${successMsg}${t('syncPartialFailureSuffix', { platforms: platformNames })}`);
+          notify(`${successMsg}${t('syncPartialFailureSuffix', { platforms: platformNames })}`);
         } else {
-          alert(successMsg);
+          notify(successMsg);
         }
       } else {
         console.error('Sync failed:', r.message);
-        alert(t('syncFailed'));
+        notify(t('syncFailed'));
       }
     } catch (e: any) {
       console.error('Sync failed:', e);
-      alert(t('syncFailed'));
+      notify(t('syncFailed'));
     } finally {
       setSyncing(false);
     }
@@ -435,15 +445,20 @@ export default function SourcesPanel({
     if (!actionScope) return;
     // 点击那一刻的作用域快照：readiness 检查期间选中项/平台再变，这次入库的目标仍是用户点的那个。
     const target = { ...actionScope };
+    const token = ++buildModalReqRef.current;
+    let ingestReady = true;
     try {
       const status = await api.getSettingsStatus();
-      if (!status.ingest_ready) {
-        setShowApiKeyMissing(true);
-        return;
-      }
+      ingestReady = !!status.ingest_ready;
     } catch {
       // Status check failing (e.g. offline) shouldn't block the user from
       // trying to build — the real ingest call will surface its own error.
+    }
+    // 检查期间又有更新的点击、或面板已卸载：这次的结果作废，否则更早那次点击的作用域会盖掉更新的那次。
+    if (!mountedRef.current || token !== buildModalReqRef.current) return;
+    if (!ingestReady) {
+      setShowApiKeyMissing(true);
+      return;
     }
     setBuildScope(target);
     setBuildInitialType(type);
@@ -495,11 +510,11 @@ export default function SourcesPanel({
         startBuildPolling(r.task_id, typeLabel);
       } else if (r.message) {
         console.error('Ingest failed:', r.message);
-        alert(t('operationFailed'));
+        notify(t('operationFailed'));
       }
     } catch (e: any) {
       console.error('Ingest failed:', e);
-      alert(t('operationFailed'));
+      notify(t('operationFailed'));
     } finally {
       isSubmittingRef.current = false;
       setIsSubmitting(false);
@@ -565,7 +580,7 @@ export default function SourcesPanel({
       refreshExpandedVideos();
     } catch (e: any) {
       console.error('Delete ingested data failed:', e);
-      alert(t('operationFailed'));
+      notify(t('operationFailed'));
     }
   };
 
@@ -581,17 +596,17 @@ export default function SourcesPanel({
     try {
       const r = await api.clearAllKnowledge(clearScopeId, target.platform);
       if (r.success) {
-        alert(t('clearKnowledgeSuccess', { count: r.reset_count }));
+        notify(t('clearKnowledgeSuccess', { count: r.reset_count }));
         await fetchStats();
         // 只针对某个收藏夹的清空：用户已经切到别的收藏夹就不刷新旧的那个
         refreshExpandedVideos({ scopeId: clearScopeId, platform: target.platform, page: 1 });
-        onBuildDone();
+        if (mountedRef.current) onBuildDone();
       } else {
-        alert(t('operationFailed'));
+        notify(t('operationFailed'));
       }
     } catch (e: any) {
       console.error('Clear ingested data failed:', e);
-      alert(t('operationFailed'));
+      notify(t('operationFailed'));
     } finally {
       setClearing(false);
     }
@@ -969,7 +984,7 @@ export default function SourcesPanel({
                           const isNote = v.item_type === 'note' || (v.duration ?? 0) === 0;
                           return (
                             <div
-                              key={v.platform_item_id}
+                              key={v.id}
                               className="flex items-center justify-between p-1.5 rounded-lg hover:bg-black/[0.02] gap-1.5 group text-xs border border-transparent hover:border-black/5 transition-all"
                             >
                               {/* 平台微标 */}
@@ -1227,13 +1242,13 @@ export default function SourcesPanel({
                   onClick={async () => {
                     try {
                       const result = await api.resetFailedVideos();
-                      if (!result.success) alert(t('taskStillRunning'));
+                      if (!result.success) notify(t('taskStillRunning'));
                       else {
                         fetchStats();
                         refreshExpandedVideos();
                       }
                     }
-                    catch (e: any) { console.error('Reset failed:', e); alert(t('operationFailed')); }
+                    catch (e: any) { console.error('Reset failed:', e); notify(t('operationFailed')); }
                   }}
                   className="group w-full py-2 rounded-xl text-xs font-medium text-accent border border-accent/30 hover:bg-accent-light transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
                 >
