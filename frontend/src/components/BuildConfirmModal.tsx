@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useId } from 'react';
+import { useState, useEffect, useCallback, useId, useRef } from 'react';
 import * as api from '../api';
 import { useI18n } from '../i18n';
 import Dialog from './ui/Dialog';
@@ -39,6 +39,8 @@ export default function BuildConfirmModal({
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  // 最近一次失败的是首页还是后续页：首页失败没有内容可看，后续页失败则保留已加载的行
+  const [loadError, setLoadError] = useState<'first' | 'more' | null>(null);
   const [building, setBuilding] = useState(false);
   const [tabFilter, setTabFilter] = useState<'all' | 'video' | 'note'>(initialType);
 
@@ -47,56 +49,87 @@ export default function BuildConfirmModal({
   const [selectionMode, setSelectionMode] = useState<'all' | 'custom'>('all');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // 一个计数器代表「(收藏夹, 平台, 分类标签) 这个视图」的整个生命周期：视图变化或卸载时它前进，
+  // 同时中止所有在途请求。响应只有在自己发起时的计数值仍是当前值时才能写 state；页码和是否追加
+  // 只决定怎么合并结果，不参与「这个响应属不属于当前视图」的判断（旧标签的第 2 页和新标签的第 2 页页码相同）。
+  const scopeGenerationRef = useRef(0);
+  const controllersRef = useRef(new Set<AbortController>());
+
   // 分批加载数据
   const fetchPage = useCallback(
     async (targetPage: number, append: boolean = false) => {
-      if (targetPage === 1) {
-        setLoading(true);
-      } else {
+      const generation = scopeGenerationRef.current;
+      const controller = new AbortController();
+      controllersRef.current.add(controller);
+      const isCurrent = () => generation === scopeGenerationRef.current && !controller.signal.aborted;
+
+      setLoadError(null);
+      if (append) {
         setLoadingMore(true);
+      } else {
+        setLoading(true);
       }
 
       try {
-        const r = await api.listPendingKnowledge(collectionId, tabFilter, targetPage, 50, platform);
-        if (r.success) {
-          setStats({
-            total: r.total,
-            video_count: r.video_count,
-            note_count: r.note_count,
-          });
-          setHasMore(r.has_more);
-          setPage(r.page);
+        const r = await api.listPendingKnowledge(collectionId, tabFilter, targetPage, 50, platform, controller.signal);
+        if (!isCurrent()) return;
+        if (!r.success) throw new Error('listPendingKnowledge reported failure');
+        setStats({
+          total: r.total,
+          video_count: r.video_count,
+          note_count: r.note_count,
+        });
+        setHasMore(r.has_more);
+        setPage(r.page);
 
-          if (append) {
-            setItems(prev => {
-              const seen = new Set(prev.map(v => v.id));
-              const fresh = r.items.filter(v => !seen.has(v.id));
-              return [...prev, ...fresh];
-            });
-          } else {
-            setItems(r.items);
-          }
+        if (append) {
+          setItems(prev => {
+            const seen = new Set(prev.map(v => v.id));
+            const fresh = r.items.filter(v => !seen.has(v.id));
+            return [...prev, ...fresh];
+          });
+        } else {
+          setItems(r.items);
         }
       } catch (e) {
+        if (!isCurrent()) return;
         console.error('分批加载待入库内容失败:', e);
+        setLoadError(append ? 'more' : 'first');
       } finally {
-        setLoading(false);
-        setLoadingMore(false);
+        controllersRef.current.delete(controller);
+        // 只复位自己置位的那个标志，且只在仍属于当前视图时
+        if (isCurrent()) {
+          if (append) {
+            setLoadingMore(false);
+          } else {
+            setLoading(false);
+          }
+        }
       }
     },
     [collectionId, tabFilter, platform]
   );
 
-  // 切换分类标签或收藏夹时重置分页并从第 1 页拉取
+  // 切换分类标签或收藏夹时：让上一个视图的请求失效并中止，重置分页与勾选，再从第 1 页拉取（首页结果整体替换列表）。
+  // 勾选只对它被勾选时的那个视图有意义（计数与流水线说明只按当前已加载的行算），所以一并清空。
   useEffect(() => {
+    const controllers = controllersRef.current; // 这个 Set 从不被替换
     setPage(1);
     setHasMore(false);
+    setLoadingMore(false);
+    setSelectionMode('all');
+    setSelectedIds(new Set());
     fetchPage(1, false);
+    return () => {
+      scopeGenerationRef.current += 1;
+      controllers.forEach(c => c.abort());
+      controllers.clear();
+    };
   }, [fetchPage]);
 
-  // 滚动触底自动加载下一批（无限滚动）
+  // 滚动触底自动加载下一批（无限滚动）；失败后不自动重试，交给「加载更多」按钮
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (loading || loadingMore || !hasMore) return;
+    if (loading || loadingMore || !hasMore || loadError) return;
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     if (scrollHeight - (scrollTop + clientHeight) < 80) {
       fetchPage(page + 1, true);
@@ -302,6 +335,17 @@ export default function BuildConfirmModal({
             <div className="flex flex-col items-center justify-center py-12 gap-2 text-xs text-[var(--color-ink-muted)]">
               <span className="animate-spin text-lg">⏳</span> {t('loadingFirstBatch')}
             </div>
+          ) : loadError === 'first' ? (
+            <div role="alert" className="flex flex-col items-center justify-center py-10 gap-2 text-xs text-red-600">
+              <span>{t('operationFailed')}</span>
+              <button
+                type="button"
+                onClick={() => fetchPage(1, false)}
+                className="px-3 py-1 rounded-full border border-red-200 hover:bg-red-50 transition-colors cursor-pointer"
+              >
+                {t('retry')}
+              </button>
+            </div>
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-1 text-xs text-[var(--color-ink-muted)]">
               <span>📭</span> {t('noPendingItems', { category: tabFilter === 'video' ? t('shortVideo') : (tabFilter === 'note' ? t('imageNote') : t('categoryContent')) })}
@@ -313,7 +357,7 @@ export default function BuildConfirmModal({
                 const checked = isItemChecked(String(v.id));
                 return (
                   <button
-                    key={v.platform_item_id}
+                    key={v.id}
                     onClick={() => toggleOne(String(v.id))}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-black/[0.02] transition-colors cursor-pointer group"
                   >
@@ -355,6 +399,12 @@ export default function BuildConfirmModal({
               {loadingMore && (
                 <div className="py-3 text-center text-xs text-accent flex items-center justify-center gap-1.5 bg-accent/5">
                   <span className="animate-spin text-sm">⏳</span> {t('loadingNextBatch', { page })}
+                </div>
+              )}
+
+              {loadError === 'more' && (
+                <div role="alert" className="py-2 text-center text-[11px] text-red-600 border-t border-[var(--color-border)]">
+                  {t('operationFailed')}
                 </div>
               )}
 
@@ -417,7 +467,7 @@ export default function BuildConfirmModal({
             </button>
             <button
               onClick={handleConfirm}
-              disabled={building || !hasSelection}
+              disabled={building || loading || loadError === 'first' || !hasSelection}
               className="px-5 py-1.5 rounded-full bg-gradient-to-r from-accent to-accent-hover text-white text-xs font-bold shadow-sm hover:shadow transition-all disabled:opacity-40 cursor-pointer flex items-center gap-1"
             >
               {building ? t('submitting') : t('confirmBuildWithCount', { count: selectedCount })}

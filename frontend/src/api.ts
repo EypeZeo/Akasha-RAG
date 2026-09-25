@@ -243,6 +243,7 @@ export async function listPendingKnowledge(
   page: number = 1,
   pageSize: number = 50,
   platform?: string,
+  signal?: AbortSignal,
 ): Promise<{
   success: boolean;
   items: VideoItem[];
@@ -259,7 +260,7 @@ export async function listPendingKnowledge(
   if (platform && platform !== 'all') params.set('platform', platform);
   params.set('page', String(page));
   params.set('page_size', String(pageSize));
-  return request(`/knowledge/pending?${params.toString()}`);
+  return request(`/knowledge/pending?${params.toString()}`, { signal });
 }
 
 export async function resetFailedVideos(): Promise<{ success: boolean; reset_count: number; message?: string }> {

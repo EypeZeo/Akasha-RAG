@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import * as api from '../api';
 import { useI18n } from '../i18n';
 import Dialog from './ui/Dialog';
@@ -31,11 +31,21 @@ export default function ExportModal({ onClose, onExportStarted, collectionId, co
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState('');
 
+  // 弹窗卸载之后（导出中点标题栏 ✕、目录选择中点取消，或整个面板被卸载），迟到的响应不能再写 state、
+  // 调 onClose（那可能关掉用户之后重新打开的弹窗），也不能记住用户已经放弃的目录。
+  // 唯一的例外是 onExportStarted：服务端任务已经建立，必须交给宿主去跟踪（宿主也卸载了则由它自己落盘）。
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   const handlePickDir = async () => {
     setPicking(true);
     setError('');
     try {
       const res = await api.pickDirectory(targetDir || undefined);
+      if (!mountedRef.current) return;
       if (res.success && res.path) {
         setTargetDir(res.path);
         try { localStorage.setItem(EXPORT_DIR_KEY, res.path); } catch { /* ignore */ }
@@ -46,10 +56,11 @@ export default function ExportModal({ onClose, onExportStarted, collectionId, co
         setError(t('exportFailedRetry'));
       }
     } catch (e: any) {
+      if (!mountedRef.current) return;
       console.error('Directory picker failed:', e);
       setError(t('exportOpenDirFailed'));
     } finally {
-      setPicking(false);
+      if (mountedRef.current) setPicking(false);
     }
   };
 
@@ -74,12 +85,12 @@ export default function ExportModal({ onClose, onExportStarted, collectionId, co
         try { localStorage.setItem(EXPORT_DIR_KEY, targetDir.trim()); } catch { /* ignore */ }
       }
       onExportStarted(res.task_id, res.mode);
-      onClose();
+      if (mountedRef.current) onClose();
     } catch (e: any) {
       console.error('Export submission failed:', e);
-      setError(t('exportFailedRetry'));
+      if (mountedRef.current) setError(t('exportFailedRetry'));
     } finally {
-      setExporting(false);
+      if (mountedRef.current) setExporting(false);
     }
   };
 
