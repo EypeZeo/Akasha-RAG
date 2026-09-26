@@ -1,0 +1,363 @@
+{
+  "diff_command": [
+    "git",
+    "-c",
+    "core.autocrlf=false",
+    "-c",
+    "core.safecrlf=false",
+    "-c",
+    "core.quotepath=false",
+    "diff",
+    "--no-ext-diff",
+    "--no-color",
+    "--no-renames",
+    "--diff-algorithm=myers",
+    "--full-index",
+    "--unified=0",
+    "c2e3be20dcfe2d9097191c45f7bb77ebf593f418",
+    "--",
+    "<path>"
+  ],
+  "diff_input_sha256": "e12933929d79893d11125ad62eacd832f0fa9a76663ef1724e353dc422c69318",
+  "expected": {
+    "baseline": {
+      "absent": 71,
+      "blocks_with_added_lines": 313,
+      "deletion_only": 19,
+      "landed": 210,
+      "partial": 32,
+      "whitespace_only": 0
+    }
+  },
+  "git": "git version 2.55.0.windows.4",
+  "input_sha256": "07bb3d6fa0ece5cff9fb52dd9653436331888b6ccc925b0c344a9b061cafcd77",
+  "manifest_sha256": "c1c097aef1613d988fa6fc2952495ebc8bc292cd60ec31f526ccb142b126dbfa",
+  "paths": [
+    {
+      "diff_sha256": "d6182af15c0de6bb8fd449fbd340292a8d41413986d29e50f4a94f0b67dfd6ef",
+      "head_blob": "72d3387e76ed8768dc8ec0e14f88bd5d3798c358",
+      "path": "backend/app/api/routes/chat.py",
+      "status": "M",
+      "worktree_sha256": "14f614cb9fbd4083945fb882a3d3247e41b6e5df5dbcf16b0535a22ae2f2e057"
+    },
+    {
+      "diff_sha256": "f88a66eaffaf70f7a43b34a7ce5552e94b316f6c967866f5fcb22259ee21519d",
+      "head_blob": "36166b3670ed5862315d99edd769e0d87df66bf2",
+      "path": "backend/app/api/routes/favorites.py",
+      "status": "M",
+      "worktree_sha256": "122ec47d0704a935bb6bc220d129797540397e125d10dc11b5bde2925f6fe639"
+    },
+    {
+      "diff_sha256": "00c157702255af9b58beb8c10e8e92bf85c79d2c6c6f1e9e241f8c3f5ff19209",
+      "head_blob": "93071f5b2691f44bebd8320ef51deb4119734fbe",
+      "path": "backend/app/api/routes/knowledge.py",
+      "status": "M",
+      "worktree_sha256": "801e87feae4ee61668b6b50eea6912c9adeff0c010f25276d41fea530b93eb4b"
+    },
+    {
+      "diff_sha256": "6ac63c1eec31996eb3737055bd4bf90263d82f498eb37ad448e8db8632a22eb5",
+      "head_blob": "0e7b216d07721185704121acedc7bdce84cab89a",
+      "path": "backend/app/main.py",
+      "status": "M",
+      "worktree_sha256": "c70e55f643da879c55cfb517c9a80791d7d7153f43e0af71051c39bc21fd83b7"
+    },
+    {
+      "diff_sha256": "3b86e9163904eb72abd8e3d38fde7418ac9882f3b3e4a973b6e7de6b710b9813",
+      "head_blob": "5fd5351e4566d965543c19875f2cd82d5e7a9433",
+      "path": "backend/app/models/entities.py",
+      "status": "M",
+      "worktree_sha256": "214b1a4e3af5abe478728812b898c8d7254a1c67f88929992b568fbc19d87d89"
+    },
+    {
+      "diff_sha256": "c354b3d9c5bcb084aabfc572228c57d20e196dffd6407423250eedf7d7d19733",
+      "head_blob": "aa737d869cbc8679ea2d3b09d660ccc3160ec84f",
+      "path": "backend/app/services/batch_export_service.py",
+      "status": "M",
+      "worktree_sha256": "68b9252defcaee5ff673d964ba13439bdebe68bdc88e8e66fb8beded174d6e35"
+    },
+    {
+      "diff_sha256": null,
+      "head_blob": null,
+      "path": "backend/app/services/chat_history.py",
+      "status": "??",
+      "worktree_sha256": "de51ff5f634fa3445281aea7a8218a00e2711765363a9721a7a9d6e46f6209f5"
+    },
+    {
+      "diff_sha256": "dad4735e4eea4629274d46e6c3ad9d288e9f889aa09f900b3e0e6f7d1f974cc4",
+      "head_blob": "d7aceda2ed1df8ecddc74b1114a0db23b8c2a75e",
+      "path": "backend/app/services/chroma_service.py",
+      "status": "M",
+      "worktree_sha256": "1589ad08757e5c30cccdd9b203898bb23fd26ae001c5acf1229e19e98b34ebef"
+    },
+    {
+      "diff_sha256": null,
+      "head_blob": null,
+      "path": "backend/app/services/collection_scope.py",
+      "status": "??",
+      "worktree_sha256": "a393292abb0d73a209bc1e97021e6c183fe3119eceb9839c007e2cf74b4b973d"
+    },
+    {
+      "diff_sha256": "c50592123bf1de95e77521e58807e6180f89500ab1c58a16ae7a25c0935b6ca5",
+      "head_blob": "4a6c86d64f93c703e74b7ff0966c5fc362e58e08",
+      "path": "backend/app/services/export_worker.py",
+      "status": "M",
+      "worktree_sha256": "c6acbeffdff189619fb061c736fa17ee43095b81fed905ce480947d3262e0953"
+    },
+    {
+      "diff_sha256": "3093e2767e5efa403fbe82e997731567036f76840be104495a7e481f9887fc5d",
+      "head_blob": "ec7413d7e3f8b43e6e31f7b6e579387e6f75a87d",
+      "path": "backend/app/services/favorites_service.py",
+      "status": "M",
+      "worktree_sha256": "d5b04831119e362e0b992068039f2440b4877865d27439f6e6252f3a079e8646"
+    },
+    {
+      "diff_sha256": "44ebcc076617c5f6805519bf1815f98196df84d8dc94c46b7b7810c9343021e5",
+      "head_blob": "3441bc99b1cc1e8499a9d185634add445beb1d5e",
+      "path": "backend/app/services/knowledge_service.py",
+      "status": "M",
+      "worktree_sha256": "206e6a3488af403d32e63bf712d5d5a39d5cc0547718271049cec2b80eb20a82"
+    },
+    {
+      "diff_sha256": "06b4fd74eb40c26e62d94517d5de64d99e29c690b49e0329e387ccfb0eb27eae",
+      "head_blob": "bbbae737f247cb8b574bb8cc80fa288f27ead7dd",
+      "path": "backend/app/services/rag_service.py",
+      "status": "M",
+      "worktree_sha256": "e62d7bc647067821e4c2b3e1862fd5c67b9b13775e82793dbc419e510baa86f7"
+    },
+    {
+      "diff_sha256": "c68ae711f3300b68f8f3c048f1f563d10c70f154baa6711fd267facb15194398",
+      "head_blob": "f62ca0c54baf64e330198b1374a925edf27ab0b0",
+      "path": "backend/tests/test_chat_sessions.py",
+      "status": "M",
+      "worktree_sha256": "f4fdf1e58b6f5bea7942da0c9486b6ae0161cd0b4015f37ac5356b0727c8ae55"
+    },
+    {
+      "diff_sha256": "8b2e9d06bf9d71a111222d1f02651d6bb38b1b00d975316c6fa61333faed29b9",
+      "head_blob": "0f8b2c7dbffbdd4225c71b17cb77b37871c9150c",
+      "path": "backend/tests/test_chroma_multiplatform.py",
+      "status": "M",
+      "worktree_sha256": "8d891895b3224a061797edc870a82fd3d41b95f7be9df308dc16af84225893ca"
+    },
+    {
+      "diff_sha256": null,
+      "head_blob": null,
+      "path": "backend/tests/test_collection_identity.py",
+      "status": "??",
+      "worktree_sha256": "42f8c1fbfeaf7412234336ca7785a40019086a5d92158778926be0c2ae79d86f"
+    },
+    {
+      "diff_sha256": null,
+      "head_blob": null,
+      "path": "backend/tests/test_history_export_contract.py",
+      "status": "??",
+      "worktree_sha256": "d08a0b6c6191da8e4584fa3284b115840aba63ec6f3145c6ee3e2a35f852ab7b"
+    },
+    {
+      "diff_sha256": "8b934f17cc690eb12b7d088711663e00cc2835f252592d84598ba35dc75e3c00",
+      "head_blob": "63a057827c9aa7370a54696a0d5112e6fb3e13e3",
+      "path": "frontend/src/api.ts",
+      "status": "M",
+      "worktree_sha256": "4a2ec315e809ad8fe2e46a4ebfe316da2092c03dcbe4a3e85af5dde547a6f2e2"
+    },
+    {
+      "diff_sha256": "e9434a5fd1215fa40d42a16dae58a4ff958e5c3c40a839c0e5f1e4d33fa5a64d",
+      "head_blob": "ad4f5976a834a0a7588ea2b6b0bd6b9ca413cd85",
+      "path": "frontend/src/components/BuildConfirmModal.test.tsx",
+      "status": "M",
+      "worktree_sha256": "0a8f24f80c0bfd53417c682c4909800339007db40312cb5838b4de31f2541958"
+    },
+    {
+      "diff_sha256": "1b0249f8f0f62d19ec25941c0b8a450009e86ea40055cb0af6ece8dc228930a3",
+      "head_blob": "df521712dc8eba1ded703e0b89a57810ab8cbb58",
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "status": "M",
+      "worktree_sha256": "c5fefe81e20405ba4354cd564494ab0926f49d3b0ce6d9e6056ff399f591bd95"
+    },
+    {
+      "diff_sha256": "4bfcb0718c128ac4a869523a82d16d61b38bb885028874ef58150dcbf8086ce1",
+      "head_blob": "d2575197787bbec9a7356edea37edd3a718a9bd7",
+      "path": "frontend/src/components/ChatPanel.test.tsx",
+      "status": "M",
+      "worktree_sha256": "0f7cfdc1275f80f5a6b42bcc25c9c266ebf4a2364a30b28cfd9f8d3eb63c9fd5"
+    },
+    {
+      "diff_sha256": "c29e0d8fddc85d7badfb945cef16356f01d90faaecc3b7ceaab2e8447fef65a6",
+      "head_blob": "2e1e367cd5a1145784b94f72b912c8bd3c73b2d0",
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "status": "M",
+      "worktree_sha256": "9a98e958e498e11a64cffff057eb0078a253d56412b1b9c924a65ae5ba8e2d3d"
+    },
+    {
+      "diff_sha256": null,
+      "head_blob": null,
+      "path": "frontend/src/components/ChatPrintDocument.test.tsx",
+      "status": "??",
+      "worktree_sha256": "92fc044f51135181fec7920dc810cca5ebbe97216eb9f74afa305b99e4e1aeb8"
+    },
+    {
+      "diff_sha256": null,
+      "head_blob": null,
+      "path": "frontend/src/components/ChatPrintDocument.tsx",
+      "status": "??",
+      "worktree_sha256": "9a4a86b2843f86c3f996134f32afb9f2f98ec2cfdb23aa8d5c7cf9499d341fa1"
+    },
+    {
+      "diff_sha256": "45daa3f3d4a60e9892b1eb264e6aa2e73833d6483e5cde3c730ef81067c8c41f",
+      "head_blob": "46073ecd567a38e1d6d4acbb4a7de9cd407d7068",
+      "path": "frontend/src/components/ExportModal.test.tsx",
+      "status": "M",
+      "worktree_sha256": "77f16aa3087c6cc84464ed55c1dea0dd4cb69e0fe5ace1dbd1d8845576a78215"
+    },
+    {
+      "diff_sha256": "e4f27d9ad97e645231dc6c16e0d71c780811d6cd73edfaf9b1947afd71a0d594",
+      "head_blob": "185fbe6ab9240a2b6345be3942222faaca51c88c",
+      "path": "frontend/src/components/ExportModal.tsx",
+      "status": "M",
+      "worktree_sha256": "e09eaf3de8ef1af5ae1dcebed6be12cc4ee04e301008b01a89f8b5100d01b033"
+    },
+    {
+      "diff_sha256": "da8df67bd1450b9b84cfedc13f907c72cdfb814c49cb70e73e1dc41688eed0ca",
+      "head_blob": "464b69c1d3cd4c0281cbac7bea221909e572fe42",
+      "path": "frontend/src/components/SourcesPanel.test.tsx",
+      "status": "M",
+      "worktree_sha256": "0d5ab0d37370a9dd06b84fcb0c45ac58419de0e1998e2a2b101c0bcc29339e69"
+    },
+    {
+      "diff_sha256": "643c5eeefd20cb4461d0bd4a074f9bc4d77e3090596f6ca2162eff9a9470556f",
+      "head_blob": "cc3d42be0ef81c2504d472966a1a85e87084063a",
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "status": "M",
+      "worktree_sha256": "fa0ec10d6104c36863b2710da69997a271a78fa9dc4d3fbd7967cf9808ca870b"
+    },
+    {
+      "diff_sha256": "16939f782d5bc8fbe7dd146f7ac13ea15c8329766d34ea8a4819305a88056349",
+      "head_blob": "1653708259dd8f1494eb8b76772c4fdf82bdee3f",
+      "path": "frontend/src/components/SourcesStudio.tsx",
+      "status": "M",
+      "worktree_sha256": "a0fe4e07892f6c4bd6aa7598ef4e0ce692d8aceb0827c2a39744a0a1f9e0a168"
+    },
+    {
+      "diff_sha256": "c274edac4c2b7721c4c7b0cedf423a90bbfcf6b0657a8f5e1b47b2c6dfd1ad9e",
+      "head_blob": "a365ef1fe69f63805760e61037ff6d8ce4650a80",
+      "path": "frontend/src/hooks/useBuildFlow.ts",
+      "status": "M",
+      "worktree_sha256": "a83aa977bafd317e0e2f9a1ee38a3aefb98e75ed16b95b770e3775a5f9e4d0b0"
+    },
+    {
+      "diff_sha256": null,
+      "head_blob": null,
+      "path": "frontend/src/hooks/useChatExport.test.tsx",
+      "status": "??",
+      "worktree_sha256": "a051d47af52ac5db127abf4c3ff5499542bd08d322068b58c842636b92064b33"
+    },
+    {
+      "diff_sha256": null,
+      "head_blob": null,
+      "path": "frontend/src/hooks/useChatExport.ts",
+      "status": "??",
+      "worktree_sha256": "07703a90b3cb758c090ec000041de49d14d7742beaae1a5af5acb2beb844edb1"
+    },
+    {
+      "diff_sha256": "f9de8badf1c2fb0425c76b488c0f2be7164cfced8b07bb0e4937faee5390c996",
+      "head_blob": "e8276fe309e44fa77255ff758922d7472dd2f1ce",
+      "path": "frontend/src/hooks/useExportFlow.test.ts",
+      "status": "M",
+      "worktree_sha256": "9fdefbc7e06d8c5feab7c8d626836af5cdd660a36d0c47dbf9a7310e288d647c"
+    },
+    {
+      "diff_sha256": "b23db6119d2ea4f59c80b65e1d8bdddd5a08d2482817aaf2e046766ce590f263",
+      "head_blob": "b2427a54a712f773290ccf704058cd9454349917",
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "status": "M",
+      "worktree_sha256": "f654ffc019068533dbf086151ea85852a78ca45fafc08ea469a8e0af57c5666f"
+    },
+    {
+      "diff_sha256": "7cc56fc0259c94c702958330204fb11cb78b5bd88d50fbf4b9d309bde8732e21",
+      "head_blob": "ea0cb3329e1ca4d2f7dab21a7b22adff2c948fda",
+      "path": "frontend/src/i18n.tsx",
+      "status": "M",
+      "worktree_sha256": "339504e5c7104ff3433835749e431280c498e35f4f94f5158ca761edc3b2d6af"
+    },
+    {
+      "diff_sha256": "0cc518aa1a70568010e36e5e2a6a0bcdf95186d0f023e50c44c731518ce6d88d",
+      "head_blob": "dd1ed32d982621bdedc6de3f69ec5cd7f6da76e4",
+      "path": "frontend/src/index.css",
+      "status": "M",
+      "worktree_sha256": "7fc23eeb584a95c0491a54bcbb773f25377e96822a607a5653905ee1be3e2c20"
+    },
+    {
+      "diff_sha256": "a7d4328e9cff2474479d53cf4835fd19e36975ad89b4c3b37d1276fa3f19dd23",
+      "head_blob": "4f8862d28635fc0d49ed088504e1f87899379a72",
+      "path": "frontend/src/pages/Workspace.tsx",
+      "status": "M",
+      "worktree_sha256": "15d4acc7191d57289a064a7d3bd2628dbb7fa9b87a2f32530fc328316a8b9d9a"
+    },
+    {
+      "diff_sha256": "04526e0ae6e9492a9da96cdb4f2014d67fda3592fad106fb7242265fef468331",
+      "head_blob": "cfc9cee184c06efd5936e1274aee5b2d9f1fde3f",
+      "path": "frontend/src/store/workspace.test.ts",
+      "status": "M",
+      "worktree_sha256": "1d32ba152276971faff4ecfec297b774d7c36093934e567b60d72cd0fde5418b"
+    },
+    {
+      "diff_sha256": "4414f43c2719579969aecd5cd45c76977202c150ad33774352c47e1e3096533e",
+      "head_blob": "f5effcd6694641d6bfffe455f0d32a1bdd1b0b66",
+      "path": "frontend/src/store/workspace.ts",
+      "status": "M",
+      "worktree_sha256": "611af74d84e62b96c85986eb60c2464e519a610d16f7aca7470cc9605a872a0b"
+    },
+    {
+      "diff_sha256": null,
+      "head_blob": null,
+      "path": "frontend/src/utils/chatExport.test.ts",
+      "status": "??",
+      "worktree_sha256": "c902b64b240e39f9e9ad48b916a7dc60909c4e7c2b4fbec10b22ffaa5cb62f60"
+    },
+    {
+      "diff_sha256": "9f05eabe8bdf33f24c32712487cff578ee0ed5208e15ef15ac3dc8d0e4aa7ce4",
+      "head_blob": "7635732fe065d58bb79df2a06468a4b326214e4e",
+      "path": "frontend/src/utils/chatExport.ts",
+      "status": "M",
+      "worktree_sha256": "0f59d8427f56c3be40d28950aec2d558eafa47ecf9f2c288fb647a90fe067bbe"
+    },
+    {
+      "diff_sha256": null,
+      "head_blob": null,
+      "path": "frontend/src/utils/chatHistory.test.ts",
+      "status": "??",
+      "worktree_sha256": "2d43484da6de5903ec410eb03dc053a7a545d70258f1e98b90b3f8f943dbb734"
+    },
+    {
+      "diff_sha256": null,
+      "head_blob": null,
+      "path": "frontend/src/utils/chatHistory.ts",
+      "status": "??",
+      "worktree_sha256": "7fc603267a94a0d97efbe3720c80aa929743725ce9c688c1554464c1cb62146d"
+    }
+  ],
+  "python": "3.12.14",
+  "reference": {
+    "head": "c2e3be20dcfe2d9097191c45f7bb77ebf593f418",
+    "root": "D:/My_Projects/Akasha-RAG"
+  },
+  "rules": {
+    "added_blocks": "A block with added lines is classified by the share of its (non-empty, normalised) added lines that occur as a line anywhere in the target file: >=0.95 landed, >=0.5 partial, otherwise absent. A file missing on the target makes every share 0. A block whose added lines are all empty after normalisation is counted as whitespace_only.",
+    "block": "One hunk of the pinned '--unified=0' diff is one block; an untracked file is one whole-file block.",
+    "deletion_only_blocks": "A block with removed lines and no added lines is not part of the added-line counts. It is listed separately and its removed lines (ignoring those with fewer than 4 non-space characters) are checked against the target file: >=0.95 still-present, >=0.5 partly-present, otherwise gone; if no line is left to check it is trivial.",
+    "files": "Files must be valid UTF-8 without NUL bytes; anything else fails verification.",
+    "mixed_blocks": "A block that also removes lines is classified by its added lines only.",
+    "normalisation": "Lines are compared after collapsing every run of whitespace to one space and stripping both ends; lines that are empty after that are ignored.",
+    "statuses": "Only ' M' (modified in the working tree) and '??' (untracked) are supported. Any other status (staged, deleted, renamed, copied, added, conflicted) fails verification.",
+    "target_access": "Target files are read with 'git show <full sha>:<path>'; nothing reads the network or a moving ref."
+  },
+  "schema": 1,
+  "script": {
+    "path": "scripts/reference_coverage.py",
+    "sha256": "85dec3e508bb30e3bb3790511d5e4ffd4e1203e1277ff27679e1e0d1e6e5c04b",
+    "version": "1"
+  },
+  "targets": {
+    "baseline": "7965b5ffafa904f04f05814b703f04ad6349b576",
+    "final": "c0c979ad5d2d3e69cb81ba9af2360625e6d53638"
+  }
+}
