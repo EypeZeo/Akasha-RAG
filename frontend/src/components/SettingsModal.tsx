@@ -132,11 +132,16 @@ export default function SettingsModal({
   const fetchApiSettings = useCallback(async () => {
     setLoadingProviders(true);
     try {
-      const [keyRes, providersRes] = await Promise.all([api.getDashscopeKey(), api.listChatProviders()]);
+      const keyRes = await api.getDashscopeKey();
       if (keyRes.success) {
         setDashscopeConfigured(keyRes.configured);
         setDashscopeMasked(keyRes.api_key_masked);
       }
+      // A configured .env DeepSeek key is shown as a normal local provider only
+      // after a non-billing /models validation succeeds. Custom providers remain
+      // untouched.
+      await Promise.resolve(api.detectChatProvider()).catch(() => null);
+      const providersRes = await api.listChatProviders();
       if (providersRes.success) {
         setChatProviders(providersRes.providers);
       }
@@ -332,6 +337,7 @@ export default function SettingsModal({
                     : 'text-[var(--color-ink-soft)] bg-black/4 hover:bg-black/7 hover:text-[var(--color-ink)] border border-transparent shadow-2xs cursor-pointer active:scale-95'
                 }`}
                 title={t('refreshAccountStatus')}
+                aria-label={t('refreshAccountStatus')}
               >
                 {loadingPlatforms && (
                   <span
@@ -345,7 +351,6 @@ export default function SettingsModal({
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
                       <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                     </svg>
-                    <span className="font-semibold tracking-wide">{t('checkingAccountStatus')}</span>
                     <span className="relative flex h-2 w-2 ml-0.5">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-accent opacity-75" />
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
@@ -356,7 +361,6 @@ export default function SettingsModal({
                     <svg className="w-3.5 h-3.5 text-green-600 shrink-0" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                     </svg>
-                    <span className="font-semibold text-green-700">{t('accountStatusUpdated')}</span>
                   </>
                 ) : (
                   <>
@@ -374,7 +378,6 @@ export default function SettingsModal({
                       <path d="M3 22v-6h6" />
                       <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
                     </svg>
-                    <span>{t('refreshAccountStatus')}</span>
                   </>
                 )}
               </button>

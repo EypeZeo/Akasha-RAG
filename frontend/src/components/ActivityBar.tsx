@@ -150,11 +150,11 @@ export default function ActivityBar({
           {langMenuOpen && (
             <div
               role="menu"
-              className={`absolute z-50 min-w-[128px] rounded-xl border border-[var(--color-border)] bg-white shadow-xl p-1 ${
+              className={`absolute z-50 min-w-[150px] max-h-[min(70vh,24rem)] overflow-y-auto rounded-xl border border-[var(--color-border)] bg-white shadow-xl p-1 ${
                 isVertical
-                  ? (position === 'left' ? 'left-full ml-1' : 'right-full mr-1')
-                  : (position === 'top' ? 'top-full mt-1' : 'bottom-full mb-1')
-              } ${position === 'right' || position === 'bottom' ? 'right-0' : 'left-0'}`}
+                  ? (position === 'left' ? 'left-full bottom-0 ml-1' : 'right-full bottom-0 mr-1')
+                  : (position === 'top' ? 'right-0 top-full mt-1' : 'right-0 bottom-full mb-1')
+              }`}
             >
               {languages.map(item => (
                 <button

@@ -556,6 +556,14 @@ export async function listChatProviders(): Promise<{ success: boolean; providers
   return request('/settings/chat-providers');
 }
 
+export async function detectChatProvider(): Promise<{
+  success: boolean;
+  status: 'valid' | 'invalid' | 'unreachable' | 'not_configured';
+  provider: ChatProvider | null;
+}> {
+  return request('/settings/chat-providers/detect', { method: 'POST' });
+}
+
 export async function upsertChatProvider(provider: {
   id?: string;
   display_name: string;

@@ -1,23 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <defs>
-    <linearGradient id="akashaOrb" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#E8594A"/>
-      <stop offset="55%" stop-color="#B0526B"/>
-      <stop offset="100%" stop-color="#4C3B6E"/>
-    </linearGradient>
-    <radialGradient id="akashaCore" cx="50%" cy="42%" r="65%">
-      <stop offset="0%" stop-color="#FFF3E4"/>
-      <stop offset="100%" stop-color="#F3D9C0" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-
-  <circle cx="50" cy="50" r="47" fill="url(#akashaOrb)"/>
-  <circle cx="50" cy="50" r="47" fill="url(#akashaCore)"/>
-
-  <!-- almond "all-seeing" eye: the Akashic record watching over the archive -->
-  <path d="M12 50 C26 30, 74 30, 88 50 C74 70, 26 70, 12 50 Z"
-        fill="none" stroke="#FFF8F0" stroke-width="3.2" stroke-linejoin="round"/>
-  <circle cx="50" cy="50" r="13" fill="#FFF8F0"/>
-  <circle cx="50" cy="50" r="7.5" fill="#4C3B6E"/>
-  <circle cx="53" cy="47" r="2.4" fill="#FFF8F0"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="title desc">
+  <title id="title">Akasha-RAG</title>
+  <desc id="desc">A compact archive mark made from layered knowledge cards</desc>
+  <rect x="6" y="6" width="88" height="88" rx="24" fill="#B9473D"/>
+  <path d="M25 31.5 50 20l25 11.5L50 43 25 31.5Z" fill="#FFF8F0"/>
+  <path d="M25 44.5 50 56l25-11.5v10L50 66 25 54.5v-10Z" fill="#F6D7C6"/>
+  <path d="M25 58.5 50 70l25-11.5v10L50 80 25 68.5v-10Z" fill="#E9B39D"/>
+  <path d="M50 20v23M50 56v10M50 70v10" stroke="#94352E" stroke-width="2" stroke-linecap="round" opacity=".55"/>
 </svg>

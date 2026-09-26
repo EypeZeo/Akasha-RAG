@@ -28,17 +28,9 @@ export default function LandingPage({ onStartLogin, onLoginIntent, busy }: Props
 
       {/* Hero */}
       <main className="flex-1 flex flex-col items-center justify-center text-center px-6 gap-10">
-        <span className="px-5 py-2 rounded-full bg-accent-light text-accent text-xs tracking-[0.15em] uppercase">
-          {t('landingBadge')}
-        </span>
-
         <h1 className="font-display text-5xl leading-tight text-[var(--color-ink)] max-w-lg whitespace-pre-line">
           {t('landingHeroTitle')}
         </h1>
-
-        <p className="text-[var(--color-ink-soft)] text-base max-w-md leading-relaxed">
-          {t('landingHeroDesc')}
-        </p>
 
         <button
           onClick={onStartLogin}
@@ -52,27 +44,8 @@ export default function LandingPage({ onStartLogin, onLoginIntent, busy }: Props
           {busy ? t('startingLogin') : t('landingStartBtn')}
         </button>
 
-        {/* Pipeline */}
-        <div className="flex gap-10 mt-6">
-          {[
-            ['1', t('stepSync'), t('stepSyncDesc')],
-            ['2', t('stepExtract'), t('stepExtractDesc')],
-            ['3', t('stepSearch'), t('stepSearchDesc')],
-            ['4', t('stepChat'), t('stepChatDesc')],
-          ].map(([n, label, desc]) => (
-            <div key={n} className="flex flex-col items-center gap-2 w-20">
-              <div className="w-9 h-9 rounded-full bg-accent-light flex items-center justify-center text-accent font-bold text-sm">{n}</div>
-              <span className="text-sm font-semibold text-[var(--color-ink)]">{label}</span>
-              <span className="text-xs text-[var(--color-ink-muted)]">{desc}</span>
-            </div>
-          ))}
-        </div>
       </main>
 
-      {/* Footer */}
-      <footer className="py-3 text-center text-xs text-[var(--color-ink-muted)] bg-white/30">
-        {t('footerText')}
-      </footer>
     </div>
   );
 }

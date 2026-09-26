@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -63,6 +64,33 @@ async def list_chat_providers():
     providers = settings_store.list_chat_providers()
     active_id = settings_store.get_active_chat_provider_id()
     return {"success": True, "providers": [_provider_out(p, active_id) for p in providers], "active_id": active_id}
+
+
+@router.post("/chat-providers/detect")
+async def detect_chat_provider():
+    """Validate the .env DeepSeek key with a non-billing models request.
+
+    A successful check seeds the local provider list only when the user has not
+    already saved a custom provider. The response never contains the key.
+    """
+    provider = settings_store.env_deepseek_provider()
+    if provider is None:
+        return {"success": True, "status": "not_configured", "provider": None}
+    url = f"{provider.base_url.rstrip('/')}/models"
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=4.0), trust_env=True) as client:
+            response = await client.get(url, headers={"Authorization": f"Bearer {provider.api_key}"})
+        if response.status_code < 200 or response.status_code >= 300:
+            return {"success": True, "status": "invalid", "provider": None}
+    except (httpx.HTTPError, OSError):
+        return {"success": True, "status": "unreachable", "provider": None}
+
+    saved = settings_store.ensure_env_deepseek_provider()
+    return {
+        "success": True,
+        "status": "valid",
+        "provider": _provider_out(saved or provider, settings_store.get_active_chat_provider_id()),
+    }
 
 
 class UpsertChatProviderRequest(BaseModel):

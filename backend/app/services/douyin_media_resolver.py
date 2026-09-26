@@ -18,6 +18,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from app.core.config import settings
+from app.core.network import detect_network_proxy
 from app.core.secure_storage import materialize_json, remove_materialized
 
 logger = logging.getLogger(__name__)
@@ -128,11 +129,13 @@ def _browser_launch_kwargs() -> dict:
                 if path.is_file():
                     return {"headless": True, "executable_path": str(path)}
     channel = settings.playwright_browser_channel.strip()
+    proxy = detect_network_proxy()
+    extra = {"proxy": {"server": proxy}} if proxy else {}
     if channel and channel != "chromium":
-        return {"headless": True, "channel": channel}
+        return {"headless": True, "channel": channel, **extra}
     if sys.platform == "win32":
-        return {"headless": True, "channel": "msedge"}
-    return {"headless": True}
+        return {"headless": True, "channel": "msedge", **extra}
+    return {"headless": True, **extra}
 
 
 def resolve_douyin_media(platform_item_id: str) -> dict:

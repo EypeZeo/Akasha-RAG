@@ -24,6 +24,7 @@ import httpx
 import qrcode
 
 from app.core.config import settings
+from app.core.network import detect_network_proxy
 from app.core.secure_storage import delete_json, read_json, write_json
 from app.services.adapters.base import AuthStatus, QRCodeInfo, QRCheckResult
 from app.services.bilibili.wbi import wbi_signer
@@ -81,6 +82,7 @@ class BilibiliClient:
                 timeout=httpx.Timeout(25.0, connect=10.0, read=25.0, write=15.0),
                 headers=self.DEFAULT_HEADERS,
                 follow_redirects=True,
+                proxy=detect_network_proxy(),
                 limits=httpx.Limits(max_keepalive_connections=5, max_connections=15, keepalive_expiry=15.0),
             )
             self._clients[loop] = client
