@@ -30,14 +30,5 @@ export default defineConfig({
     // This desktop app is served from localhost.  Keep route-level splitting
     // only; warning at 500 kB encourages fragile over-splitting for no gain.
     chunkSizeWarningLimit: 1000,
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          // Markdown + syntax highlighting is the heaviest dependency in the
-          // chat view; keep it in its own long-lived cacheable chunk.
-          markdown: ['react-markdown', 'remark-gfm', 'rehype-highlight', 'highlight.js'],
-        },
-      },
-    },
   },
 })
