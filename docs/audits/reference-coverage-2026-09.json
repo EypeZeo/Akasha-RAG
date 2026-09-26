@@ -1,0 +1,4315 @@
+{
+  "blocks": [
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -11 +11 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -11 +11 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/chat.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -13 +13 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -13 +13 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/chat.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -15 +15,2 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -15 +15,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "backend/app/api/routes/chat.py",
+      "reason": "The final chat-history snapshot/export implementation carries this behavior; the exact hunk changed during the merged implementation and subsequent rebases.",
+      "ref": "PR #39 (B)",
+      "unmatched_sample": [
+        "from pydantic import BaseModel, Field",
+        "from sqlalchemy import LargeBinary, cast, func, select"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -20,0 +22,2 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -20,0 +22,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/api/routes/chat.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -26,0 +30,5 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -26,0 +30,5 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "backend/app/api/routes/chat.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -36 +44 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -36 +44 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/chat.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -38,2 +46,3 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -38,2 +46,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "backend/app/api/routes/chat.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -161,0 +171,3 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -161,0 +171,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "backend/app/api/routes/chat.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -163 +175 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -163 +175 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/chat.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 15,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -236,0 +249,17 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -236,0 +249,17 @@",
+      "kind": "tracked-hunk",
+      "matched": 5,
+      "path": "backend/app/api/routes/chat.py",
+      "reason": "The final chat-history snapshot/export implementation carries this behavior; the exact hunk changed during the merged implementation and subsequent rebases.",
+      "ref": "PR #39 (B)",
+      "unmatched_sample": [
+        "# One aggregate statement defines the append-only history boundary and its budget.",
+        "snapshot_id, count, size = db.execute(select("
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -238 +267 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -238 +267 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/chat.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -241 +270,2 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -241 +270,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/api/routes/chat.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -247 +277 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -247 +277 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/chat.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -250 +280 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -250 +280 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/chat.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 4,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -256,2 +286,4 @@",
+      "id": "backend/app/api/routes/chat.py:@@ -256,2 +286,4 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "backend/app/api/routes/chat.py",
+      "reason": "The final chat-history snapshot/export implementation carries this behavior; the exact hunk changed during the merged implementation and subsequent rebases.",
+      "ref": "PR #39 (B)",
+      "unmatched_sample": [
+        "if sum(len(m[\"content\"].encode(\"utf-8\")) + len(json.dumps(m[\"sources\"], ensure_ascii=False).encode(\"utf-8\")) for m in me"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -6,0 +7 @@",
+      "id": "backend/app/api/routes/favorites.py:@@ -6,0 +7 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/favorites.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -163 +164 @@",
+      "id": "backend/app/api/routes/favorites.py:@@ -163 +164 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/favorites.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -186 +187 @@",
+      "id": "backend/app/api/routes/favorites.py:@@ -186 +187 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/favorites.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -9 +9 @@",
+      "id": "backend/app/api/routes/knowledge.py:@@ -9 +9 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/knowledge.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -11 +11 @@",
+      "id": "backend/app/api/routes/knowledge.py:@@ -11 +11 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "backend/app/api/routes/knowledge.py",
+      "reason": "The final collection-scope and request-validation implementation carries this behavior; the exact hunk was rewritten while the same contract was implemented.",
+      "ref": "PR #37 (A)",
+      "unmatched_sample": [
+        "from pydantic import BaseModel, Field"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -17 +17 @@",
+      "id": "backend/app/api/routes/knowledge.py:@@ -17 +17 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/knowledge.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -29 +29 @@",
+      "id": "backend/app/api/routes/knowledge.py:@@ -29 +29 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/knowledge.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -31 +31 @@",
+      "id": "backend/app/api/routes/knowledge.py:@@ -31 +31 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "backend/app/api/routes/knowledge.py",
+      "reason": "The final collection-scope and request-validation implementation carries this behavior; the exact hunk was rewritten while the same contract was implemented.",
+      "ref": "PR #37 (A)",
+      "unmatched_sample": [
+        "selected_ids: list[str] = Field(default_factory=list, max_length=10000)"
+      ]
+    },
+    {
+      "added": 8,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -46,8 +46,8 @@",
+      "id": "backend/app/api/routes/knowledge.py:@@ -46,8 +46,8 @@",
+      "kind": "tracked-hunk",
+      "matched": 8,
+      "path": "backend/app/api/routes/knowledge.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -92 +92 @@",
+      "id": "backend/app/api/routes/knowledge.py:@@ -92 +92 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/knowledge.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 7,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -108,8 +108,7 @@",
+      "id": "backend/app/api/routes/knowledge.py:@@ -108,8 +108,7 @@",
+      "kind": "tracked-hunk",
+      "matched": 7,
+      "path": "backend/app/api/routes/knowledge.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 7,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -226,6 +225,7 @@",
+      "id": "backend/app/api/routes/knowledge.py:@@ -226,6 +225,7 @@",
+      "kind": "tracked-hunk",
+      "matched": 6,
+      "path": "backend/app/api/routes/knowledge.py",
+      "reason": "The final collection-scope and request-validation implementation carries this behavior; the exact hunk was rewritten while the same contract was implemented.",
+      "ref": "PR #37 (A)",
+      "unmatched_sample": [
+        "selected_ids: list[str] | None = Field(default=None, max_length=10000)"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -247,0 +248 @@",
+      "id": "backend/app/api/routes/knowledge.py:@@ -247,0 +248 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/api/routes/knowledge.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -289,2 +290,2 @@",
+      "id": "backend/app/api/routes/knowledge.py:@@ -289,2 +290,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/api/routes/knowledge.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -327,7 +328,3 @@",
+      "id": "backend/app/api/routes/knowledge.py:@@ -327,7 +328,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/api/routes/knowledge.py",
+      "reason": "The final collection-scope and request-validation implementation carries this behavior; the exact hunk was rewritten while the same contract was implemented.",
+      "ref": "PR #37 (A)",
+      "unmatched_sample": [
+        "from app.services.collection_scope import resolve_collection"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -72,0 +73,2 @@",
+      "id": "backend/app/main.py:@@ -72,0 +73,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/main.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -415,0 +416,2 @@",
+      "id": "backend/app/models/entities.py:@@ -415,0 +416,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/models/entities.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -25 +25 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -25 +25 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -28 +28,2 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -28 +28,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "reason": "The final batch-export collection/platform validation carries this behavior; the exact helper and error text were rewritten in the merged implementation.",
+      "ref": "PR #37 (A)",
+      "unmatched_sample": [
+        "from app.services.collection_scope import resolve_collection"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -30 +31 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -30 +31 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -42,0 +44 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -42,0 +44 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -56,0 +59 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -56,0 +59 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -58 +61 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -58 +61 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 12,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -60,0 +64,14 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -60,0 +64,14 @@",
+      "kind": "tracked-hunk",
+      "matched": 10,
+      "path": "backend/app/services/batch_export_service.py",
+      "reason": "The final batch-export collection/platform validation carries this behavior; the exact helper and error text were rewritten in the merged implementation.",
+      "ref": "PR #37 (A)",
+      "unmatched_sample": [
+        "collection = resolve_collection(db, collection_id, platform)",
+        "raise ValueError(\"Collection not found for the requested platform\")"
+      ]
+    },
+    {
+      "added": 8,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -62,3 +79,8 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -62,3 +79,8 @@",
+      "kind": "tracked-hunk",
+      "matched": 6,
+      "path": "backend/app/services/batch_export_service.py",
+      "reason": "The final batch-export collection/platform validation carries this behavior; the exact helper and error text were rewritten in the merged implementation.",
+      "ref": "PR #37 (A)",
+      "unmatched_sample": [
+        "if not platform or platform == \"all\":",
+        "raise ValueError(\"Ambiguous selected_ids; specify platform\")"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -68,11 +90 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -68,11 +90 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -110,0 +123 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -110,0 +123 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -117 +130 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -117 +130 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -164,0 +178 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -164,0 +178 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -180 +194 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -180 +194 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -191 +205 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -191 +205 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -232 +246 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -232 +246 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -681 +695 @@",
+      "id": "backend/app/services/batch_export_service.py:@@ -681 +695 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/batch_export_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 11,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "(whole new file)",
+      "id": "backend/app/services/chat_history.py:(whole new file)",
+      "kind": "untracked-file",
+      "matched": 11,
+      "path": "backend/app/services/chat_history.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -91 +91 @@",
+      "id": "backend/app/services/chroma_service.py:@@ -91 +91 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/chroma_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -102,0 +103,3 @@",
+      "id": "backend/app/services/chroma_service.py:@@ -102,0 +103,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "backend/app/services/chroma_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -110 +113 @@",
+      "id": "backend/app/services/chroma_service.py:@@ -110 +113 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/chroma_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -128 +131 @@",
+      "id": "backend/app/services/chroma_service.py:@@ -128 +131 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/chroma_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -130,0 +134,2 @@",
+      "id": "backend/app/services/chroma_service.py:@@ -130,0 +134,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/services/chroma_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 17,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "(whole new file)",
+      "id": "backend/app/services/collection_scope.py:(whole new file)",
+      "kind": "untracked-file",
+      "matched": 16,
+      "path": "backend/app/services/collection_scope.py",
+      "reason": "The final platform-aware collection resolver carries this behavior; the one unmatched error-text line is an implementation wording difference.",
+      "ref": "PR #37 (A)",
+      "unmatched_sample": [
+        "raise ValueError(\"Ambiguous collection_id; specify platform\")"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -98,0 +99 @@",
+      "id": "backend/app/services/export_worker.py:@@ -98,0 +99 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/export_worker.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -110,0 +112 @@",
+      "id": "backend/app/services/export_worker.py:@@ -110,0 +112 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/export_worker.py",
+      "unmatched_sample": []
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -30 +29,0 @@",
+      "id": "backend/app/services/favorites_service.py:@@ -30 +29,0 @@",
+      "kind": "deletion-only",
+      "path": "backend/app/services/favorites_service.py",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -32 +30,0 @@",
+      "id": "backend/app/services/favorites_service.py:@@ -32 +30,0 @@",
+      "kind": "deletion-only",
+      "path": "backend/app/services/favorites_service.py",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -814,8 +812,2 @@",
+      "id": "backend/app/services/favorites_service.py:@@ -814,8 +812,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/services/favorites_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -874,7 +866,3 @@",
+      "id": "backend/app/services/favorites_service.py:@@ -874,7 +866,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "backend/app/services/favorites_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -26,2 +25,0 @@",
+      "id": "backend/app/services/knowledge_service.py:@@ -26,2 +25,0 @@",
+      "kind": "deletion-only",
+      "path": "backend/app/services/knowledge_service.py",
+      "removed": 2,
+      "still_present": 0
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -29 +26,0 @@",
+      "id": "backend/app/services/knowledge_service.py:@@ -29 +26,0 @@",
+      "kind": "deletion-only",
+      "path": "backend/app/services/knowledge_service.py",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -81,2 +77,0 @@",
+      "id": "backend/app/services/knowledge_service.py:@@ -81,2 +77,0 @@",
+      "kind": "deletion-only",
+      "path": "backend/app/services/knowledge_service.py",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -126,6 +121,3 @@",
+      "id": "backend/app/services/knowledge_service.py:@@ -126,6 +121,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "backend/app/services/knowledge_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -791,6 +783,3 @@",
+      "id": "backend/app/services/knowledge_service.py:@@ -791,6 +783,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "backend/app/services/knowledge_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -15,0 +16 @@",
+      "id": "backend/app/services/rag_service.py:@@ -15,0 +16 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -20,2 +21,2 @@",
+      "id": "backend/app/services/rag_service.py:@@ -20,2 +21,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -27 +27,0 @@",
+      "id": "backend/app/services/rag_service.py:@@ -27 +27,0 @@",
+      "kind": "deletion-only",
+      "path": "backend/app/services/rag_service.py",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -30,0 +31 @@",
+      "id": "backend/app/services/rag_service.py:@@ -30,0 +31 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -203 +204 @@",
+      "id": "backend/app/services/rag_service.py:@@ -203 +204 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -238 +239 @@",
+      "id": "backend/app/services/rag_service.py:@@ -238 +239 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -242,2 +243,2 @@",
+      "id": "backend/app/services/rag_service.py:@@ -242,2 +243,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -245 +246 @@",
+      "id": "backend/app/services/rag_service.py:@@ -245 +246 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -251,5 +252,2 @@",
+      "id": "backend/app/services/rag_service.py:@@ -251,5 +252,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -259 +257 @@",
+      "id": "backend/app/services/rag_service.py:@@ -259 +257 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -268 +266 @@",
+      "id": "backend/app/services/rag_service.py:@@ -268 +266 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -282 +280 @@",
+      "id": "backend/app/services/rag_service.py:@@ -282 +280 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -292 +290 @@",
+      "id": "backend/app/services/rag_service.py:@@ -292 +290 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -314 +312 @@",
+      "id": "backend/app/services/rag_service.py:@@ -314 +312 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -356 +354 @@",
+      "id": "backend/app/services/rag_service.py:@@ -356 +354 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -368 +366 @@",
+      "id": "backend/app/services/rag_service.py:@@ -368 +366 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -376 +374 @@",
+      "id": "backend/app/services/rag_service.py:@@ -376 +374 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -395 +393 @@",
+      "id": "backend/app/services/rag_service.py:@@ -395 +393 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -690,2 +688,2 @@",
+      "id": "backend/app/services/rag_service.py:@@ -690,2 +688,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -693 +691 @@",
+      "id": "backend/app/services/rag_service.py:@@ -693 +691 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -764,0 +763 @@",
+      "id": "backend/app/services/rag_service.py:@@ -764,0 +763 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -840,0 +840 @@",
+      "id": "backend/app/services/rag_service.py:@@ -840,0 +840 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -857,2 +856,0 @@",
+      "id": "backend/app/services/rag_service.py:@@ -857,2 +856,0 @@",
+      "kind": "deletion-only",
+      "path": "backend/app/services/rag_service.py",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -869 +867 @@",
+      "id": "backend/app/services/rag_service.py:@@ -869 +867 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -871 +869 @@",
+      "id": "backend/app/services/rag_service.py:@@ -871 +869 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -951,0 +950 @@",
+      "id": "backend/app/services/rag_service.py:@@ -951,0 +950 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -960,0 +960 @@",
+      "id": "backend/app/services/rag_service.py:@@ -960,0 +960 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -971,0 +972 @@",
+      "id": "backend/app/services/rag_service.py:@@ -971,0 +972 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1087,0 +1089 @@",
+      "id": "backend/app/services/rag_service.py:@@ -1087,0 +1089 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1105,0 +1108,2 @@",
+      "id": "backend/app/services/rag_service.py:@@ -1105,0 +1108,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1128 +1132 @@",
+      "id": "backend/app/services/rag_service.py:@@ -1128 +1132 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1131,0 +1136 @@",
+      "id": "backend/app/services/rag_service.py:@@ -1131,0 +1136 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1136 +1141,2 @@",
+      "id": "backend/app/services/rag_service.py:@@ -1136 +1141,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1140,0 +1147 @@",
+      "id": "backend/app/services/rag_service.py:@@ -1140,0 +1147 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 4,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1149 +1156,4 @@",
+      "id": "backend/app/services/rag_service.py:@@ -1149 +1156,4 @@",
+      "kind": "tracked-hunk",
+      "matched": 4,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1158 +1168 @@",
+      "id": "backend/app/services/rag_service.py:@@ -1158 +1168 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 4,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1163,0 +1174,4 @@",
+      "id": "backend/app/services/rag_service.py:@@ -1163,0 +1174,4 @@",
+      "kind": "tracked-hunk",
+      "matched": 4,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -1169 +1182,0 @@",
+      "id": "backend/app/services/rag_service.py:@@ -1169 +1182,0 @@",
+      "kind": "deletion-only",
+      "path": "backend/app/services/rag_service.py",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1175,0 +1189 @@",
+      "id": "backend/app/services/rag_service.py:@@ -1175,0 +1189 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/app/services/rag_service.py",
+      "unmatched_sample": []
+    },
+    {
+      "class": "trivial",
+      "file_missing_on_target": false,
+      "header": "@@ -1205 +1218,0 @@",
+      "id": "backend/app/services/rag_service.py:@@ -1205 +1218,0 @@",
+      "kind": "deletion-only",
+      "path": "backend/app/services/rag_service.py",
+      "removed": 0,
+      "still_present": 0
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -91 +91 @@",
+      "id": "backend/tests/test_chat_sessions.py:@@ -91 +91 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "backend/tests/test_chat_sessions.py",
+      "unmatched_sample": []
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -7,2 +6,0 @@",
+      "id": "backend/tests/test_chroma_multiplatform.py:@@ -7,2 +6,0 @@",
+      "kind": "deletion-only",
+      "path": "backend/tests/test_chroma_multiplatform.py",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "added": 13,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -157,0 +156,15 @@",
+      "id": "backend/tests/test_chroma_multiplatform.py:@@ -157,0 +156,15 @@",
+      "kind": "tracked-hunk",
+      "matched": 13,
+      "path": "backend/tests/test_chroma_multiplatform.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 68,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "(whole new file)",
+      "id": "backend/tests/test_collection_identity.py:(whole new file)",
+      "kind": "untracked-file",
+      "matched": 68,
+      "path": "backend/tests/test_collection_identity.py",
+      "unmatched_sample": []
+    },
+    {
+      "added": 84,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "(whole new file)",
+      "id": "backend/tests/test_history_export_contract.py:(whole new file)",
+      "kind": "untracked-file",
+      "matched": 82,
+      "path": "backend/tests/test_history_export_contract.py",
+      "unmatched_sample": [
+        "monkeypatch.setattr(chat, \"MAX_EXPORT_BYTES\", 10)",
+        "connection.exec_driver_sql(\"CREATE TABLE chat_messages (id INTEGER PRIMARY KEY, content TEXT)\")"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -245,0 +246 @@",
+      "id": "frontend/src/api.ts:@@ -245,0 +246 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/api.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -262 +263 @@",
+      "id": "frontend/src/api.ts:@@ -262 +263 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/api.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -293,0 +295 @@",
+      "id": "frontend/src/api.ts:@@ -293,0 +295 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/api.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -429,0 +432 @@",
+      "id": "frontend/src/api.ts:@@ -429,0 +432 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/api.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -441,0 +445 @@",
+      "id": "frontend/src/api.ts:@@ -441,0 +445 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/api.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -499 +503 @@",
+      "id": "frontend/src/api.ts:@@ -499 +503 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/api.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -503,0 +508 @@",
+      "id": "frontend/src/api.ts:@@ -503,0 +508 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/api.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 6,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -505 +510,7 @@",
+      "id": "frontend/src/api.ts:@@ -505 +510,7 @@",
+      "kind": "tracked-hunk",
+      "matched": 6,
+      "path": "frontend/src/api.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -599 +610 @@",
+      "id": "frontend/src/api.ts:@@ -599 +610 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/api.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -612,0 +624 @@",
+      "id": "frontend/src/api.ts:@@ -612,0 +624 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/api.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -2 +2 @@",
+      "id": "frontend/src/components/BuildConfirmModal.test.tsx:@@ -2 +2 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/BuildConfirmModal.test.tsx",
+      "reason": "The final E1 test suite covers the same stale-response, failure, abort, selection, and confirmation contracts; test setup and wording were rewritten during implementation.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -10,0 +11 @@",
+      "id": "frontend/src/components/BuildConfirmModal.test.tsx:@@ -10,0 +11 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/BuildConfirmModal.test.tsx",
+      "reason": "The final E1 test suite covers the same stale-response, failure, abort, selection, and confirmation contracts; test setup and wording were rewritten during implementation.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "vi.clearAllMocks();"
+      ]
+    },
+    {
+      "added": 26,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -25,0 +27,28 @@",
+      "id": "frontend/src/components/BuildConfirmModal.test.tsx:@@ -25,0 +27,28 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/BuildConfirmModal.test.tsx",
+      "reason": "The final E1 test suite covers the same stale-response, failure, abort, selection, and confirmation contracts; test setup and wording were rewritten during implementation.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "it('aborts and ignores a stale tab response', async () => {",
+        "let resolveAll!: (value: Awaited<ReturnType<typeof api.listPendingKnowledge>>) => void;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1 +1 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -1 +1 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 4,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -21 +21,5 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -21 +21,5 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "export default function BuildConfirmModal(props: Props) {",
+        "return <BuildConfirmContent key={JSON.stringify([props.collectionId, props.platform])} {...props} />;"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -32,2 +36,2 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -32,2 +36,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "const [dataItems, setItems] = useState<api.VideoItem[]>([]);",
+        "const [dataStats, setStats] = useState<{ total: number; video_count: number; note_count: number }>({"
+      ]
+    },
+    {
+      "added": 5,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -43,0 +48,5 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -43,0 +48,5 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "const [loadedFilter, setLoadedFilter] = useState<string | null>(null);",
+        "const [failed, setFailed] = useState(false);"
+      ]
+    },
+    {
+      "added": 6,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -52,0 +62,6 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -52,0 +62,6 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "if (append && requestRef.current) return;",
+        "requestRef.current?.controller.abort();"
+      ]
+    },
+    {
+      "added": 3,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -60 +75,3 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -60 +75,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "const r = await api.listPendingKnowledge(collectionId, tabFilter, targetPage, 50, platform, task.controller.signal);",
+        "if (!r.success) throw new Error('Pending items request failed');"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -61,0 +79 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -61,0 +79 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "setLoadedFilter(tabFilter);"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -80,0 +99,2 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -80,0 +99,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "setFailed(true);"
+      ]
+    },
+    {
+      "added": 5,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -83,2 +103,5 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -83,2 +103,5 @@",
+      "kind": "tracked-hunk",
+      "matched": 4,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "requestRef.current = null;"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -93,0 +117,2 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -93,0 +117,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 4,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -94,0 +120,4 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -94,0 +120,4 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "requestRef.current?.controller.abort();",
+        "requestRef.current = null;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -99 +128 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -99 +128 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "if (loading || loadingMore || loadedFilter !== tabFilter || !hasMore) return;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -164,0 +194 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -164,0 +194 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "if (building || loading || failed || loadedFilter !== tabFilter || !hasSelection) return;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -301 +331 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -301 +331 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "{failed ? <p role=\"alert\" className=\"p-4 text-xs\">{t('operationFailed')}</p> : loading || loadedFilter !== tabFilter ? ("
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -316 +346 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -316 +346 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -420 +450 @@",
+      "id": "frontend/src/components/BuildConfirmModal.tsx:@@ -420 +450 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/BuildConfirmModal.tsx",
+      "reason": "The final E1 modal implements the same scope-generation, abort, failure-state, selection, and row-key behavior; surrounding code changed the exact line matches.",
+      "ref": "PR #45 (E1)",
+      "unmatched_sample": [
+        "disabled={building || loading || failed || loadedFilter !== tabFilter || !hasSelection}"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "dropped",
+      "file_missing_on_target": false,
+      "header": "@@ -132,0 +133 @@",
+      "id": "frontend/src/components/ChatPanel.test.tsx:@@ -132,0 +133 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/ChatPanel.test.tsx",
+      "reason": "This explicit null fixture is redundant in the final test setup because the store initializes selectedCollectionPlatform to null; the effective-platform behavior is covered by the merged Workspace and ChatPanel scope tests.",
+      "unmatched_sample": [
+        "selectedCollectionPlatform: null,"
+      ]
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -384 +385,3 @@",
+      "id": "frontend/src/components/ChatPanel.test.tsx:@@ -384 +385,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/components/ChatPanel.test.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -504 +507,3 @@",
+      "id": "frontend/src/components/ChatPanel.test.tsx:@@ -504 +507,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/components/ChatPanel.test.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -2 +1,0 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -2 +1,0 @@",
+      "kind": "deletion-only",
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "added": 4,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -6 +5,4 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -6 +5,4 @@",
+      "kind": "tracked-hunk",
+      "matched": 4,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -35,2 +36,0 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -35,2 +36,0 @@",
+      "kind": "deletion-only",
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -67 +67,2 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -67 +67,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -104 +105,2 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -104 +105,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -108,0 +111 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -108,0 +111 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -112 +115 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -112 +115 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -186 +189 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -186 +189 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -189 +191,0 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -189 +191,0 @@",
+      "kind": "deletion-only",
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -243,2 +245 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -243,2 +245 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 4,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -246,11 +247,4 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -246,11 +247,4 @@",
+      "kind": "tracked-hunk",
+      "matched": 4,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -319,3 +313 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -319,3 +313 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -325,3 +317 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -325,3 +317 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -331,3 +321 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -331,3 +321 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -337,9 +325 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -337,9 +325 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 9,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -348,11 +328,9 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -348,11 +328,9 @@",
+      "kind": "tracked-hunk",
+      "matched": 9,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -443 +421 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -443 +421 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -460,8 +438 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -460,8 +438 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -543 +514 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -543 +514 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -636,0 +608 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -636,0 +608 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 4,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -688,0 +661,4 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -688,0 +661,4 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "reason": "The final full-history export/print implementation carries this behavior through its extracted hook and print document; the reference hunk was replaced by that implementation.",
+      "ref": "PR #39 (B)",
+      "unmatched_sample": [
+        "{exportProgress !== null && <div className=\"flex items-center gap-2 text-xs\">",
+        "<button type=\"button\" onClick={cancelExport}>{t('cancel')}</button>"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -694,0 +671,2 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -694,0 +671,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -829,7 +807 @@",
+      "id": "frontend/src/components/ChatPanel.tsx:@@ -829,7 +807 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/ChatPanel.tsx",
+      "reason": "The final full-history export/print implementation carries this behavior through its extracted hook and print document; the reference hunk was replaced by that implementation.",
+      "ref": "PR #39 (B)",
+      "unmatched_sample": [
+        "{("
+      ]
+    },
+    {
+      "added": 17,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "(whole new file)",
+      "id": "frontend/src/components/ChatPrintDocument.test.tsx:(whole new file)",
+      "kind": "untracked-file",
+      "matched": 17,
+      "path": "frontend/src/components/ChatPrintDocument.test.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 30,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "(whole new file)",
+      "id": "frontend/src/components/ChatPrintDocument.tsx:(whole new file)",
+      "kind": "untracked-file",
+      "matched": 25,
+      "path": "frontend/src/components/ChatPrintDocument.tsx",
+      "reason": "The final print document implements the same full-history print contract with the merged markdown/safety structure; exact lines differ.",
+      "ref": "PR #39 (B)",
+      "unmatched_sample": [
+        "import { safeHref } from '../utils/url';",
+        "<div className=\"chat-print-content\">{message.content}</div>"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -0,0 +1 @@",
+      "id": "frontend/src/components/ExportModal.test.tsx:@@ -0,0 +1 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ExportModal.test.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -2 +3 @@",
+      "id": "frontend/src/components/ExportModal.test.tsx:@@ -2 +3 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/ExportModal.test.tsx",
+      "reason": "The final tests cover the collection/platform identity and stale/late export-modal lifecycle contracts through the merged test arrangement.",
+      "ref": "PR #42 (C) and PR #45 (E1)",
+      "unmatched_sample": [
+        "import { fireEvent, render, screen, waitFor } from '@testing-library/react';"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -4,0 +6,3 @@",
+      "id": "frontend/src/components/ExportModal.test.tsx:@@ -4,0 +6,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/ExportModal.test.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 14,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -20,0 +25,15 @@",
+      "id": "frontend/src/components/ExportModal.test.tsx:@@ -20,0 +25,15 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ExportModal.test.tsx",
+      "reason": "The final tests cover the collection/platform identity and stale/late export-modal lifecycle contracts through the merged test arrangement.",
+      "ref": "PR #42 (C) and PR #45 (E1)",
+      "unmatched_sample": [
+        "it('submits collection and platform as one scope identity', async () => {",
+        "vi.mocked(api.exportBatchStart).mockResolvedValue({ success: true, task_id: 'task', mode: 'browser' });"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1 +1 @@",
+      "id": "frontend/src/components/ExportModal.tsx:@@ -1 +1 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ExportModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -13,0 +14 @@",
+      "id": "frontend/src/components/ExportModal.tsx:@@ -13,0 +14 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ExportModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -16 +17 @@",
+      "id": "frontend/src/components/ExportModal.tsx:@@ -16 +17 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ExportModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 5,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -30,0 +32,5 @@",
+      "id": "frontend/src/components/ExportModal.tsx:@@ -30,0 +32,5 @@",
+      "kind": "tracked-hunk",
+      "matched": 5,
+      "path": "frontend/src/components/ExportModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -36,0 +43 @@",
+      "id": "frontend/src/components/ExportModal.tsx:@@ -36,0 +43 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ExportModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -46,0 +54 @@",
+      "id": "frontend/src/components/ExportModal.tsx:@@ -46,0 +54 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ExportModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -50 +58 @@",
+      "id": "frontend/src/components/ExportModal.tsx:@@ -50 +58 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ExportModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -63,0 +72 @@",
+      "id": "frontend/src/components/ExportModal.tsx:@@ -63,0 +72 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ExportModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -74 +83 @@",
+      "id": "frontend/src/components/ExportModal.tsx:@@ -74 +83 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ExportModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -75,0 +85 @@",
+      "id": "frontend/src/components/ExportModal.tsx:@@ -75,0 +85 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ExportModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -79 +89 @@",
+      "id": "frontend/src/components/ExportModal.tsx:@@ -79 +89 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/ExportModal.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -0,0 +1 @@",
+      "id": "frontend/src/components/SourcesPanel.test.tsx:@@ -0,0 +1 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.test.tsx",
+      "reason": "The final SourcesPanel tests cover the same composite identity, request-order, lifecycle, and action-scope contracts; the large reference test block was reorganized and expanded.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "import { Profiler, type ReactNode } from 'react';"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -50 +51,2 @@",
+      "id": "frontend/src/components/SourcesPanel.test.tsx:@@ -50 +51,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.test.tsx",
+      "reason": "The final SourcesPanel tests cover the same composite identity, request-order, lifecycle, and action-scope contracts; the large reference test block was reorganized and expanded.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "selectedOwner?: string;",
+        "onSelectCollection: (id: string, owner?: string) => void;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -62,0 +65 @@",
+      "id": "frontend/src/components/SourcesPanel.test.tsx:@@ -62,0 +65 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.test.tsx",
+      "reason": "The final SourcesPanel tests cover the same composite identity, request-order, lifecycle, and action-scope contracts; the large reference test block was reorganized and expanded.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "selectedOwner={propsOverride.selectedOwner}"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -100,0 +104 @@",
+      "id": "frontend/src/components/SourcesPanel.test.tsx:@@ -100,0 +104 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.test.tsx",
+      "reason": "The final SourcesPanel tests cover the same composite identity, request-order, lifecycle, and action-scope contracts; the large reference test block was reorganized and expanded.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "selectedCollectionPlatform: null,"
+      ]
+    },
+    {
+      "added": 11,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -179,11 +183,11 @@",
+      "id": "frontend/src/components/SourcesPanel.test.tsx:@@ -179,11 +183,11 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.test.tsx",
+      "reason": "The final SourcesPanel tests cover the same composite identity, request-order, lifecycle, and action-scope contracts; the large reference test block was reorganized and expanded.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "// History: this test used to fail intermittently, only under the full",
+        "// suite. Traces captured at the time showed the click's updater running"
+      ]
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -212,3 +215,0 @@",
+      "id": "frontend/src/components/SourcesPanel.test.tsx:@@ -212,3 +215,0 @@",
+      "kind": "deletion-only",
+      "path": "frontend/src/components/SourcesPanel.test.tsx",
+      "removed": 3,
+      "still_present": 0
+    },
+    {
+      "added": 671,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -984,0 +986,792 @@",
+      "id": "frontend/src/components/SourcesPanel.test.tsx:@@ -984,0 +986,792 @@",
+      "kind": "tracked-hunk",
+      "matched": 224,
+      "path": "frontend/src/components/SourcesPanel.test.tsx",
+      "reason": "The final SourcesPanel tests cover the same composite identity, request-order, lifecycle, and action-scope contracts; the large reference test block was reorganized and expanded.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "// ---------------------------------------------------------------------------",
+        "// Issue #27 — the collection-page reset must follow explicit intent (a platform"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -17 +17,2 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -17 +17,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 30,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -25,0 +27,35 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -25,0 +27,35 @@",
+      "kind": "tracked-hunk",
+      "matched": 26,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "const sameScope = (a: VideoScope, b: VideoScope) =>",
+        "a.collectionId === b.collectionId && a.platform === b.platform && a.page === b.page && a.pageSize === b.pageSize;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -28,0 +65 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -28,0 +65 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -38 +75,3 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -38 +75,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "const [collectionsData, setCollectionsData] = useState<{ platform: string; items: api.CollectionItem[]; failed?: boolean"
+      ]
+    },
+    {
+      "added": 4,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -41,0 +81,4 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -41,0 +81,4 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "const modalRequestRef = useRef(0);"
+      ]
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -54,2 +97,3 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -54,2 +97,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -57 +100,0 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -57 +100,0 @@",
+      "kind": "deletion-only",
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "added": 4,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -59,4 +102,4 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -59,4 +102,4 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "// 已加载的视频连同它所属的完整作用域（平台 + 收藏夹 + 页码 + 每页数量）一起存，渲染时",
+        "// 只展示与「当前平台 + 当前展开的收藏夹」一致的那份。平台在面板之外（ChatPanel）被切换的"
+      ]
+    },
+    {
+      "added": 15,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -64,0 +108,15 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -64,0 +108,15 @@",
+      "kind": "tracked-hunk",
+      "matched": 12,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "// 「此刻」的权威作用域。异步续接（同步/删除/清空/构建完成……）执行时渲染闭包早已过期，",
+        "// 一律读这些 ref（handler 里改状态时同步写 ref，再发请求），不读闭包。"
+      ]
+    },
+    {
+      "added": 13,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -67 +125,13 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -67 +125,13 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "// 收藏夹列表页码连同它所属的\"作用域\"（平台 + 每页数量）一起存，读取时派生：",
+        "// 作用域一变，页码在同一次渲染里就是 1。不靠 effect 去复位——effect 在提交之后才"
+      ]
+    },
+    {
+      "added": 17,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -69,0 +140,18 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -69,0 +140,18 @@",
+      "kind": "tracked-hunk",
+      "matched": 10,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "// 请求令牌：每类请求各一个，发起时 +1，只有最新一次的响应才允许提交状态；收起/平台切换、",
+        "// 卸载也 +1，使在途请求整体失效（Issue #27）。"
+      ]
+    },
+    {
+      "added": 9,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -89 +177,9 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -89 +177,9 @@",
+      "kind": "tracked-hunk",
+      "matched": 4,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "* 刷新收藏夹列表。不接受平台参数：发起时读 store 的当前平台，提交前再确认平台没变。",
+        "* 返回实际提交的列表；被更新的请求取代、平台已变、卸载或失败时返回 null。"
+      ]
+    },
+    {
+      "added": 10,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -91,5 +187,10 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -91,5 +187,10 @@",
+      "kind": "tracked-hunk",
+      "matched": 7,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "const r = await api.listCollections(platform);",
+        "setCollectionsData({ platform, items: r.items });"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -97,0 +199,2 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -97,0 +199,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (!mountedRef.current) return;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -99,0 +203 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -99,0 +203 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (token !== statsReqRef.current) return;"
+      ]
+    },
+    {
+      "added": 73,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -103,0 +208,75 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -103,0 +208,75 @@",
+      "kind": "tracked-hunk",
+      "matched": 58,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "* 拉取展开收藏夹的某一页视频。不接受平台/每页数量参数：一律读此刻的权威值。",
+        "* 发起时若该收藏夹已不是展开的那个，直接不发（不动令牌、游标、loading）。"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -107 +286 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -107 +286 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "}, [fetchCollections, fetchStats, statsRefreshKey, platformFilter]);"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -109 +288,2 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -109 +288,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "// 平台变化：展开的视频属于旧平台。让在途的视频请求全部失效，按新平台重拉第 1 页",
+        "// （旧内容在渲染里已被 videoData 的作用域隐藏）。没有展开的收藏夹时只是失效令牌。"
+      ]
+    },
+    {
+      "added": 10,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -111,5 +291,10 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -111,5 +291,10 @@",
+      "kind": "tracked-hunk",
+      "matched": 9,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "modalRequestRef.current += 1;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -117,3 +302 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -117,3 +302 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "}, [platformFilter, refreshExpandedVideos]);"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -121 +304 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -121 +304 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 5,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -123,2 +306,5 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -123,2 +306,5 @@",
+      "kind": "tracked-hunk",
+      "matched": 5,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 6,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -138,10 +324,6 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -138,10 +324,6 @@",
+      "kind": "tracked-hunk",
+      "matched": 4,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "// 走和手动刷新同一套令牌与平台校验：更早发起的轮询响应晚到时不会盖掉更新的结果",
+        "const items = await fetchCollections();"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -153 +335,2 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -153 +335,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "}, [collections.length, fetchCollections, fetchStats, platformFilter]);"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -155,0 +339 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -155,0 +339 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (!mountedRef.current) return;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -158,0 +343 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -158,0 +343 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (!mountedRef.current) return;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -159,0 +345 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -159,0 +345 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -162 +348 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -162 +348 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -218 +404 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -218 +404 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (mountedRef.current) setSyncing(false);"
+      ]
+    },
+    {
+      "added": 3,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -222,0 +409,3 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -222,0 +409,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "const token = ++modalRequestRef.current;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -224,0 +414 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -224,0 +414 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (!mountedRef.current || token !== modalRequestRef.current) return;"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -232,0 +423,2 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -232,0 +423,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (!mountedRef.current || token !== modalRequestRef.current) return;"
+      ]
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -237,22 +428,0 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -237,22 +428,0 @@",
+      "kind": "deletion-only",
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "removed": 18,
+      "still_present": 7
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -262,2 +432,2 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -262,2 +432,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -281,0 +452 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -281,0 +452 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -293 +464 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -293 +464 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -296 +467 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -296 +467 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -299 +470 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -299 +470 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (mountedRef.current && r.pending_count) setBuildTotalHint(r.pending_count);"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -301 +472 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -301 +472 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "} else if (mountedRef.current && r.message) {"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -305,0 +477 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -305,0 +477 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (!mountedRef.current) return;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -310 +482 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -310 +482 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (mountedRef.current) setIsSubmitting(false);"
+      ]
+    },
+    {
+      "added": 5,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -315,4 +487,5 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -315,4 +487,5 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "// 点当前平台 = 手动刷新。store 值没变、平台 effect 不会触发，所以这里自己刷。",
+        "fetchCollections();"
+      ]
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -319,0 +493,3 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -319,0 +493,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 12,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -322,4 +498,12 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -322,4 +498,12 @@",
+      "kind": "tracked-hunk",
+      "matched": 8,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (!collectionsReady || collectionsData.platform !== currentPlatform()) return;",
+        "const collectionId = row.id;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -328 +512 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -328 +512 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -331 +515 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -331 +515 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "fetchVideos(collectionId, 1);"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -335 +519,2 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -335 +519,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -337 +522 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -337 +522 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -341,2 +526,3 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -341,2 +526,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -344 +530 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -344 +530 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -355,0 +542 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -355,0 +542 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (!mountedRef.current) return;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -357 +544 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -357 +544 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 6,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -365 +552,6 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -365 +552,6 @@",
+      "kind": "tracked-hunk",
+      "matched": 4,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "// 与入库/导出共用同一份已解析作用域；收起收藏夹不应把操作扩大成全库。",
+        "const clearPlatform = target.platform;"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -370 +562,2 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -370 +562,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "const r = await api.clearAllKnowledge(clearScopeId, clearPlatform);",
+        "if (!mountedRef.current) return;"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -374 +567,2 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -374 +567,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "// 只针对某个收藏夹的清空：用户已经切到别的收藏夹就不刷新旧的那个（P14）",
+        "refreshExpandedVideos({ scopeId: clearScopeId, platform: clearPlatform, page: 1 });"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -383 +577 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -383 +577 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "if (mountedRef.current) setClearing(false);"
+      ]
+    },
+    {
+      "added": 11,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -406,0 +601,12 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -406,0 +601,12 @@",
+      "kind": "tracked-hunk",
+      "matched": 8,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "// 只展示与「当前平台 + 当前展开的收藏夹」一致的那份已加载视频。作用域对不上的那一帧",
+        "// （例如平台刚在面板之外被切换、新数据还没到）旧内容根本不会被画出来，视图显示 loading。"
+      ]
+    },
+    {
+      "added": 11,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -426,2 +632,11 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -426,2 +632,11 @@",
+      "kind": "tracked-hunk",
+      "matched": 7,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "const selectedMatches = collections.filter(c => c.collection_id === selectedId && (!selectedOwner || c.platform === sele",
+        "const targetRow = expanded ?? (selectedId === 'all' ? { id: 'all', owner: '', title: '全部收藏' } : selectedRow);"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -438 +653 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -438 +653 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -440,2 +655,2 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -440,2 +655,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -467,2 +682,2 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -467,2 +682,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 4,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -596,0 +812,4 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -596,0 +812,4 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "reason": "The final SourcesPanel implementation carries the referenced scope, request-token, lifecycle, and action-guard behavior; exact hunks changed as C and E2 were independently implemented and merged.",
+      "ref": "PR #42 (C) and PR #46 (E2)",
+      "unmatched_sample": [
+        "{!collectionsReady && <div aria-busy=\"true\" aria-label={t('loadingVideos')}>",
+        "</div>}"
+      ]
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -598,2 +817,3 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -598,2 +817,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -602 +822 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -602 +822 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -604 +824 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -604 +824 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -696 +916 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -696 +916 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -710 +930 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -710 +930 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -814 +1034 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -814 +1034 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -822 +1042 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -822 +1042 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -881 +1101 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -881 +1101 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -971 +1191 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -971 +1191 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -991 +1211 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -991 +1211 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1001,2 +1221,2 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -1001,2 +1221,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1048 +1268 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -1048 +1268 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1052,3 +1272,3 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -1052,3 +1272,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1058 +1278 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -1058 +1278 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1071 +1291 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -1071 +1291 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1073,2 +1293,3 @@",
+      "id": "frontend/src/components/SourcesPanel.tsx:@@ -1073,2 +1293,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/components/SourcesPanel.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -27,0 +28 @@",
+      "id": "frontend/src/components/SourcesStudio.tsx:@@ -27,0 +28 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesStudio.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -64,0 +66 @@",
+      "id": "frontend/src/components/SourcesStudio.tsx:@@ -64,0 +66 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/components/SourcesStudio.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 5,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -62,3 +62,5 @@",
+      "id": "frontend/src/hooks/useBuildFlow.ts:@@ -62,3 +62,5 @@",
+      "kind": "tracked-hunk",
+      "matched": 5,
+      "path": "frontend/src/hooks/useBuildFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -124,0 +127 @@",
+      "id": "frontend/src/hooks/useBuildFlow.ts:@@ -124,0 +127 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/hooks/useBuildFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 12,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -135,0 +139,13 @@",
+      "id": "frontend/src/hooks/useBuildFlow.ts:@@ -135,0 +139,13 @@",
+      "kind": "tracked-hunk",
+      "matched": 12,
+      "path": "frontend/src/hooks/useBuildFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -137,2 +153,2 @@",
+      "id": "frontend/src/hooks/useBuildFlow.ts:@@ -137,2 +153,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/hooks/useBuildFlow.ts",
+      "reason": "The final build-flow lifecycle implementation carries the referenced remount, generation, cancellation, and terminal-timer guards; the deleted reference block was replaced by the merged implementation.",
+      "ref": "PR #38 (D)",
+      "unmatched_sample": [
+        "// `onBuildComplete`（父级每次传入新的 onBuildDone 时 SourcesPanel 会重新",
+        "// 生成它）变化，这个 effect 因此比\"只在挂载时跑一次\"更容易重跑——"
+      ]
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -165,2 +180,0 @@",
+      "id": "frontend/src/hooks/useBuildFlow.ts:@@ -165,2 +180,0 @@",
+      "kind": "deletion-only",
+      "path": "frontend/src/hooks/useBuildFlow.ts",
+      "removed": 2,
+      "still_present": 0
+    },
+    {
+      "class": "partly-present",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -169,9 +182,0 @@",
+      "id": "frontend/src/hooks/useBuildFlow.ts:@@ -169,9 +182,0 @@",
+      "kind": "deletion-only",
+      "path": "frontend/src/hooks/useBuildFlow.ts",
+      "reason": "The final build-flow lifecycle implementation carries the referenced remount, generation, cancellation, and terminal-timer guards; the deleted reference block was replaced by the merged implementation.",
+      "ref": "PR #38 (D)",
+      "removed": 7,
+      "still_present": 5
+    },
+    {
+      "added": 2,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -179,0 +185,2 @@",
+      "id": "frontend/src/hooks/useBuildFlow.ts:@@ -179,0 +185,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/hooks/useBuildFlow.ts",
+      "reason": "The final build-flow lifecycle implementation carries the referenced remount, generation, cancellation, and terminal-timer guards; the deleted reference block was replaced by the merged implementation.",
+      "ref": "PR #38 (D)",
+      "unmatched_sample": [
+        "const taskId = buildTaskId;"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -182 +189,2 @@",
+      "id": "frontend/src/hooks/useBuildFlow.ts:@@ -182 +189,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/hooks/useBuildFlow.ts",
+      "reason": "The final build-flow lifecycle implementation carries the referenced remount, generation, cancellation, and terminal-timer guards; the deleted reference block was replaced by the merged implementation.",
+      "ref": "PR #38 (D)",
+      "unmatched_sample": [
+        "await api.cancelSync(taskId);",
+        "if (!mountedRef.current || generationRef.current !== generation || buildTaskId !== taskId) return;"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -184,0 +193 @@",
+      "id": "frontend/src/hooks/useBuildFlow.ts:@@ -184,0 +193 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/hooks/useBuildFlow.ts",
+      "reason": "The final build-flow lifecycle implementation carries the referenced remount, generation, cancellation, and terminal-timer guards; the deleted reference block was replaced by the merged implementation.",
+      "ref": "PR #38 (D)",
+      "unmatched_sample": [
+        "if (!mountedRef.current || generationRef.current !== generation || buildTaskId !== taskId) return;"
+      ]
+    },
+    {
+      "added": 89,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "(whole new file)",
+      "id": "frontend/src/hooks/useChatExport.test.tsx:(whole new file)",
+      "kind": "untracked-file",
+      "matched": 89,
+      "path": "frontend/src/hooks/useChatExport.test.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 121,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "(whole new file)",
+      "id": "frontend/src/hooks/useChatExport.ts:(whole new file)",
+      "kind": "untracked-file",
+      "matched": 121,
+      "path": "frontend/src/hooks/useChatExport.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 5,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -8,0 +9,5 @@",
+      "id": "frontend/src/hooks/useExportFlow.test.ts:@@ -8,0 +9,5 @@",
+      "kind": "tracked-hunk",
+      "matched": 5,
+      "path": "frontend/src/hooks/useExportFlow.test.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 36,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -96,0 +102,42 @@",
+      "id": "frontend/src/hooks/useExportFlow.test.ts:@@ -96,0 +102,42 @@",
+      "kind": "tracked-hunk",
+      "matched": 35,
+      "path": "frontend/src/hooks/useExportFlow.test.ts",
+      "unmatched_sample": [
+        "localStorage.setItem('akasha:active_export', JSON.stringify({ id: 'restored', mode: 'browser' }));"
+      ]
+    },
+    {
+      "added": 5,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -23,0 +24,5 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -23,0 +24,5 @@",
+      "kind": "tracked-hunk",
+      "matched": 5,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 10,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -43 +48,10 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -43 +48,10 @@",
+      "kind": "tracked-hunk",
+      "matched": 10,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -45,0 +60 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -45,0 +60 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -61 +76 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -61 +76 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -66 +81 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -66 +81 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 4,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -70 +85,4 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -70 +85,4 @@",
+      "kind": "tracked-hunk",
+      "matched": 4,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 4,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -72,0 +91,4 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -72,0 +91,4 @@",
+      "kind": "tracked-hunk",
+      "matched": 4,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -73,0 +96 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -73,0 +96 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -75 +98 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -75 +98 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -77,3 +100,3 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -77,3 +100,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -81,0 +105 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -81,0 +105 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -93,0 +118 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -93,0 +118 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 12,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -97,2 +122,12 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -97,2 +122,12 @@",
+      "kind": "tracked-hunk",
+      "matched": 12,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 6,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -100,3 +135,6 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -100,3 +135,6 @@",
+      "kind": "tracked-hunk",
+      "matched": 6,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 5,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -104 +142,5 @@",
+      "id": "frontend/src/hooks/useExportFlow.ts:@@ -104 +142,5 @@",
+      "kind": "tracked-hunk",
+      "matched": 5,
+      "path": "frontend/src/hooks/useExportFlow.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -144,0 +145,3 @@",
+      "id": "frontend/src/i18n.tsx:@@ -144,0 +145,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/i18n.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -552,0 +556,3 @@",
+      "id": "frontend/src/i18n.tsx:@@ -552,0 +556,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/i18n.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -955,0 +962,3 @@",
+      "id": "frontend/src/i18n.tsx:@@ -955,0 +962,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/i18n.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1358,0 +1368,3 @@",
+      "id": "frontend/src/i18n.tsx:@@ -1358,0 +1368,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/i18n.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -1761,0 +1774,3 @@",
+      "id": "frontend/src/i18n.tsx:@@ -1761,0 +1774,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/i18n.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -2164,0 +2180,3 @@",
+      "id": "frontend/src/i18n.tsx:@@ -2164,0 +2180,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/i18n.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -2567,0 +2586,3 @@",
+      "id": "frontend/src/i18n.tsx:@@ -2567,0 +2586,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/i18n.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -2970,0 +2992,3 @@",
+      "id": "frontend/src/i18n.tsx:@@ -2970,0 +2992,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/i18n.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -516,0 +517,2 @@",
+      "id": "frontend/src/index.css:@@ -516,0 +517,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/index.css",
+      "unmatched_sample": []
+    },
+    {
+      "added": 6,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -517,0 +520,6 @@",
+      "id": "frontend/src/index.css:@@ -517,0 +520,6 @@",
+      "kind": "tracked-hunk",
+      "matched": 5,
+      "path": "frontend/src/index.css",
+      "reason": "The final print styling carries the chat-print layout behavior with the merged print document; the exact CSS declaration was revised.",
+      "ref": "PR #39 (B)",
+      "unmatched_sample": [
+        ".chat-print-content { white-space: pre-wrap; overflow-wrap: anywhere; }"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -32,0 +33 @@",
+      "id": "frontend/src/pages/Workspace.tsx:@@ -32,0 +33 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/pages/Workspace.tsx",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "absent",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -285 +286,2 @@",
+      "id": "frontend/src/pages/Workspace.tsx:@@ -285 +286,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 0,
+      "path": "frontend/src/pages/Workspace.tsx",
+      "reason": "The final Workspace wiring carries the composite collection/platform identity into Chat and Sources; the exact JSX was subsequently reformatted/reworked.",
+      "ref": "PR #42 (C)",
+      "unmatched_sample": [
+        "platform={selectedCollectionId !== 'all' && selectedCollectionPlatform && selectedCollectionPlatform !== 'all'",
+        "? selectedCollectionPlatform : selectedPlatform}"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -7,0 +8 @@",
+      "id": "frontend/src/store/workspace.test.ts:@@ -7,0 +8 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/store/workspace.test.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 2,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -21,2 +22,2 @@",
+      "id": "frontend/src/store/workspace.test.ts:@@ -21,2 +22,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/store/workspace.test.ts",
+      "reason": "The final store tests cover incompatible-platform reset and composite collection identity; the test text and setup were rewritten.",
+      "ref": "PR #42 (C)",
+      "unmatched_sample": [
+        "it('changing to an incompatible platform resets the composite collection selection', () => {"
+      ]
+    },
+    {
+      "added": 2,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -25 +26,2 @@",
+      "id": "frontend/src/store/workspace.test.ts:@@ -25 +26,2 @@",
+      "kind": "tracked-hunk",
+      "matched": 2,
+      "path": "frontend/src/store/workspace.test.ts",
+      "unmatched_sample": []
+    },
+    {
+      "class": "gone",
+      "file_missing_on_target": false,
+      "header": "@@ -32 +33,0 @@",
+      "id": "frontend/src/store/workspace.test.ts:@@ -32 +33,0 @@",
+      "kind": "deletion-only",
+      "path": "frontend/src/store/workspace.test.ts",
+      "removed": 1,
+      "still_present": 0
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -33,0 +35 @@",
+      "id": "frontend/src/store/workspace.test.ts:@@ -33,0 +35 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/store/workspace.test.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -39,0 +42 @@",
+      "id": "frontend/src/store/workspace.test.ts:@@ -39,0 +42 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/store/workspace.test.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 12,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -45,0 +49,13 @@",
+      "id": "frontend/src/store/workspace.test.ts:@@ -45,0 +49,13 @@",
+      "kind": "tracked-hunk",
+      "matched": 8,
+      "path": "frontend/src/store/workspace.test.ts",
+      "reason": "The final store tests cover incompatible-platform reset and composite collection identity; the test text and setup were rewritten.",
+      "ref": "PR #42 (C)",
+      "unmatched_sample": [
+        "it('all-platform view preserves a collection owner and same remote IDs do not impersonate it', () => {",
+        "const state = useWorkspaceStore.getState();"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -16,0 +17 @@",
+      "id": "frontend/src/store/workspace.ts:@@ -16,0 +17 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/store/workspace.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -21 +22 @@",
+      "id": "frontend/src/store/workspace.ts:@@ -21 +22 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/store/workspace.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -31,0 +33 @@",
+      "id": "frontend/src/store/workspace.ts:@@ -31,0 +33 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/store/workspace.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 10,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "@@ -36,2 +38,10 @@",
+      "id": "frontend/src/store/workspace.ts:@@ -36,2 +38,10 @@",
+      "kind": "tracked-hunk",
+      "matched": 8,
+      "path": "frontend/src/store/workspace.ts",
+      "reason": "The final store implementation carries the selected collection owner/platform identity and incompatible-platform reset behavior; exact lines differ.",
+      "ref": "PR #42 (C)",
+      "unmatched_sample": [
+        "selectedCollectionPlatform: selectedCollectionId === 'all' ? null : platform || state.selectedPlatform,",
+        "? { selectedCollectionId: 'all', selectedCollectionPlatform: null } : {}),"
+      ]
+    },
+    {
+      "added": 11,
+      "class": "partial",
+      "disposition": "covered-by",
+      "file_missing_on_target": false,
+      "header": "(whole new file)",
+      "id": "frontend/src/utils/chatExport.test.ts:(whole new file)",
+      "kind": "untracked-file",
+      "matched": 7,
+      "path": "frontend/src/utils/chatExport.test.ts",
+      "reason": "The final chat export tests cover the merged export contract; the reference test file was simplified/reorganized during the full-history export implementation.",
+      "ref": "PR #39 (B)",
+      "unmatched_sample": [
+        "import { describe, expect, it } from 'vitest';",
+        "import { buildChatWordDocument } from './chatExport';"
+      ]
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -79 +79 @@",
+      "id": "frontend/src/utils/chatExport.ts:@@ -79 +79 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/utils/chatExport.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -95,2 +95 @@",
+      "id": "frontend/src/utils/chatExport.ts:@@ -95,2 +95 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/utils/chatExport.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 3,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -140,0 +140,3 @@",
+      "id": "frontend/src/utils/chatExport.ts:@@ -140,0 +140,3 @@",
+      "kind": "tracked-hunk",
+      "matched": 3,
+      "path": "frontend/src/utils/chatExport.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -150 +152 @@",
+      "id": "frontend/src/utils/chatExport.ts:@@ -150 +152 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/utils/chatExport.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -154 +156 @@",
+      "id": "frontend/src/utils/chatExport.ts:@@ -154 +156 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/utils/chatExport.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 4,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -162 +164,5 @@",
+      "id": "frontend/src/utils/chatExport.ts:@@ -162 +164,5 @@",
+      "kind": "tracked-hunk",
+      "matched": 4,
+      "path": "frontend/src/utils/chatExport.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 1,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -180 +186 @@",
+      "id": "frontend/src/utils/chatExport.ts:@@ -180 +186 @@",
+      "kind": "tracked-hunk",
+      "matched": 1,
+      "path": "frontend/src/utils/chatExport.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 8,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "@@ -209,0 +216,9 @@",
+      "id": "frontend/src/utils/chatExport.ts:@@ -209,0 +216,9 @@",
+      "kind": "tracked-hunk",
+      "matched": 8,
+      "path": "frontend/src/utils/chatExport.ts",
+      "unmatched_sample": []
+    },
+    {
+      "added": 51,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "(whole new file)",
+      "id": "frontend/src/utils/chatHistory.test.ts:(whole new file)",
+      "kind": "untracked-file",
+      "matched": 50,
+      "path": "frontend/src/utils/chatHistory.test.ts",
+      "unmatched_sample": [
+        "import { checkExportSize, ExportCapacityError, fetchExportHistory } from './chatHistory';"
+      ]
+    },
+    {
+      "added": 95,
+      "class": "landed",
+      "file_missing_on_target": false,
+      "header": "(whole new file)",
+      "id": "frontend/src/utils/chatHistory.ts:(whole new file)",
+      "kind": "untracked-file",
+      "matched": 95,
+      "path": "frontend/src/utils/chatHistory.ts",
+      "unmatched_sample": []
+    }
+  ],
+  "counts": {
+    "absent": 53,
+    "blocks_with_added_lines": 313,
+    "deletion_only": 19,
+    "landed": 225,
+    "partial": 35,
+    "whitespace_only": 0
+  },
+  "deletion_classes": {
+    "gone": 17,
+    "partly-present": 1,
+    "still-present": 0,
+    "trivial": 1
+  },
+  "disposition_counts": {
+    "covered-by": 88,
+    "dropped": 1
+  },
+  "expected": null,
+  "input_sha256": "07bb3d6fa0ece5cff9fb52dd9653436331888b6ccc925b0c344a9b061cafcd77",
+  "manifest_sha256": "c1c097aef1613d988fa6fc2952495ebc8bc292cd60ec31f526ccb142b126dbfa",
+  "matches_expected": null,
+  "per_file": {
+    "backend/app/api/routes/chat.py": {
+      "absent": 2,
+      "landed": 12,
+      "partial": 1
+    },
+    "backend/app/api/routes/favorites.py": {
+      "landed": 3
+    },
+    "backend/app/api/routes/knowledge.py": {
+      "absent": 2,
+      "landed": 8,
+      "partial": 2
+    },
+    "backend/app/main.py": {
+      "landed": 1
+    },
+    "backend/app/models/entities.py": {
+      "landed": 1
+    },
+    "backend/app/services/batch_export_service.py": {
+      "landed": 13,
+      "partial": 3
+    },
+    "backend/app/services/chat_history.py": {
+      "landed": 1
+    },
+    "backend/app/services/chroma_service.py": {
+      "landed": 5
+    },
+    "backend/app/services/collection_scope.py": {
+      "partial": 1
+    },
+    "backend/app/services/export_worker.py": {
+      "landed": 2
+    },
+    "backend/app/services/favorites_service.py": {
+      "gone": 2,
+      "landed": 2
+    },
+    "backend/app/services/knowledge_service.py": {
+      "gone": 3,
+      "landed": 2
+    },
+    "backend/app/services/rag_service.py": {
+      "gone": 3,
+      "landed": 36,
+      "trivial": 1
+    },
+    "backend/tests/test_chat_sessions.py": {
+      "landed": 1
+    },
+    "backend/tests/test_chroma_multiplatform.py": {
+      "gone": 1,
+      "landed": 1
+    },
+    "backend/tests/test_collection_identity.py": {
+      "landed": 1
+    },
+    "backend/tests/test_history_export_contract.py": {
+      "landed": 1
+    },
+    "frontend/src/api.ts": {
+      "landed": 10
+    },
+    "frontend/src/components/BuildConfirmModal.test.tsx": {
+      "absent": 3
+    },
+    "frontend/src/components/BuildConfirmModal.tsx": {
+      "absent": 10,
+      "landed": 3,
+      "partial": 3
+    },
+    "frontend/src/components/ChatPanel.test.tsx": {
+      "absent": 1,
+      "landed": 2
+    },
+    "frontend/src/components/ChatPanel.tsx": {
+      "absent": 2,
+      "gone": 3,
+      "landed": 18
+    },
+    "frontend/src/components/ChatPrintDocument.test.tsx": {
+      "landed": 1
+    },
+    "frontend/src/components/ChatPrintDocument.tsx": {
+      "partial": 1
+    },
+    "frontend/src/components/ExportModal.test.tsx": {
+      "absent": 2,
+      "landed": 2
+    },
+    "frontend/src/components/ExportModal.tsx": {
+      "landed": 11
+    },
+    "frontend/src/components/SourcesPanel.test.tsx": {
+      "absent": 6,
+      "gone": 1
+    },
+    "frontend/src/components/SourcesPanel.tsx": {
+      "absent": 21,
+      "gone": 2,
+      "landed": 37,
+      "partial": 18
+    },
+    "frontend/src/components/SourcesStudio.tsx": {
+      "landed": 2
+    },
+    "frontend/src/hooks/useBuildFlow.ts": {
+      "absent": 3,
+      "gone": 1,
+      "landed": 3,
+      "partial": 1,
+      "partly-present": 1
+    },
+    "frontend/src/hooks/useChatExport.test.tsx": {
+      "landed": 1
+    },
+    "frontend/src/hooks/useChatExport.ts": {
+      "landed": 1
+    },
+    "frontend/src/hooks/useExportFlow.test.ts": {
+      "landed": 2
+    },
+    "frontend/src/hooks/useExportFlow.ts": {
+      "landed": 15
+    },
+    "frontend/src/i18n.tsx": {
+      "landed": 8
+    },
+    "frontend/src/index.css": {
+      "landed": 1,
+      "partial": 1
+    },
+    "frontend/src/pages/Workspace.tsx": {
+      "absent": 1,
+      "landed": 1
+    },
+    "frontend/src/store/workspace.test.ts": {
+      "gone": 1,
+      "landed": 4,
+      "partial": 2
+    },
+    "frontend/src/store/workspace.ts": {
+      "landed": 3,
+      "partial": 1
+    },
+    "frontend/src/utils/chatExport.test.ts": {
+      "partial": 1
+    },
+    "frontend/src/utils/chatExport.ts": {
+      "landed": 8
+    },
+    "frontend/src/utils/chatHistory.test.ts": {
+      "landed": 1
+    },
+    "frontend/src/utils/chatHistory.ts": {
+      "landed": 1
+    }
+  },
+  "schema": 1,
+  "target": {
+    "name": "final",
+    "sha": "c0c979ad5d2d3e69cb81ba9af2360625e6d53638"
+  },
+  "unclassified": []
+}
