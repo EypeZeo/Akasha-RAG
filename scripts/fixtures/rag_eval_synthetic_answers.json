@@ -1,0 +1,16 @@
+{
+  "synthetic-001": {
+    "claims": [
+      {"claim_id":"claim-1","present":true,"cited_chunk_ids":["douyin:item-1:0:0"]}
+    ]
+  },
+  "synthetic-002": {
+    "claims": [
+      {"claim_id":"claim-1","present":true,"cited_chunk_ids":["bilibili:item-2:0:0","douyin:item-1:0:1"]}
+    ]
+  },
+  "synthetic-003": {
+    "claims": [],
+    "no_basis_substantive_claim": false
+  }
+}

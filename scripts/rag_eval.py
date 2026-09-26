@@ -23,8 +23,10 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.rag_evaluation import (  # noqa: E402
+    answer_report,
     EvaluationError,
     load_dataset,
+    load_answer_observations,
     load_index_manifest,
     load_observations,
     replay_evaluation,
@@ -70,6 +72,11 @@ def main(argv: list[str] | None = None) -> int:
     replay.add_argument("--run-id", required=True)
     replay.add_argument("--model", default="")
     replay.add_argument("--cutoff", action="append", type=int, dest="cutoffs")
+    answer_metrics = sub.add_parser("answer-metrics", help="calculate human answer/citation metrics")
+    answer_metrics.add_argument("--dataset", required=True)
+    answer_metrics.add_argument("--observations", required=True)
+    answer_metrics.add_argument("--answers", required=True)
+    answer_metrics.add_argument("--output")
     args = parser.parse_args(argv)
     try:
         dataset = load_dataset(args.dataset)
@@ -102,6 +109,10 @@ def main(argv: list[str] | None = None) -> int:
                 model=args.model,
             )
             _write_json({"written_traces": count, "output": str(Path(args.output))}, None)
+        elif args.command == "answer-metrics":
+            observations = load_observations(args.observations)
+            answers = load_answer_observations(args.answers)
+            _write_json(answer_report(dataset, observations, answers), args.output)
         else:
             observations = load_observations(args.observations)
             index_manifest = load_index_manifest(args.index_manifest)
