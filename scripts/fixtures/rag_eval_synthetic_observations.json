@@ -1,0 +1,20 @@
+{
+  "synthetic-001": {
+    "candidates": [
+      {"chunk_id":"douyin:item-1:0:0","platform":"douyin","platform_item_id":"item-1","score":0.91},
+      {"chunk_id":"douyin:item-other:0:0","platform":"douyin","platform_item_id":"item-other","score":0.42}
+    ],
+    "final_context_chunk_ids":["douyin:item-1:0:0"]
+  },
+  "synthetic-002": {
+    "candidates": [
+      {"chunk_id":"bilibili:item-2:0:0","platform":"bilibili","platform_item_id":"item-2","score":0.88},
+      {"chunk_id":"douyin:item-1:0:1","platform":"douyin","platform_item_id":"item-1","score":0.81}
+    ],
+    "final_context_chunk_ids":["bilibili:item-2:0:0","douyin:item-1:0:1"]
+  },
+  "synthetic-003": {
+    "candidates": [],
+    "final_context_chunk_ids": []
+  }
+}
