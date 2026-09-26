@@ -598,6 +598,11 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
         scope: scopeHint,
       })
     : t('welcomeDesc');
+  // 请求实际检索的平台：发出去的就是 platform prop（选中收藏夹时是它自己的平台）。上面的 chip 只是浏览筛选，
+  // 两者只在「选中了收藏夹、筛选却是全部」时不同，所以收藏夹标签要把这个平台写出来。
+  const searchPlatform = platform ?? scopePlatform;
+  const searchPlatformLabel = searchPlatform === 'douyin' ? t('platformDouyin')
+    : searchPlatform === 'bilibili' ? t('platformBilibili') : t('scopeAll');
   const promptChips = [
     t('promptSummary'),
     t('promptActionSteps'),
@@ -632,6 +637,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
               <button
                 key={p}
                 type="button"
+                aria-pressed={scopePlatform === p}
                 onClick={() => setSelectedPlatform(p)}
                 className={`px-2.5 py-1 rounded-full font-medium transition-all cursor-pointer ${
                   scopePlatform === p
@@ -646,7 +652,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
           {collectionId !== 'all' && (
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-accent/10 text-accent text-[11px] font-medium border border-accent/20">
               <span>📁</span>
-              <span>{t('searchCollectionOnly')}</span>
+              <span>{t('searchCollectionOnly')} · {searchPlatformLabel}</span>
               <button
                 type="button"
                 onClick={() => setSelectedCollectionId('all')}
