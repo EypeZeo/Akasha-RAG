@@ -702,7 +702,7 @@ class DouyinCollector:
                     let r = null;
                     for (let retry = 0; retry < 3; retry++) {
                         try {
-                            r = await listFn({cursor, offset:30});
+                            r = await listFn.call(api, {cursor, offset:30});
                             if (r && r.statusCode === 0) break;
                         } catch(e) {
                             r = null;
@@ -734,7 +734,7 @@ class DouyinCollector:
                         let vr = null;
                         for (let retry = 0; retry < 3; retry++) {
                             try {
-                                vr = await videoFn({collectsId:cid, cursor:cCur, offset:20});
+                                vr = await videoFn.call(api, {collectsId:cid, cursor:cCur, offset:20});
                                 if (vr && vr.statusCode === 0) break;
                             } catch(e) {
                                 vr = null;
@@ -898,9 +898,52 @@ class DouyinCollector:
                     self._active_playwright = None
         except Exception as exc:
             logger.exception("实时同步收藏夹异常")
+            try:
+                snapshot = self._snapshot_from_database()
+                if snapshot is not None:
+                    self._snapshot = snapshot
+                    self.status = "logged_in"
+                    self.message = f"实时同步失败，已保留本地快照（{len(snapshot.videos)} 个视频）"
+                    logger.warning("实时同步失败，保留本地快照: %d 个视频", len(snapshot.videos))
+                    return snapshot
+            except Exception as fallback_error:
+                logger.warning("本地快照兜底失败: %s", fallback_error)
             raise RuntimeError(f"同步收藏夹失败: {exc}")
         finally:
             self._lock.release()
+
+    @staticmethod
+    def _snapshot_from_database() -> Optional[FavoriteScrapeSnapshot]:
+        """Rebuild the last active snapshot without contacting the provider."""
+        from app.db.session import session_factory
+        from app.models.entities import FavoriteCollection, FavoriteVideo
+        from sqlalchemy import select
+
+        with session_factory() as db:
+            db_cols = db.execute(select(FavoriteCollection).where(FavoriteCollection.is_active.is_(True))).scalars().all()
+            if not db_cols:
+                return None
+            collections = [FavoriteScrapedCollection(
+                platform_collection_id=c.platform_collection_id,
+                title=c.title,
+                video_count=c.video_count,
+                cover_url=getattr(c, "cover_url", None),
+            ) for c in db_cols]
+            col_id_map = {c.id: c.platform_collection_id for c in db_cols}
+            db_vids = db.execute(select(FavoriteVideo).where(FavoriteVideo.is_active.is_(True))).scalars().all()
+            videos: dict[str, FavoriteScrapedVideo] = {}
+            for video in db_vids:
+                item = videos.setdefault(video.platform_item_id, FavoriteScrapedVideo(
+                    platform_item_id=video.platform_item_id,
+                    url=video.video_url,
+                    title=video.title,
+                    author=video.author or "",
+                    duration=video.duration,
+                ))
+                collection_id = col_id_map.get(video.collection_id)
+                if collection_id:
+                    item.collection_ids.add(collection_id)
+            return FavoriteScrapeSnapshot(collections=collections, videos=list(videos.values()))
 
     async def fetch_snapshot(
         self,
@@ -928,38 +971,10 @@ class DouyinCollector:
 
         # 兜底：尝试从本地数据库中恢复已有快照
         try:
-            from app.db.session import session_factory
-            from app.models.entities import FavoriteCollection, FavoriteVideo
-            from sqlalchemy import select
-            with session_factory() as db:
-                db_cols = db.execute(select(FavoriteCollection).where(FavoriteCollection.is_active.is_(True))).scalars().all()
-                if db_cols:
-                    collections = [
-                        FavoriteScrapedCollection(
-                            platform_collection_id=c.platform_collection_id,
-                            title=c.title,
-                            video_count=c.video_count,
-                            cover_url=getattr(c, "cover_url", None),
-                        )
-                        for c in db_cols
-                    ]
-                    col_id_map = {c.id: c.platform_collection_id for c in db_cols}
-                    db_vids = db.execute(select(FavoriteVideo).where(FavoriteVideo.is_active.is_(True))).scalars().all()
-                    v_dict: dict[str, FavoriteScrapedVideo] = {}
-                    for v in db_vids:
-                        if v.platform_item_id not in v_dict:
-                            v_dict[v.platform_item_id] = FavoriteScrapedVideo(
-                                platform_item_id=v.platform_item_id,
-                                url=v.video_url,
-                                title=v.title,
-                                author=v.author or "",
-                                duration=v.duration,
-                            )
-                        plat_cid = col_id_map.get(v.collection_id)
-                        if plat_cid:
-                            v_dict[v.platform_item_id].collection_ids.add(plat_cid)
-                    self._snapshot = FavoriteScrapeSnapshot(collections=collections, videos=list(v_dict.values()))
-                    return self._snapshot
+            snapshot = self._snapshot_from_database()
+            if snapshot is not None:
+                self._snapshot = snapshot
+                return snapshot
         except Exception as err:
             logger.warning("从数据库重构快照失败: %s", err)
 
