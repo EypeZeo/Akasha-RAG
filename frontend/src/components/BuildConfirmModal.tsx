@@ -238,9 +238,6 @@ export default function BuildConfirmModal({
             </h2>
             <button onClick={onClose} aria-label={t('close')} className="text-gray-400 hover:text-gray-600 text-sm cursor-pointer p-1">✕</button>
           </div>
-          <p className="text-xs text-[var(--color-ink-muted)] mt-1">
-            {t('buildPipelineDesc')}
-          </p>
         </div>
 
         {/* 分类 Tabs */}
@@ -423,33 +420,6 @@ export default function BuildConfirmModal({
                 </div>
               )}
             </>
-          )}
-        </div>
-
-        {/* 动态流水线说明 */}
-        <div className="mx-6 px-3 py-2 rounded-xl text-xs bg-black/[0.02] border border-[var(--color-border)] flex flex-col gap-1 text-[var(--color-ink-soft)]">
-          <div className="flex items-center justify-between font-medium text-[11px]">
-            <span className="text-[var(--color-ink)]">{t('pipelineDiffTitle')}</span>
-            <span className="text-[10px] text-[var(--color-ink-muted)]">
-              {selectionMode === 'all' ? t('rangeModeDetailed') : t('customSelectionMode')}
-            </span>
-          </div>
-          {selectedVideoCount > 0 && (
-            <div className="text-[11px] text-blue-700 flex items-center gap-1.5">
-              <span className="font-semibold">📹 {t('shortVideo')} ({selectedVideoCount}):</span>
-              <span className="opacity-90">{t('pipelineVideoSteps')}</span>
-            </div>
-          )}
-          {selectedNoteCount > 0 && (
-            <div className="text-[11px] text-purple-700 flex items-center gap-1.5">
-              <span className="font-semibold">🖼️ {t('imageNote')} ({selectedNoteCount}):</span>
-              <span className="opacity-90">{t('pipelineNoteSteps')}</span>
-            </div>
-          )}
-          {selectedCount === 0 && (
-            <div className="text-[11px] text-[var(--color-ink-muted)]">
-              {t('pipelineSelectHint')}
-            </div>
           )}
         </div>
 

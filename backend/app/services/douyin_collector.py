@@ -23,6 +23,7 @@ from typing import Optional
 from playwright.sync_api import sync_playwright
 
 from app.core.config import settings
+from app.core.network import detect_network_proxy
 from app.core.secure_storage import delete_json, read_json, write_json
 
 logger = logging.getLogger(__name__)
@@ -110,9 +111,9 @@ class DouyinCollector:
         self._profile_cleanup_pending = threading.Event()
         self._active_context = None
         self._active_playwright = None
-        self._profile: dict[str, str] = {}
         self.user_data_dir: Path = _find_user_data_dir()
         self.storage_state_path: Path = self.user_data_dir / "state.json"
+        self._profile: dict[str, str] = self._load_profile()
         self._snapshot: Optional[FavoriteScrapeSnapshot] = None
         self._qr_image_base64: Optional[str] = None
         self._qr_ready_event = threading.Event()
@@ -161,22 +162,53 @@ class DouyinCollector:
         """Return the best-effort display profile captured during login."""
         return dict(self._profile)
 
+    def _load_profile(self) -> dict[str, str]:
+        try:
+            value = read_json(self.storage_state_path.with_name("profile.json"))
+            if isinstance(value, dict):
+                return {
+                    key: str(value.get(key) or "")
+                    for key in ("nickname", "avatar_url")
+                    if value.get(key)
+                }
+        except Exception as exc:
+            logger.debug("读取抖音展示资料失败: %s", exc)
+        return {}
+
+    def _save_profile(self) -> None:
+        if self._logout_requested.is_set():
+            return
+        try:
+            write_json(self.storage_state_path.with_name("profile.json"), self._profile)
+        except Exception as exc:
+            logger.debug("保存抖音展示资料失败: %s", exc)
+
     @staticmethod
     def _extract_profile(page) -> dict[str, str]:
         """Best-effort UI extraction; profile rendering must never gate login."""
         try:
             return page.evaluate("""() => {
                 const avatar = [
-                  '[data-e2e="user-avatar"] img',
-                  '[data-e2e="user-info"] img',
-                  'img[src*="douyinpic.com"]',
-                ].map(selector => document.querySelector(selector)?.src || '').find(Boolean) || '';
-                const nickname = [
-                  '[data-e2e="user-name"]',
-                  '[data-e2e="user-info"] [title]',
-                ].map(selector => document.querySelector(selector)?.textContent?.trim() || '').find(Boolean) || '';
-                return { avatar_url: avatar, nickname };
-            }""") or {}
+                   '[data-e2e="user-avatar"] img',
+                   '[data-e2e="user-info"] img',
+                   'img[src*="douyinpic.com"]',
+                   'img[src*="byteimg.com"]',
+                   'img[src*="pstatp.com"]',
+                   'img[src*="bytedance.com"]',
+                   'img[alt*="头像"]',
+                   'img[alt*="avatar" i]',
+                 ].map(selector => document.querySelector(selector)?.src || '').find(Boolean) || '';
+                 const nickname = [
+                   '[data-e2e="user-name"]',
+                   '[data-e2e="user-info"] [title]',
+                   '[class*="user-name"]',
+                   '[class*="nickname"]',
+                   'a[href*="/user/"]',
+                 ].map(selector => document.querySelector(selector)?.textContent?.trim() || '').find(Boolean) || '';
+                 const metaAvatar = document.querySelector('meta[property="og:image"]')?.getAttribute('content') || '';
+                 const metaTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
+                return { avatar_url: avatar || metaAvatar, nickname: nickname || metaTitle };
+             }""") or {}
         except Exception as exc:
             logger.info("抖音账号展示资料暂不可用: %s", exc)
             return {}
@@ -190,15 +222,17 @@ class DouyinCollector:
         args = [
             "--disable-blink-features=AutomationControlled",
         ]
+        proxy = detect_network_proxy()
+        extra = {"proxy": {"server": proxy}} if proxy else {}
         executable = _find_project_chromium_executable()
         if executable:
-            return {"headless": headless, "executable_path": str(executable), "args": args}
+            return {"headless": headless, "executable_path": str(executable), "args": args, **extra}
         channel = settings.playwright_browser_channel.strip()
         if channel and channel != "chromium":
-            return {"headless": headless, "channel": channel, "args": args}
+            return {"headless": headless, "channel": channel, "args": args, **extra}
         if sys.platform == "win32":
-            return {"headless": headless, "channel": "msedge", "args": args}
-        return {"headless": headless, "args": args}
+            return {"headless": headless, "channel": "msedge", "args": args, **extra}
+        return {"headless": headless, "args": args, **extra}
 
     @staticmethod
     def _extract_qrcode_from_page(page) -> Optional[str]:
@@ -456,7 +490,11 @@ class DouyinCollector:
                     except Exception as err:
                         logger.warning("即刻持久化登录凭据异常: %s", err)
 
-                    self._profile = self._extract_profile(page)
+                    fresh_profile = self._extract_profile(page)
+                    self._profile = {**self._profile, **{
+                        key: value for key, value in fresh_profile.items() if value
+                    }}
+                    self._save_profile()
 
                     # 2. 状态切换为 syncing
                     logger.info("扫码登录成功，立即开始抓取收藏夹...")
@@ -822,6 +860,11 @@ class DouyinCollector:
                     self._active_context = context
                     page = context.pages[0] if context.pages else context.new_page()
 
+                    fresh_profile = self._extract_profile(page)
+                    self._profile = {**self._profile, **{
+                        key: value for key, value in fresh_profile.items() if value
+                    }}
+                    self._save_profile()
                     snapshot = self._fetch_in_context(page)
                     self._snapshot = snapshot
                     logger.info("实时抓取完成: %d 收藏夹, %d 视频", len(snapshot.collections), len(snapshot.videos))
@@ -949,6 +992,10 @@ class DouyinCollector:
             delete_json(self.storage_state_path)
         except Exception as exc:
             errors.append(f"删除登录态失败: {exc}")
+        try:
+            delete_json(self.storage_state_path.with_name("profile.json"))
+        except Exception:
+            pass
 
         # 清理导出的 douyin_cookies.txt
         try:

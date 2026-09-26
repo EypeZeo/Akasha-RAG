@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from yt_dlp import YoutubeDL
 
 from app.core.config import settings
+from app.core.network import detect_network_proxy
 from app.core.secure_storage import read_json
 
 logger = logging.getLogger(__name__)
@@ -235,6 +236,9 @@ def _download_raw(video_url: str, item_id: str, work_dir: Path, ffmpeg: str) -> 
         "cachedir": False, "socket_timeout": 20, "ffmpeg_location": ffmpeg,
         "http_headers": {"Referer": DOUYIN_REFERER, "User-Agent": USER_AGENT},
     }
+    if proxy := detect_network_proxy():
+        options["proxy"] = proxy
+        logger.info("媒体下载使用本机代理（地址已隐藏）")
     if is_douyin:
         try:
             options["cookiefile"] = str(_export_cookiefile(work_dir / "cookies.txt"))
@@ -268,18 +272,27 @@ def _download_raw(video_url: str, item_id: str, work_dir: Path, ffmpeg: str) -> 
         logger.info("yt-dlp 详情接口不可用 [%s]，转用浏览器验证后的媒体地址（预期降级路径）", item_id)
         from app.services.douyin_media_resolver import DouyinMediaResolveError, resolve_douyin_media
         with _browser_semaphore:
-            budget_start[0] = time.monotonic()
-            try:
-                media = resolve_douyin_media(item_id)
-                options["outtmpl"] = str(work_dir / "browser.%(ext)s")
-                options["http_headers"] = media["http_headers"]
-                options.pop("cookiefile", None)
-                if media.get("cookies"):
-                    _write_cookies(media["cookies"], work_dir / "browser_cookies.txt")
-                    options["cookiefile"] = str(work_dir / "browser_cookies.txt")
-                with YoutubeDL(options) as ydl:
-                    ydl.extract_info(media["url"], download=True)
-            except Exception as fallback_error:
+            fallback_error = None
+            for attempt in range(2):
+                budget_start[0] = time.monotonic()
+                try:
+                    media = resolve_douyin_media(item_id)
+                    options["outtmpl"] = str(work_dir / "browser.%(ext)s")
+                    options["http_headers"] = media["http_headers"]
+                    options.pop("cookiefile", None)
+                    if media.get("cookies"):
+                        _write_cookies(media["cookies"], work_dir / "browser_cookies.txt")
+                        options["cookiefile"] = str(work_dir / "browser_cookies.txt")
+                    with YoutubeDL(options) as ydl:
+                        ydl.extract_info(media["url"], download=True)
+                    fallback_error = None
+                    break
+                except Exception as error:
+                    fallback_error = error
+                    if attempt == 0:
+                        logger.info("浏览器媒体兜底第 1 次失败 [%s]，1.5 秒后重试", item_id)
+                        time.sleep(1.5)
+            if fallback_error is not None:
                 reason = (str(fallback_error) if isinstance(fallback_error, DouyinMediaResolveError)
                           else f"媒体传输失败 ({type(fallback_error).__name__})")
                 raise MediaPipelineError(

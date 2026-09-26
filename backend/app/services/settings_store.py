@@ -112,6 +112,38 @@ def get_active_chat_provider() -> Optional[ChatProvider]:
     return data.chat_providers[0]
 
 
+def env_deepseek_provider() -> ChatProvider | None:
+    """Return the environment-backed DeepSeek config when it is usable-looking."""
+    from app.core.startup_preflight import is_placeholder_api_key
+
+    api_key = settings.deepseek_api_key.strip()
+    if is_placeholder_api_key(api_key):
+        return None
+    return ChatProvider(
+        id="env-deepseek",
+        display_name="DeepSeek",
+        protocol="openai",
+        base_url=settings.llm_base_url.strip(),
+        api_key=api_key,
+        model_id=settings.llm_model.strip(),
+    )
+
+
+def ensure_env_deepseek_provider() -> ChatProvider | None:
+    """Persist the validated environment DeepSeek config only when no provider exists."""
+    provider = env_deepseek_provider()
+    if provider is None:
+        return None
+    with _LOCK:
+        data = _read()
+        if data.chat_providers:
+            return next((item for item in data.chat_providers if item.id == provider.id), None)
+        data.chat_providers = [provider]
+        data.active_chat_provider_id = provider.id
+        _write(data)
+        return provider
+
+
 def upsert_chat_provider(
     *,
     id: Optional[str],
