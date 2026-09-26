@@ -25,7 +25,9 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.services.rag_evaluation import (  # noqa: E402
     EvaluationError,
     load_dataset,
+    load_index_manifest,
     load_observations,
+    replay_evaluation,
     retrieval_report,
     write_sanitized_traces,
 )
@@ -59,6 +61,15 @@ def main(argv: list[str] | None = None) -> int:
     trace.add_argument("--source-fingerprint", action="append", default=[])
     trace.add_argument("--chroma-collection")
     trace.add_argument("--model", default="")
+    replay = sub.add_parser("replay", help="replay fixed observations against a frozen index manifest")
+    replay.add_argument("--dataset", required=True)
+    replay.add_argument("--observations", required=True)
+    replay.add_argument("--index-manifest", required=True)
+    replay.add_argument("--output", required=True)
+    replay.add_argument("--trace-output", required=True)
+    replay.add_argument("--run-id", required=True)
+    replay.add_argument("--model", default="")
+    replay.add_argument("--cutoff", action="append", type=int, dest="cutoffs")
     args = parser.parse_args(argv)
     try:
         dataset = load_dataset(args.dataset)
@@ -77,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
             observations = load_observations(args.observations)
             report = retrieval_report(dataset, observations, tuple(args.cutoffs or (1, 3, 5, 8)))
             _write_json(report, args.output)
-        else:
+        elif args.command == "trace":
             observations = load_observations(args.observations)
             count = write_sanitized_traces(
                 dataset,
@@ -91,6 +102,20 @@ def main(argv: list[str] | None = None) -> int:
                 model=args.model,
             )
             _write_json({"written_traces": count, "output": str(Path(args.output))}, None)
+        else:
+            observations = load_observations(args.observations)
+            index_manifest = load_index_manifest(args.index_manifest)
+            report = replay_evaluation(
+                dataset,
+                observations,
+                index_manifest,
+                args.output,
+                args.trace_output,
+                args.run_id,
+                cutoffs=tuple(args.cutoffs or (1, 3, 5, 8)),
+                model=args.model,
+            )
+            _write_json(report["run"], None)
         return 0
     except EvaluationError as exc:
         print(f"error: {exc}", file=sys.stderr)

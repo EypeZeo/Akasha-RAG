@@ -186,6 +186,22 @@ class EvaluationDataset:
 
 
 @dataclass(frozen=True)
+class IndexCollection:
+    name: str
+    platform: str
+
+
+@dataclass(frozen=True)
+class EvaluationIndexManifest:
+    schema_version: int
+    index_id: str
+    pipeline_version: str
+    source_fingerprints: tuple[str, ...]
+    chroma_collections: tuple[IndexCollection, ...]
+    sha256: str
+
+
+@dataclass(frozen=True)
 class RetrievalCandidate:
     chunk_id: str
     platform: str
@@ -382,6 +398,58 @@ def load_dataset(path: str | Path) -> EvaluationDataset:
         raise EvaluationError("dataset must contain at least one case")
     cases.sort(key=lambda item: item.case_id)
     return EvaluationDataset(EVALUATION_SCHEMA_VERSION, tuple(cases), hashlib.sha256(raw).hexdigest())
+
+
+def load_index_manifest(path: str | Path) -> EvaluationIndexManifest:
+    """Load a frozen, content-addressed index manifest without opening the index."""
+    manifest_path = Path(path)
+    try:
+        raw = manifest_path.read_bytes()
+        value = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise EvaluationError(f"invalid index manifest {manifest_path}: {exc}") from exc
+    root = _mapping(value, "index_manifest")
+    _strict_keys(
+        root,
+        "index_manifest",
+        {"schema_version", "index_id", "pipeline_version", "source_fingerprints", "chroma_collections"},
+    )
+    schema_version = _integer(root["schema_version"], "index_manifest.schema_version", minimum=1, maximum=1)
+    index_id = _string(root["index_id"], "index_manifest.index_id", max_length=128)
+    pipeline_version = _string(root["pipeline_version"], "index_manifest.pipeline_version", max_length=128)
+    fingerprints = _list(root["source_fingerprints"], "index_manifest.source_fingerprints")
+    source_fingerprints = tuple(
+        _string(value, f"index_manifest.source_fingerprints[{index}]", max_length=128)
+        for index, value in enumerate(fingerprints)
+    )
+    if len(set(source_fingerprints)) != len(source_fingerprints):
+        raise EvaluationError("index_manifest.source_fingerprints: duplicate fingerprint")
+    collections: list[IndexCollection] = []
+    seen_names: set[str] = set()
+    seen_platforms: set[str] = set()
+    for index, raw_collection in enumerate(_list(root["chroma_collections"], "index_manifest.chroma_collections")):
+        path = f"index_manifest.chroma_collections[{index}]"
+        collection = _mapping(raw_collection, path)
+        _strict_keys(collection, path, {"name", "platform"})
+        name = _string(collection["name"], f"{path}.name", max_length=128)
+        platform = _string(collection["platform"], f"{path}.platform", max_length=16)
+        if platform not in SUPPORTED_PLATFORMS - {"all"}:
+            raise _error(f"{path}.platform", "must be douyin or bilibili")
+        if name in seen_names or platform in seen_platforms:
+            raise _error(path, "collection name and platform must be unique")
+        seen_names.add(name)
+        seen_platforms.add(platform)
+        collections.append(IndexCollection(name, platform))
+    if not collections:
+        raise EvaluationError("index_manifest.chroma_collections: must contain at least one collection")
+    return EvaluationIndexManifest(
+        schema_version,
+        index_id,
+        pipeline_version,
+        source_fingerprints,
+        tuple(collections),
+        hashlib.sha256(raw).hexdigest(),
+    )
 
 
 def _parse_candidate(value: object, path: str) -> RetrievalCandidate:
@@ -610,6 +678,7 @@ def write_sanitized_traces(
     pipeline_version: str,
     source_fingerprints: Sequence[str] = (),
     chroma_collection: str | None = None,
+    chroma_collections: Sequence[str] | None = None,
     requested_top_k: int = 8,
     fetch_k: int = 32,
     mmr_lambda: float = 0.55,
@@ -629,6 +698,9 @@ def write_sanitized_traces(
         raise EvaluationError("index_manifest_sha256 must be a lowercase SHA-256 hex digest")
     if not pipeline_version.strip():
         raise EvaluationError("pipeline_version must not be empty")
+    if chroma_collections is not None:
+        if not chroma_collections or any(not isinstance(name, str) or not name.strip() for name in chroma_collections):
+            raise EvaluationError("chroma_collections must contain non-empty strings")
     if requested_top_k < 1 or fetch_k < 1 or not 0 <= mmr_lambda <= 1:
         raise EvaluationError("invalid retrieval settings for trace")
     for fingerprint in source_fingerprints:
@@ -682,6 +754,7 @@ def write_sanitized_traces(
                 "pipeline_version": pipeline_version,
                 "source_fingerprints": list(source_fingerprints),
                 "chroma_collection": chroma_collection,
+                "chroma_collections": list(chroma_collections) if chroma_collections is not None else None,
             },
             "request": {
                 "scope_platform": case.scope.platform,
@@ -725,3 +798,67 @@ def write_sanitized_traces(
         if temp_path and Path(temp_path).exists():
             Path(temp_path).unlink()
     return len(trace_lines)
+
+
+def _write_json_atomic(value: dict, output: str | Path) -> None:
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", newline="\n", dir=output_path.parent, delete=False
+        ) as temp:
+            json.dump(value, temp, indent=2, sort_keys=True, ensure_ascii=False)
+            temp.write("\n")
+            temp_path = temp.name
+        os.replace(temp_path, output_path)
+    finally:
+        if temp_path and Path(temp_path).exists():
+            Path(temp_path).unlink()
+
+
+def replay_evaluation(
+    dataset: EvaluationDataset,
+    observations: Mapping[str, RetrievalObservation],
+    index_manifest: EvaluationIndexManifest,
+    report_output: str | Path,
+    trace_output: str | Path,
+    run_id: str,
+    *,
+    cutoffs: Sequence[int] = DEFAULT_CUTOFFS,
+    model: str = "",
+) -> dict:
+    """Replay fixed retrieval observations against a frozen manifest.
+
+    This phase does not open the index. The manifest is still required so the
+    resulting report and traces are tied to an explicit index identity and
+    pipeline version instead of an implicit local directory.
+    """
+    if not run_id.strip():
+        raise EvaluationError("run_id must not be empty")
+    report = retrieval_report(dataset, observations, cutoffs)
+    collection_names = [collection.name for collection in index_manifest.chroma_collections]
+    report["run"] = {
+        "run_id": run_id,
+        "mode": "replay",
+        "runner_version": "r0-replay-1",
+        "model": model,
+        "index_id": index_manifest.index_id,
+        "index_manifest_sha256": index_manifest.sha256,
+        "pipeline_version": index_manifest.pipeline_version,
+        "source_fingerprints": list(index_manifest.source_fingerprints),
+        "chroma_collections": collection_names,
+    }
+    write_sanitized_traces(
+        dataset,
+        observations,
+        trace_output,
+        run_id,
+        index_manifest_sha256=index_manifest.sha256,
+        pipeline_version=index_manifest.pipeline_version,
+        source_fingerprints=index_manifest.source_fingerprints,
+        chroma_collections=collection_names,
+        model=model,
+    )
+    _write_json_atomic(report, report_output)
+    return report
