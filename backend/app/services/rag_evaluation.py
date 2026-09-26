@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+import time
 from typing import Mapping, Sequence
 
 EVALUATION_SCHEMA_VERSION = 1
@@ -993,6 +994,9 @@ def replay_evaluation(
     *,
     cutoffs: Sequence[int] = DEFAULT_CUTOFFS,
     model: str = "",
+    mode: str = "replay",
+    route_types: Mapping[str, str] | None = None,
+    timings_ms: Mapping[str, Mapping[str, int]] | None = None,
 ) -> dict:
     """Replay fixed retrieval observations against a frozen manifest.
 
@@ -1006,7 +1010,7 @@ def replay_evaluation(
     collection_names = [collection.name for collection in index_manifest.chroma_collections]
     report["run"] = {
         "run_id": run_id,
-        "mode": "replay",
+        "mode": mode,
         "runner_version": "r0-replay-1",
         "model": model,
         "index_id": index_manifest.index_id,
@@ -1025,6 +1029,76 @@ def replay_evaluation(
         source_fingerprints=index_manifest.source_fingerprints,
         chroma_collections=collection_names,
         model=model,
+        route_types=route_types,
+        timings_ms=timings_ms,
     )
     _write_json_atomic(report, report_output)
     return report
+
+
+def collect_live_retrieval(
+    dataset: EvaluationDataset,
+    *,
+    session_factory_override=None,
+    rag_service_override=None,
+    chroma_service_override=None,
+) -> tuple[dict[str, RetrievalObservation], dict[str, str], dict[str, dict[str, int]]]:
+    """Read the local SQLite/Chroma index and collect retrieval observations.
+
+    This is intentionally opt-in and read-only. Embedding calls may reach the
+    configured provider, but this function never writes the database, changes
+    the index, calls the answer model, or serializes question/source text.
+    Overrides exist so the runner can be tested without local services.
+    """
+    from app.core.config import settings
+    from app.db.session import session_factory
+    from app.services.chroma_service import get_chroma_service
+    from app.services.rag_service import _normalize_query, rag_service
+
+    factory = session_factory_override or session_factory
+    service = rag_service_override or rag_service
+    chroma = chroma_service_override or get_chroma_service()
+    observations: dict[str, RetrievalObservation] = {}
+    route_types: dict[str, str] = {}
+    timings: dict[str, dict[str, int]] = {}
+
+    with factory() as db:
+        has_data = chroma.count() > 0
+        for case in dataset.cases:
+            if case.answerability == "invalidated":
+                continue
+            started = time.perf_counter()
+            normalized = _normalize_query(case.question)
+            route_started = time.perf_counter()
+            route = service._route(normalized, has_data)
+            route_ms = int((time.perf_counter() - route_started) * 1000)
+            platform = case.scope.platform if case.scope.platform != "all" else None
+            scope_ids = None
+            if case.scope.collection_id:
+                scope_ids = service._resolve_collection_scope(db, case.scope.collection_id, platform)
+            retrieval_started = time.perf_counter()
+            hits = service._retrieve_hits_for_route(route, normalized, db, scope_ids, platform)
+            retrieval_ms = int((time.perf_counter() - retrieval_started) * 1000)
+            candidates = []
+            for index, hit in enumerate(hits):
+                chunk_id = hit.get("chunk_id")
+                if not chunk_id:
+                    raise EvaluationError(f"{case.case_id}: live retrieval result has no chunk_id")
+                candidates.append(RetrievalCandidate(
+                    chunk_id=str(chunk_id),
+                    platform=str(hit.get("platform", "douyin")),
+                    platform_item_id=str(hit["platform_item_id"]),
+                    score=float(hit.get("score", 0.0)),
+                    content_item_id=hit.get("content_item_id"),
+                ))
+            context_ids = tuple(candidate.chunk_id for candidate in candidates[: settings.rag_context_count])
+            observations[case.case_id] = RetrievalObservation(tuple(candidates), context_ids)
+            route_types[case.case_id] = route
+            timings[case.case_id] = {
+                "route": route_ms,
+                "retrieval": retrieval_ms,
+                "context": 0,
+                "generation": 0,
+                "total": int((time.perf_counter() - started) * 1000),
+            }
+    return observations, route_types, timings
