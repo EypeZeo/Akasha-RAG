@@ -7,6 +7,12 @@ import * as chatExport from '../utils/chatExport';
 import { useWorkspaceStore } from '../store/workspace';
 
 vi.mock('../api');
+
+const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+
+function waitForRealTime(milliseconds: number) {
+  return new Promise<void>(resolve => { realSetTimeout(resolve, milliseconds); });
+}
 vi.mock('../utils/chatExport');
 
 vi.mock('@tanstack/react-virtual', async () => {
@@ -158,31 +164,31 @@ afterEach(() => {
 
 describe('ChatPanel send/stream state machine', () => {
   it('1. initial send: user message renders, sources/meta land, stream completes', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     const { stream, push, end } = makeControllableStream();
     const onSelectSession = vi.fn();
     vi.mocked(api.chatAskStream).mockReturnValue(stream);
 
     await setup({ onSelectSession });
     await sendViaEnter('hello there');
-
-    expect(await screen.findByText('hello there')).toBeTruthy();
+    expect(screen.getByText('hello there')).toBeTruthy();
+    await waitFor(() => expect(api.chatAskStream).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers();
 
     await act(async () => {
       push({ _event: 'delta', text: 'Hello' });
-      await vi.advanceTimersToNextFrame();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(32);
     });
-    expect(await screen.findByText('Hello')).toBeTruthy();
+    expect(screen.getByText('Hello')).toBeTruthy();
 
     await act(async () => {
       push({ _event: 'sources', sources: [{ title: 'Doc A' }] });
       await vi.advanceTimersByTimeAsync(0);
     });
-    await waitFor(() => {
-      const rows = screen.getAllByTestId('msg-row');
-      const assistantRow = rows.find(r => r.getAttribute('data-role') === 'assistant');
-      expect(assistantRow?.getAttribute('data-sources')).toBe('1');
-    });
+    const rowsAfterSources = screen.getAllByTestId('msg-row');
+    const assistantAfterSources = rowsAfterSources.find(r => r.getAttribute('data-role') === 'assistant');
+    expect(assistantAfterSources?.getAttribute('data-sources')).toBe('1');
 
     await act(async () => {
       push({ _event: 'meta', session_id: 7, latency_ms: 120 });
@@ -194,35 +200,32 @@ describe('ChatPanel send/stream state machine', () => {
       end();
       await vi.advanceTimersByTimeAsync(0);
     });
-    await waitFor(() => {
-      const rows = screen.getAllByTestId('msg-row');
-      const assistantRow = rows.find(r => r.getAttribute('data-role') === 'assistant');
-      expect(assistantRow?.getAttribute('data-streaming')).toBe('false');
-    });
+    const rowsAfterEnd = screen.getAllByTestId('msg-row');
+    const assistantAfterEnd = rowsAfterEnd.find(r => r.getAttribute('data-role') === 'assistant');
+    expect(assistantAfterEnd?.getAttribute('data-streaming')).toBe('false');
   });
 
   it('2. delta content is batched per animation frame, not applied per SSE chunk', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     const { stream, push } = makeControllableStream();
     vi.mocked(api.chatAskStream).mockReturnValue(stream);
 
     await setup();
     await sendViaEnter('q');
+    await waitFor(() => expect(api.chatAskStream).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers();
 
-    // Asserting "content hasn't landed yet" by racing a DOM query against a
-    // fake clock proved flaky under full-suite contention — jsdom/vitest's
-    // requestAnimationFrame scheduling under `shouldAdvanceTime: true` isn't
-    // guaranteed to stay pinned at 0 elapsed time across an await boundary
-    // when real CPU scheduling is delayed. Assert the deterministic,
-    // timing-independent proof of batching instead: two delta chunks arrive
-    // before any frame is asked to elapse, but only one requestAnimationFrame
-    // call is made — the second chunk was batched into the pending buffer,
-    // not scheduled as its own flush.
+    // Two delta chunks arrive before any frame is asked to elapse, but only one
+    // requestAnimationFrame call is made: the second chunk was batched into the
+    // pending buffer, not scheduled as its own flush. Plain fake time keeps
+    // real CPU scheduling from crossing an implicit boundary.
     const rafSpy = vi.spyOn(window, 'requestAnimationFrame');
 
     await act(async () => {
       push({ _event: 'delta', text: 'He' });
       push({ _event: 'delta', text: 'llo' });
+      await Promise.resolve();
+      await waitForRealTime(40);
+      expect(screen.queryByText('Hello')).toBeNull(); // wall time alone must not flush the fake RAF
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(rafSpy).toHaveBeenCalledTimes(1);
@@ -230,11 +233,10 @@ describe('ChatPanel send/stream state machine', () => {
     await act(async () => {
       await vi.advanceTimersToNextFrame();
     });
-    expect(await screen.findByText('Hello')).toBeTruthy();
+    expect(screen.getByText('Hello')).toBeTruthy();
   });
 
   it('3. a stale generation\'s late events cannot corrupt a newer generation\'s message', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     const streamA = makeControllableStream();
     const streamB = makeControllableStream();
     vi.mocked(api.chatAskStream)
@@ -252,26 +254,32 @@ describe('ChatPanel send/stream state machine', () => {
     fireEvent.click(stopButton);
 
     await sendViaEnter('message B');
+    await waitFor(() => expect(api.chatAskStream).toHaveBeenCalledTimes(2));
+    vi.useFakeTimers();
+    await act(async () => { await Promise.resolve(); });
     await act(async () => {
       streamB.push({ _event: 'delta', text: 'B-content' });
-      await vi.advanceTimersToNextFrame();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(32);
     });
-    expect(await screen.findByText('B-content')).toBeTruthy();
+    expect(screen.getByText('B-content')).toBeTruthy();
 
     // A's mock stream deliberately never self-aborts on the signal — a late
     // event from it must be rejected by ChatPanel's own generationRef guard,
     // not by the mock stream stopping itself.
     await act(async () => {
       streamA.push({ _event: 'delta', text: 'stale' });
-      await vi.advanceTimersToNextFrame();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(32);
     });
     expect(screen.queryByText('stale')).toBeNull();
     expect(screen.queryByText(/stale/)).toBeNull();
-    expect(await screen.findByText('B-content')).toBeTruthy();
+    expect(screen.getByText('B-content')).toBeTruthy();
   });
 
   it('4. clicking Stop aborts the signal, marks the message interrupted, and blocks further updates from the aborted stream', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     const { stream, push } = makeControllableStream();
     vi.mocked(api.chatAskStream).mockReturnValue(stream);
 
@@ -283,18 +291,18 @@ describe('ChatPanel send/stream state machine', () => {
     expect(signal.aborted).toBe(false);
 
     const stopButton = await screen.findByTitle(TRANSLATIONS.en.stopTooltip);
-    fireEvent.click(stopButton);
+    await act(async () => { fireEvent.click(stopButton); });
 
     expect(signal.aborted).toBe(true);
-    await waitFor(() => {
-      const rows = screen.getAllByTestId('msg-row');
-      const assistantRow = rows.find(r => r.getAttribute('data-role') === 'assistant');
-      expect(assistantRow?.getAttribute('data-interrupted')).toBe('true');
-      expect(assistantRow?.getAttribute('data-streaming')).toBe('false');
-    });
+    const rowsAfterStop = screen.getAllByTestId('msg-row');
+    const assistantAfterStop = rowsAfterStop.find(r => r.getAttribute('data-role') === 'assistant');
+    expect(assistantAfterStop?.getAttribute('data-interrupted')).toBe('true');
+    expect(assistantAfterStop?.getAttribute('data-streaming')).toBe('false');
+    vi.useFakeTimers();
 
     await act(async () => {
       push({ _event: 'delta', text: 'late' });
+      await Promise.resolve();
       await vi.advanceTimersToNextFrame();
     });
     expect(screen.queryByText('late')).toBeNull();
@@ -433,9 +441,9 @@ describe('ChatPanel export menu', () => {
   });
 
   it('8b. the PDF menu item prints a dedicated print document holding every message, then removes it after printing', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
     const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
     await setupWithCompletedMessage();
+    vi.useFakeTimers();
 
     const exportToggle = screen.getByTitle(TRANSLATIONS.en.exportChatTooltip);
     fireEvent.click(exportToggle);

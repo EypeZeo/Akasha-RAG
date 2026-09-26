@@ -10,6 +10,11 @@ vi.mock('../api');
 
 const ACTIVE_EXPORT_KEY = 'akasha:active_export';
 const ACTIVE_BUILD_KEY = 'akasha:active_build';
+const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+
+function waitForRealTime(milliseconds: number) {
+  return new Promise<void>(resolve => { realSetTimeout(resolve, milliseconds); });
+}
 
 function makeCollection(overrides: Partial<api.CollectionItem> = {}): api.CollectionItem {
   return {
@@ -232,16 +237,20 @@ describe('SourcesPanel collections list & pagination', () => {
   });
 
   it('stops polling once collections arrive, and does not poll again afterward', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.listCollections)
       .mockResolvedValueOnce({ success: true, items: [], total: 0 }) // mount
       .mockResolvedValueOnce({ success: true, items: [], total: 0 }) // poll tick 1
       .mockResolvedValue({ success: true, items: [makeCollection({ title: 'Recovered' })], total: 1 }); // poll tick 2+
 
     setup();
-    await waitFor(() => expect(api.listCollections).toHaveBeenCalledTimes(1));
+    await act(async () => { await Promise.resolve(); });
+    expect(api.listCollections).toHaveBeenCalledTimes(1);
     const statsCallsAfterMount = vi.mocked(api.getKnowledgeStats).mock.calls.length;
     vi.mocked(api.listCollections).mockClear();
+
+    await waitForRealTime(2100);
+    expect(api.listCollections).not.toHaveBeenCalled(); // the fake clock did not auto-advance in real time
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4000); // 2 poll ticks
@@ -258,12 +267,16 @@ describe('SourcesPanel collections list & pagination', () => {
   });
 
   it('gives up self-healing after 12 attempts and stops calling the API', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.listCollections).mockResolvedValue({ success: true, items: [], total: 0 });
 
     setup();
-    await waitFor(() => expect(api.listCollections).toHaveBeenCalledTimes(1));
+    await act(async () => { await Promise.resolve(); });
+    expect(api.listCollections).toHaveBeenCalledTimes(1);
     vi.mocked(api.listCollections).mockClear();
+
+    await waitForRealTime(2100);
+    expect(api.listCollections).not.toHaveBeenCalled(); // guard against the old real-time auto-advance mode
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(24000); // 12 poll ticks
@@ -324,14 +337,14 @@ describe('SourcesPanel expanded video list & search', () => {
     clickCollection('Test Collection');
     await screen.findByText('Alpha');
 
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     const search = screen.getByPlaceholderText(TRANSLATIONS.en.searchPlaceholder);
     fireEvent.change(search, { target: { value: 'nonexistent-zzz' } });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
     });
 
-    expect(await screen.findByText(TRANSLATIONS.en.noMatchedVideos)).toBeTruthy();
+    expect(screen.getByText(TRANSLATIONS.en.noMatchedVideos)).toBeTruthy();
     expect(screen.queryByText(TRANSLATIONS.en.noVideosPleaseSync)).toBeNull();
   });
 
