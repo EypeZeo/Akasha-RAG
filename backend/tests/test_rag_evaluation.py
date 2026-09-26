@@ -7,9 +7,11 @@ from pathlib import Path
 import pytest
 
 from app.services.rag_evaluation import (
+    answer_report,
     EvaluationError,
     case_retrieval_metrics,
     load_dataset,
+    load_answer_observations,
     load_index_manifest,
     load_observations,
     ndcg_at_k,
@@ -198,3 +200,30 @@ def test_index_manifest_rejects_duplicate_platform(tmp_path):
 
     with pytest.raises(EvaluationError, match="unique"):
         load_index_manifest(path)
+
+
+def test_answer_report_calculates_citation_and_no_basis_metrics():
+    dataset = load_dataset(FIXTURES / "rag_eval_synthetic.jsonl")
+    retrieval = load_observations(FIXTURES / "rag_eval_synthetic_observations.json")
+    answers = load_answer_observations(FIXTURES / "rag_eval_synthetic_answers.json")
+
+    report = answer_report(dataset, retrieval, answers)
+
+    assert report["overall"] == {
+        "case_count": 3,
+        "answerable_case_count": 2,
+        "unanswerable_case_count": 1,
+        "claim_recall": 1.0,
+        "citation_precision": 1.0,
+        "citation_recall": 1.0,
+        "all_claims_correctly_cited_rate": 1.0,
+        "no_basis_answer_rate": 0.0,
+    }
+
+
+def test_answer_observations_reject_answer_text(tmp_path):
+    path = tmp_path / "answers.json"
+    path.write_text(json.dumps({"synthetic-001": {"claims": [], "answer": "secret"}}), encoding="utf-8")
+
+    with pytest.raises(EvaluationError, match="unknown field"):
+        load_answer_observations(path)
