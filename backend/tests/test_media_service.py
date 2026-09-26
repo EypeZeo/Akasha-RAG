@@ -31,6 +31,9 @@ def test_cleaner_protects_asr_reader_until_lease_is_released(cache):
         with media.audio_cache_lease("123"):
             assert media._active_items["123"][1] == 2
     assert "123" not in media._active_items
+    # The lease is gone, so the file may be reclaimed by age. It was written a moment ago, though, and on Windows
+    # time.time() only ticks every ~15.6 ms: "older than 0 hours" would hold only if a tick happened to pass.
+    os.utime(active, (1, 1))
     assert media.clean_audio_cache(max_age_hours=0)["deleted_files"] == 1
 
 
