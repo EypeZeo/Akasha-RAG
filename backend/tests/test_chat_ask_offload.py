@@ -38,7 +38,7 @@ async def test_ask_offloads_rag_answer(monkeypatch):
     started = threading.Event()
     gate = threading.Event()
 
-    def fake_answer(db, query, session_id, collection_id, platform=None):
+    def fake_answer(db, query, session_id, collection_id, platform=None, client_keys=None):
         started.set()
         gate.wait(timeout=5)
         return {"answer": "ok", "session_id": 1, "route_type": "chitchat", "sources": []}
@@ -51,3 +51,21 @@ async def test_ask_offloads_rag_answer(monkeypatch):
     result = await route_task
     assert result["success"] is True
     assert result["answer"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_ask_forwards_client_keys_to_non_stream_answer(monkeypatch):
+    captured = {}
+
+    def fake_answer(db, query, session_id, collection_id, platform=None, client_keys=None):
+        captured["client_keys"] = client_keys
+        return {"answer": "ok", "session_id": 1, "route_type": "direct", "sources": []}
+
+    monkeypatch.setattr(chat_module.rag_service, "answer", fake_answer)
+    result = await chat_module.chat_ask(
+        chat_module.AskRequest(query="hello", client_keys={"user": "u-1", "assistant": "a-1"}),
+        db=object(),
+    )
+
+    assert result["success"] is True
+    assert captured["client_keys"] == {"user": "u-1", "assistant": "a-1"}

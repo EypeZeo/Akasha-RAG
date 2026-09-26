@@ -74,9 +74,19 @@ async def chat_ask(
     :param db: 数据库会话
     :return: 完整回答 + 来源信息 + 会话 ID
     """
+    client_keys = body.client_keys.model_dump() if body.client_keys is not None else None
+    if client_keys is not None and body.session_id is not None:
+        if await run_in_threadpool(_client_keys_in_use, body.session_id, client_keys):
+            raise HTTPException(409, "Client message key already used in this session")
     try:
         result = await run_in_threadpool(
-            rag_service.answer, db, body.query, body.session_id, body.collection_id, platform=body.platform
+            rag_service.answer,
+            db,
+            body.query,
+            body.session_id,
+            body.collection_id,
+            platform=body.platform,
+            client_keys=client_keys,
         )
         return {"success": True, **result}
     except Exception as exc:
