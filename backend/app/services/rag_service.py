@@ -658,6 +658,7 @@ class RagService:
         session_id: int | None,
         collection_id: str | None = None,
         platform: str | None = None,
+        client_keys: dict[str, str] | None = None,
     ) -> dict:
         """
         非流式 RAG 问答
@@ -770,6 +771,7 @@ class RagService:
             ChatMessage(
                 session_id=session.id,
                 role="user",
+                client_key=(client_keys or {}).get("user"),
                 content=query,
                 route_type=route,
                 retrieved_video_ids=json.dumps(retrieved_ids),
@@ -781,6 +783,7 @@ class RagService:
             ChatMessage(
                 session_id=session.id,
                 role="assistant",
+                client_key=(client_keys or {}).get("assistant"),
                 content=answer,
                 route_type=route,
                 retrieved_video_ids=json.dumps(retrieved_ids),
