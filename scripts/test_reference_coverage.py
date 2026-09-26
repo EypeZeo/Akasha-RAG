@@ -234,8 +234,8 @@ class VerifyTests(RepoCase):
         self.assertEqual(json.loads(manifest_path.read_text(encoding="utf-8"))["reference"]["head"], self.head)
 
 
-class AnalyzeTests(RepoCase):
-    """`main` = the reference base (C0), `target` = what the audited branch looks like (C1)."""
+class AnalyzeFixture(RepoCase):
+    """`main` = the reference base (C0), `target` = what the audited branch looks like (C1). No tests of its own."""
 
     BASE_A = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu"]
 
@@ -274,6 +274,8 @@ class AnalyzeTests(RepoCase):
     def blocks(self, result, path):
         return {b["header"]: b for b in result["blocks"] if b["path"] == path}
 
+
+class AnalyzeTests(AnalyzeFixture):
     def test_counts_and_classes(self):
         result = rc.analyze(self.manifest, self.repo, "baseline")
         self.assertEqual(result["counts"], {
@@ -351,6 +353,101 @@ class AnalyzeTests(RepoCase):
             code = rc.main(["analyze", "--manifest", str(path), "--reference-root", str(self.repo),
                             "--target", "baseline"])
         self.assertEqual(code, 1)
+
+
+class DispositionTests(AnalyzeFixture):
+    """Blocks that are not simply "landed" (partial, absent, or a deletion that is still present on the target) need a
+    written disposition. The table belongs to one input (input_sha256), may only name blocks that exist, and is merged
+    into the result; `--require-dispositions` turns a missing one into a failing exit code."""
+
+    NEEDING = ("partial", "absent", "still-present", "partly-present")
+
+    def needing(self):
+        return [b["id"] for b in rc.analyze(self.manifest, self.repo, "baseline")["blocks"] if b["class"] in self.NEEDING]
+
+    def table(self, ids, **over):
+        table = {"schema": 1, "input_sha256": self.manifest["input_sha256"],
+                 "blocks": {i: {"disposition": "dropped", "reason": "not wanted"} for i in ids}}
+        table.update(over)
+        return table
+
+    def test_the_fixture_has_four_blocks_that_need_a_disposition(self):
+        self.assertEqual(len(self.needing()), 4)  # a partial, two absent (one is the untracked file), a still-present deletion
+
+    def test_dispositions_are_merged_into_the_blocks_and_counted(self):
+        ids = self.needing()
+        result = rc.analyze(self.manifest, self.repo, "baseline", dispositions=self.table(ids))
+        by_id = {b["id"]: b for b in result["blocks"]}
+        for block_id in ids:
+            self.assertEqual((by_id[block_id]["disposition"], by_id[block_id]["reason"]), ("dropped", "not wanted"))
+        self.assertEqual(result["unclassified"], [])
+        self.assertEqual(result["disposition_counts"], {"dropped": 4})
+
+    def test_blocks_without_a_disposition_are_listed_as_unclassified(self):
+        ids = self.needing()
+        result = rc.analyze(self.manifest, self.repo, "baseline", dispositions=self.table(ids[:-1]))
+        self.assertEqual(result["unclassified"], [ids[-1]])
+        without_any = rc.analyze(self.manifest, self.repo, "baseline")
+        self.assertEqual(sorted(without_any["unclassified"]), sorted(ids))
+
+    def test_a_table_made_for_another_input_is_refused(self):
+        with self.assertRaisesRegex(rc.AuditError, r"input_sha256"):
+            rc.analyze(self.manifest, self.repo, "baseline", dispositions=self.table(self.needing(), input_sha256="0" * 64))
+
+    def test_a_disposition_for_a_block_that_does_not_exist_is_refused(self):
+        with self.assertRaisesRegex(rc.AuditError, r"unknown block"):
+            rc.analyze(self.manifest, self.repo, "baseline", dispositions=self.table(self.needing() + ["nope.txt:@@ -1 +1 @@"]))
+
+    def test_only_the_known_dispositions_are_accepted(self):
+        ids = self.needing()
+        bad = self.table(ids)
+        bad["blocks"][ids[0]]["disposition"] = "whatever"
+        with self.assertRaisesRegex(rc.AuditError, r"disposition"):
+            rc.analyze(self.manifest, self.repo, "baseline", dispositions=bad)
+
+    def test_every_disposition_needs_a_reason(self):
+        ids = self.needing()
+        for reason in ("", "   ", None):
+            with self.subTest(reason=reason):
+                bad = self.table(ids)
+                bad["blocks"][ids[0]]["reason"] = reason
+                with self.assertRaisesRegex(rc.AuditError, r"reason"):
+                    rc.analyze(self.manifest, self.repo, "baseline", dispositions=bad)
+
+    def test_covered_by_names_what_covers_the_block(self):
+        ids = self.needing()
+        bad = self.table(ids)
+        bad["blocks"][ids[0]] = {"disposition": "covered-by", "reason": "fixed elsewhere"}
+        with self.assertRaisesRegex(rc.AuditError, r"ref"):
+            rc.analyze(self.manifest, self.repo, "baseline", dispositions=bad)
+        bad["blocks"][ids[0]]["ref"] = "PR #1"
+        result = rc.analyze(self.manifest, self.repo, "baseline", dispositions=bad)
+        self.assertEqual(result["disposition_counts"], {"covered-by": 1, "dropped": 3})
+
+    def write_table(self, table):
+        path = self.repo.parent / f"{self.repo.name}-dispositions.json"
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        path.write_text(json.dumps(table), encoding="utf-8")
+        manifest_path = self.repo.parent / f"{self.repo.name}-manifest-for-dispositions.json"
+        self.addCleanup(lambda: manifest_path.unlink(missing_ok=True))
+        rc.write_manifest(self.manifest, manifest_path)
+        return ["analyze", "--manifest", str(manifest_path), "--reference-root", str(self.repo), "--target", "baseline",
+                "--dispositions", str(path)]
+
+    def test_the_cli_fails_on_a_missing_disposition_only_when_asked_to(self):
+        ids = self.needing()
+        argv = self.write_table(self.table(ids[:-1]))
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(rc.main(argv), 0)
+            self.assertEqual(rc.main(argv + ["--require-dispositions"]), 1)
+        complete = self.write_table(self.table(ids))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(rc.main(complete + ["--require-dispositions"]), 0)
+
+    def test_the_cli_refuses_a_bad_table(self):
+        argv = self.write_table(self.table(self.needing(), input_sha256="0" * 64))
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(rc.main(argv), 1)
 
 
 if __name__ == "__main__":

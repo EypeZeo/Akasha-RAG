@@ -60,6 +60,9 @@ RULES = {
 
 COUNT_KEYS = ("blocks_with_added_lines", "landed", "partial", "absent", "whitespace_only", "deletion_only")
 DELETION_CLASSES = ("still-present", "partly-present", "gone", "trivial")
+# Classes that need a written decision, and the decisions a table may make.
+NEEDS_DISPOSITION = ("partial", "absent", "still-present", "partly-present")
+DISPOSITIONS = ("ported", "approved-increment", "covered-by", "dropped")
 
 
 class AuditError(Exception):
@@ -307,7 +310,30 @@ def classify_removed(removed: list, present) -> dict:
     return {"class": klass, "removed": len(checkable), "still_present": still}
 
 
-def analyze(manifest: dict, root, target: str, repo=None) -> dict:
+def validate_dispositions(table, manifest: dict, block_ids: set) -> dict:
+    """The written decisions for blocks that are not simply "landed". A table belongs to one input (`input_sha256`),
+    may only name blocks that exist, and every entry needs a known disposition and a reason."""
+    if not isinstance(table, dict) or not isinstance(table.get("blocks"), dict):
+        raise AuditError("the dispositions file must be an object with a 'blocks' object")
+    if table.get("input_sha256") != manifest["input_sha256"]:
+        raise AuditError(f"the dispositions were made for input_sha256 {table.get('input_sha256')}, "
+                         f"the manifest has {manifest['input_sha256']}")
+    problems = []
+    for block_id, entry in table["blocks"].items():
+        if block_id not in block_ids:
+            problems.append(f"unknown block id: {block_id}")
+        elif not isinstance(entry, dict) or entry.get("disposition") not in DISPOSITIONS:
+            problems.append(f"{block_id}: disposition must be one of {', '.join(DISPOSITIONS)}")
+        elif not isinstance(entry.get("reason"), str) or not entry["reason"].strip():
+            problems.append(f"{block_id}: a reason is required")
+        elif entry["disposition"] == "covered-by" and not (isinstance(entry.get("ref"), str) and entry["ref"].strip()):
+            problems.append(f"{block_id}: covered-by needs a ref naming what covers it")
+    if problems:
+        raise AuditError("the dispositions are not usable:\n  - " + "\n  - ".join(problems))
+    return table["blocks"]
+
+
+def analyze(manifest: dict, root, target: str, repo=None, dispositions=None) -> dict:
     inputs = verify_manifest(manifest, root)
     pinned = manifest["targets"]
     if target in pinned:
@@ -350,12 +376,23 @@ def analyze(manifest: dict, root, target: str, repo=None) -> dict:
     for block in blocks:
         per_file.setdefault(block["path"], {}).setdefault(block["class"], 0)
         per_file[block["path"]][block["class"]] += 1
+    table = validate_dispositions(dispositions, manifest, {b["id"] for b in blocks}) if dispositions is not None else {}
+    disposition_counts = {}
+    for block in blocks:
+        entry = table.get(block["id"])
+        if entry:
+            block["disposition"], block["reason"] = entry["disposition"], entry["reason"].strip()
+            if entry.get("ref"):
+                block["ref"] = entry["ref"].strip()
+            disposition_counts[entry["disposition"]] = disposition_counts.get(entry["disposition"], 0) + 1
+    unclassified = [b["id"] for b in blocks if b["class"] in NEEDS_DISPOSITION and "disposition" not in b]
     wanted = manifest.get("expected", {}).get(name)
     matches = None if not wanted else all(counts.get(key) == value for key, value in wanted.items())
     return {
         "schema": SCHEMA, "manifest_sha256": manifest["manifest_sha256"], "input_sha256": manifest["input_sha256"],
         "target": {"name": name, "sha": sha}, "counts": counts, "deletion_classes": deletion_classes,
-        "expected": wanted or None, "matches_expected": matches, "per_file": per_file, "blocks": blocks,
+        "expected": wanted or None, "matches_expected": matches, "per_file": per_file,
+        "disposition_counts": disposition_counts, "unclassified": unclassified, "blocks": blocks,
     }
 
 
@@ -383,6 +420,8 @@ def print_summary(result: dict) -> None:
     print(f"deletion-only blocks: {c['deletion_only']}  {result['deletion_classes']}")
     if result["expected"] is not None:
         print(f"expected {result['expected']}: {'MATCH' if result['matches_expected'] else 'MISMATCH'}")
+    print(f"dispositions {result['disposition_counts'] or 'none given'}; "
+          f"{len(result['unclassified'])} block(s) that need one have none")
 
 
 def main(argv=None) -> int:
@@ -402,6 +441,9 @@ def main(argv=None) -> int:
     p.add_argument("--reference-root", required=True)
     p.add_argument("--target", required=True)
     p.add_argument("--repo", help="repository to read target files from (default: the reference root)")
+    p.add_argument("--dispositions", help="JSON table of written decisions, keyed by block id")
+    p.add_argument("--require-dispositions", action="store_true",
+                   help="exit non-zero while a partial/absent/still-present block has no disposition")
     p.add_argument("--out")
     args = parser.parse_args(argv)
     try:
@@ -417,11 +459,15 @@ def main(argv=None) -> int:
             inputs = verify_manifest(manifest, args.reference_root)
             print(f"OK: {len(inputs['paths'])} paths, input_sha256={manifest['input_sha256']}")
             return 0
-        result = analyze(manifest, args.reference_root, args.target, args.repo)
+        table = json.loads(Path(args.dispositions).read_text(encoding="utf-8")) if args.dispositions else None
+        result = analyze(manifest, args.reference_root, args.target, args.repo, table)
         if args.out:
             Path(args.out).write_text(json.dumps(result, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
                                       encoding="utf-8", newline="\n")
         print_summary(result)
+        if args.require_dispositions and result["unclassified"]:
+            print("error: no disposition for:\n  - " + "\n  - ".join(result["unclassified"]), file=sys.stderr)
+            return 1
         return 1 if result["matches_expected"] is False else 0
     except AuditError as error:
         print(f"error: {error}", file=sys.stderr)
