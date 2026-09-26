@@ -27,6 +27,7 @@ from app.services.rag_evaluation import (  # noqa: E402
     load_dataset,
     load_observations,
     retrieval_report,
+    write_sanitized_traces,
 )
 
 
@@ -48,6 +49,16 @@ def main(argv: list[str] | None = None) -> int:
     metrics.add_argument("--observations", required=True)
     metrics.add_argument("--output")
     metrics.add_argument("--cutoff", action="append", type=int, dest="cutoffs")
+    trace = sub.add_parser("trace", help="write privacy-minimized retrieval traces")
+    trace.add_argument("--dataset", required=True)
+    trace.add_argument("--observations", required=True)
+    trace.add_argument("--output", required=True)
+    trace.add_argument("--run-id", required=True)
+    trace.add_argument("--index-manifest-sha256", required=True)
+    trace.add_argument("--pipeline-version", required=True)
+    trace.add_argument("--source-fingerprint", action="append", default=[])
+    trace.add_argument("--chroma-collection")
+    trace.add_argument("--model", default="")
     args = parser.parse_args(argv)
     try:
         dataset = load_dataset(args.dataset)
@@ -62,10 +73,24 @@ def main(argv: list[str] | None = None) -> int:
                 "case_count": len(dataset.cases),
                 "categories": dict(sorted(categories.items())),
             }, None)
-        else:
+        elif args.command == "metrics":
             observations = load_observations(args.observations)
             report = retrieval_report(dataset, observations, tuple(args.cutoffs or (1, 3, 5, 8)))
             _write_json(report, args.output)
+        else:
+            observations = load_observations(args.observations)
+            count = write_sanitized_traces(
+                dataset,
+                observations,
+                args.output,
+                args.run_id,
+                index_manifest_sha256=args.index_manifest_sha256,
+                pipeline_version=args.pipeline_version,
+                source_fingerprints=args.source_fingerprint,
+                chroma_collection=args.chroma_collection,
+                model=args.model,
+            )
+            _write_json({"written_traces": count, "output": str(Path(args.output))}, None)
         return 0
     except EvaluationError as exc:
         print(f"error: {exc}", file=sys.stderr)

@@ -12,7 +12,7 @@
 
 **Non-scope:** changing online retrieval, ranking, chunking, prompts, model selection, or index lifecycle.
 
-**Implemented in this phase:** schema validation, synthetic fixture, and deterministic retrieval/context metric calculation. Real dataset, frozen-index, trace, and model integration remain later phases.
+**Implemented in this phase:** schema validation, synthetic fixture, deterministic retrieval/context metric calculation, and a retrieval-only sanitized trace writer. Real dataset, frozen-index execution, and model integration remain later phases.
 
 ## 1. Decision summary
 
