@@ -203,6 +203,36 @@ class TestDbContentRoutingIsUnifiedAcrossAskAndStream:
 
         assert recorded_calls == ["db_content", "db_content"]
 
+    def test_online_traces_do_not_expose_retrieved_chunk_text(self, monkeypatch):
+        engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+        Base.metadata.create_all(engine)
+        factory = sessionmaker(engine, expire_on_commit=False)
+        hits = [{
+            "chunk_id": "chunk-1",
+            "platform": "douyin",
+            "platform_item_id": "item-1",
+            "content_item_id": 1,
+            "canonical_url": "https://example.test/item-1",
+            "title": "Synthetic title",
+            "score": 0.91,
+            "text": "private transcript sentence that must not enter the trace",
+        }]
+        monkeypatch.setattr(rag_module, "get_chroma_service", lambda: Mock(count=lambda: 1))
+        monkeypatch.setattr(RagService, "_retrieve_hits_for_route", lambda *a, **kw: hits)
+        monkeypatch.setattr(rag_module.llm_client, "chat", lambda **kw: "safe answer")
+        monkeypatch.setattr(rag_module.llm_client, "stream_chat", lambda **kw: (value for value in ["safe answer"]))
+
+        service = RagService()
+        with factory() as db:
+            answer_trace = service.answer(db, "question", session_id=None)["trace"]
+        with factory() as db:
+            stream_events = list(service.answer_stream(db, "question", session_id=None))
+        stream_trace = next(payload["trace"] for event, payload in stream_events if event == "meta")
+
+        for trace in (answer_trace, stream_trace):
+            assert trace["chunks"] == [{"chunk_id": "chunk-1", "title": "Synthetic title", "score": 0.91}]
+            assert all("text" not in chunk for chunk in trace["chunks"])
+
 
 class TestAnswerStreamExplicitGeneratorCleanup:
     """PR2B-5: answer_stream 必须显式 close 内层 stream_chat 生成器，不能

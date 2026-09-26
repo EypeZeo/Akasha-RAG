@@ -804,7 +804,6 @@ class RagService:
                 {
                     "chunk_id": h.get("chunk_id", ""),
                     "title": h.get("title", ""),
-                    "text": (h.get("text", "") or "")[:200],
                     "score": round(h.get("score", 0), 4),
                 }
                 for h in hits[: settings.rag_context_count]
@@ -992,7 +991,6 @@ class RagService:
                     {
                         "chunk_id": h.get("chunk_id", ""),
                         "title": h.get("title", ""),
-                        "text": (h.get("text", "") or "")[:200],
                         "score": round(h.get("score", 0), 4),
                     }
                     for h in hits[: settings.rag_context_count]

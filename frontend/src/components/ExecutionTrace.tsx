@@ -9,7 +9,6 @@ interface TraceStep {
 interface TraceChunk {
   chunk_id: string;
   title: string;
-  text: string;
   score: number;
 }
 
@@ -84,7 +83,6 @@ export default function ExecutionTrace({ trace, latency_ms }: { trace: TraceData
                       <span className="font-semibold text-[var(--color-ink)] truncate">{chunk.title}</span>
                       <span className="font-mono text-[var(--color-accent)] flex-shrink-0">{(chunk.score * 100).toFixed(0)}%</span>
                     </div>
-                    <p className="text-[var(--color-ink-muted)] mt-1 line-clamp-2 leading-relaxed">{chunk.text}</p>
                   </div>
                 ))}
               </div>
