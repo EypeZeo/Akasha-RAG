@@ -12,8 +12,10 @@ from app.services.rag_evaluation import (
     load_dataset,
     load_observations,
     ndcg_at_k,
+    privacy_hash,
     recall_at_k,
     retrieval_report,
+    write_sanitized_traces,
 )
 
 
@@ -112,3 +114,49 @@ def test_report_rejects_missing_or_unknown_observations():
     observations["unknown"] = observations["synthetic-003"]
     with pytest.raises(EvaluationError, match="unknown case ID"):
         retrieval_report(dataset, observations)
+
+
+def test_sanitized_trace_contains_no_question_or_source_text(tmp_path):
+    dataset = load_dataset(FIXTURES / "rag_eval_synthetic.jsonl")
+    observations = load_observations(FIXTURES / "rag_eval_synthetic_observations.json")
+    output = tmp_path / "traces" / "run.jsonl"
+
+    count = write_sanitized_traces(
+        dataset,
+        observations,
+        output,
+        "synthetic-run",
+        index_manifest_sha256="a" * 64,
+        pipeline_version="synthetic-pipeline-1",
+        source_fingerprints=("synthetic-source-1",),
+        chroma_collection="akasha_douyin",
+        route_types={"synthetic-001": "vector"},
+    )
+
+    assert count == 3
+    lines = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    assert len(lines) == 3
+    trace = lines[0]
+    assert trace["request"]["collection_id_hash"] is None
+    assert trace["request"]["route_type"] == "vector"
+    assert trace["retrieval"]["candidates"][0]["platform_item_id_hash"].startswith("sha256:")
+    assert trace["retrieval"]["candidates"][0]["platform_item_id_hash"] == privacy_hash("item-1")
+    serialized = output.read_text(encoding="utf-8")
+    assert "What color is the synthetic marker?" not in serialized
+    assert "The marker is blue." not in serialized
+    assert '"text"' not in serialized
+
+
+def test_trace_writer_rejects_unpinned_manifest_digest(tmp_path):
+    dataset = load_dataset(FIXTURES / "rag_eval_synthetic.jsonl")
+    observations = load_observations(FIXTURES / "rag_eval_synthetic_observations.json")
+
+    with pytest.raises(EvaluationError, match="SHA-256"):
+        write_sanitized_traces(
+            dataset,
+            observations,
+            tmp_path / "traces.jsonl",
+            "synthetic-run",
+            index_manifest_sha256="not-a-digest",
+            pipeline_version="synthetic-pipeline-1",
+        )

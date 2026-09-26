@@ -11,7 +11,10 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
+import re
+import tempfile
 from typing import Mapping, Sequence
 
 EVALUATION_SCHEMA_VERSION = 1
@@ -188,6 +191,7 @@ class RetrievalCandidate:
     platform: str
     platform_item_id: str
     score: float
+    content_item_id: int | None = None
 
     @property
     def item_key(self) -> str:
@@ -382,14 +386,17 @@ def load_dataset(path: str | Path) -> EvaluationDataset:
 
 def _parse_candidate(value: object, path: str) -> RetrievalCandidate:
     candidate = _mapping(value, path)
-    _strict_keys(candidate, path, {"chunk_id", "platform", "platform_item_id", "score"})
+    _strict_keys(candidate, path, {"chunk_id", "platform", "platform_item_id", "score"}, {"content_item_id"})
     chunk_id = _string(candidate["chunk_id"], f"{path}.chunk_id", max_length=512)
     platform = _string(candidate["platform"], f"{path}.platform", max_length=16)
     if platform not in SUPPORTED_PLATFORMS - {"all"}:
         raise _error(f"{path}.platform", "must be douyin or bilibili")
     platform_item_id = _string(candidate["platform_item_id"], f"{path}.platform_item_id", max_length=256)
     score = _number(candidate["score"], f"{path}.score")
-    return RetrievalCandidate(chunk_id, platform, platform_item_id, score)
+    content_item_id = candidate.get("content_item_id")
+    if content_item_id is not None:
+        content_item_id = _integer(content_item_id, f"{path}.content_item_id", minimum=0, maximum=2**63 - 1)
+    return RetrievalCandidate(chunk_id, platform, platform_item_id, score, content_item_id)
 
 
 def load_observations(path: str | Path) -> dict[str, RetrievalObservation]:
@@ -586,3 +593,135 @@ def retrieval_report(
         "by_category": by_category,
         "cases": case_results,
     }
+
+
+def privacy_hash(value: str) -> str:
+    """Return the stable, non-reversible identifier form used in R0 traces."""
+    return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
+
+
+def write_sanitized_traces(
+    dataset: EvaluationDataset,
+    observations: Mapping[str, RetrievalObservation],
+    output: str | Path,
+    run_id: str,
+    *,
+    index_manifest_sha256: str,
+    pipeline_version: str,
+    source_fingerprints: Sequence[str] = (),
+    chroma_collection: str | None = None,
+    requested_top_k: int = 8,
+    fetch_k: int = 32,
+    mmr_lambda: float = 0.55,
+    model: str = "",
+    route_types: Mapping[str, str] | None = None,
+    timings_ms: Mapping[str, Mapping[str, int]] | None = None,
+) -> int:
+    """Write one privacy-minimized retrieval trace per valid observed case.
+
+    The writer deliberately accepts only validated retrieval observations. It
+    never receives question text, answers, prompts, or source documents, so a
+    trace cannot accidentally serialize those fields.
+    """
+    if not run_id.strip():
+        raise EvaluationError("run_id must not be empty")
+    if not isinstance(index_manifest_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", index_manifest_sha256):
+        raise EvaluationError("index_manifest_sha256 must be a lowercase SHA-256 hex digest")
+    if not pipeline_version.strip():
+        raise EvaluationError("pipeline_version must not be empty")
+    if requested_top_k < 1 or fetch_k < 1 or not 0 <= mmr_lambda <= 1:
+        raise EvaluationError("invalid retrieval settings for trace")
+    for fingerprint in source_fingerprints:
+        if not isinstance(fingerprint, str) or not fingerprint.strip():
+            raise EvaluationError("source_fingerprints must contain non-empty strings")
+    if route_types:
+        unknown_routes = sorted(set(route_types) - dataset.case_ids)
+        if unknown_routes:
+            raise EvaluationError(f"route_types contain unknown case ID(s): {', '.join(unknown_routes)}")
+    if timings_ms:
+        unknown_timings = sorted(set(timings_ms) - dataset.case_ids)
+        if unknown_timings:
+            raise EvaluationError(f"timings_ms contain unknown case ID(s): {', '.join(unknown_timings)}")
+
+    valid_cases = [case for case in dataset.cases if case.answerability != "invalidated"]
+    missing = sorted(case.case_id for case in valid_cases if case.case_id not in observations)
+    if missing:
+        raise EvaluationError(f"observations are missing case ID(s): {', '.join(missing)}")
+    unknown = sorted(set(observations) - dataset.case_ids)
+    if unknown:
+        raise EvaluationError(f"observations contain unknown case ID(s): {', '.join(unknown)}")
+
+    trace_lines: list[str] = []
+    for case in valid_cases:
+        observation = observations[case.case_id]
+        timing = dict((timings_ms or {}).get(case.case_id, {}))
+        for name in ("route", "retrieval", "context", "generation", "total"):
+            value = timing.get(name, 0)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise EvaluationError(f"timings_ms[{case.case_id!r}].{name} must be a non-negative integer")
+            timing[name] = value
+        candidates = [
+            {
+                "rank": rank,
+                "chunk_id": candidate.chunk_id,
+                "platform": candidate.platform,
+                "platform_item_id_hash": privacy_hash(candidate.platform_item_id),
+                "content_item_id": candidate.content_item_id,
+                "score": round(candidate.score, 6),
+                "filtered": False,
+                "filter_reason": None,
+            }
+            for rank, candidate in enumerate(observation.candidates, start=1)
+        ]
+        trace = {
+            "trace_schema_version": 1,
+            "run_id": run_id,
+            "case_id": case.case_id,
+            "index": {
+                "manifest_sha256": index_manifest_sha256,
+                "pipeline_version": pipeline_version,
+                "source_fingerprints": list(source_fingerprints),
+                "chroma_collection": chroma_collection,
+            },
+            "request": {
+                "scope_platform": case.scope.platform,
+                "collection_id_hash": privacy_hash(case.scope.collection_id) if case.scope.collection_id else None,
+                "route_type": (route_types or {}).get(case.case_id, "unknown"),
+            },
+            "retrieval": {
+                "requested_top_k": requested_top_k,
+                "fetch_k": fetch_k,
+                "mmr_lambda": mmr_lambda,
+                "candidates": candidates,
+                "final_context_chunk_ids": list(observation.final_context_chunk_ids),
+                "context_truncated": False,
+            },
+            "timing_ms": timing,
+            "generation": {
+                "model": model,
+                "model_call_count": 0,
+                "context_token_estimate": 0,
+                "answer_token_estimate": 0,
+                "cancelled": False,
+                "failed": False,
+            },
+            "citations": [],
+        }
+        trace_lines.append(json.dumps(trace, sort_keys=True, ensure_ascii=False, separators=(",", ":")))
+
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", newline="\n", dir=output_path.parent, delete=False
+        ) as temp:
+            temp.write("\n".join(trace_lines))
+            if trace_lines:
+                temp.write("\n")
+            temp_path = temp.name
+        os.replace(temp_path, output_path)
+    finally:
+        if temp_path and Path(temp_path).exists():
+            Path(temp_path).unlink()
+    return len(trace_lines)
