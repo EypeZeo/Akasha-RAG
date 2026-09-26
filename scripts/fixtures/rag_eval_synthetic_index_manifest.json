@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "index_id": "synthetic-index-1",
+  "pipeline_version": "synthetic-pipeline-1",
+  "source_fingerprints": ["synthetic-source-1"],
+  "chroma_collections": [
+    {"name": "akasha_douyin", "platform": "douyin"},
+    {"name": "akasha_bilibili", "platform": "bilibili"}
+  ]
+}

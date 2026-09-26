@@ -10,11 +10,13 @@ from app.services.rag_evaluation import (
     EvaluationError,
     case_retrieval_metrics,
     load_dataset,
+    load_index_manifest,
     load_observations,
     ndcg_at_k,
     privacy_hash,
     recall_at_k,
     retrieval_report,
+    replay_evaluation,
     write_sanitized_traces,
 )
 
@@ -160,3 +162,39 @@ def test_trace_writer_rejects_unpinned_manifest_digest(tmp_path):
             index_manifest_sha256="not-a-digest",
             pipeline_version="synthetic-pipeline-1",
         )
+
+
+def test_replay_pins_index_manifest_in_report_and_trace(tmp_path):
+    dataset = load_dataset(FIXTURES / "rag_eval_synthetic.jsonl")
+    observations = load_observations(FIXTURES / "rag_eval_synthetic_observations.json")
+    manifest = load_index_manifest(FIXTURES / "rag_eval_synthetic_index_manifest.json")
+    report_path = tmp_path / "reports" / "run.json"
+    trace_path = tmp_path / "traces" / "run.jsonl"
+
+    report = replay_evaluation(dataset, observations, manifest, report_path, trace_path, "synthetic-run")
+
+    assert report["run"]["mode"] == "replay"
+    assert report["run"]["index_id"] == "synthetic-index-1"
+    assert report["run"]["index_manifest_sha256"] == manifest.sha256
+    assert report_path.exists()
+    trace = json.loads(trace_path.read_text(encoding="utf-8").splitlines()[0])
+    assert trace["index"]["manifest_sha256"] == manifest.sha256
+    assert trace["index"]["chroma_collections"] == ["akasha_douyin", "akasha_bilibili"]
+
+
+def test_index_manifest_rejects_duplicate_platform(tmp_path):
+    manifest = {
+        "schema_version": 1,
+        "index_id": "synthetic-index-1",
+        "pipeline_version": "synthetic-pipeline-1",
+        "source_fingerprints": [],
+        "chroma_collections": [
+            {"name": "one", "platform": "douyin"},
+            {"name": "two", "platform": "douyin"},
+        ],
+    }
+    path = tmp_path / "index.json"
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(EvaluationError, match="unique"):
+        load_index_manifest(path)
