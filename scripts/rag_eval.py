@@ -29,6 +29,7 @@ from app.services.rag_evaluation import (  # noqa: E402
     load_answer_observations,
     load_index_manifest,
     load_observations,
+    collect_live_retrieval,
     replay_evaluation,
     retrieval_report,
     write_sanitized_traces,
@@ -72,6 +73,16 @@ def main(argv: list[str] | None = None) -> int:
     replay.add_argument("--run-id", required=True)
     replay.add_argument("--model", default="")
     replay.add_argument("--cutoff", action="append", type=int, dest="cutoffs")
+    live = sub.add_parser("live", help="collect read-only retrieval observations from local SQLite/Chroma")
+    live.add_argument("--dataset", required=True)
+    live.add_argument("--index-manifest", required=True)
+    live.add_argument("--output", required=True)
+    live.add_argument("--trace-output", required=True)
+    live.add_argument("--run-id", required=True)
+    live.add_argument("--model", default="")
+    live.add_argument("--allow-provider-calls", action="store_true",
+                      help="required because embeddings may call the configured provider")
+    live.add_argument("--cutoff", action="append", type=int, dest="cutoffs")
     answer_metrics = sub.add_parser("answer-metrics", help="calculate human answer/citation metrics")
     answer_metrics.add_argument("--dataset", required=True)
     answer_metrics.add_argument("--observations", required=True)
@@ -113,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             observations = load_observations(args.observations)
             answers = load_answer_observations(args.answers)
             _write_json(answer_report(dataset, observations, answers), args.output)
-        else:
+        elif args.command == "replay":
             observations = load_observations(args.observations)
             index_manifest = load_index_manifest(args.index_manifest)
             report = replay_evaluation(
@@ -125,6 +136,25 @@ def main(argv: list[str] | None = None) -> int:
                 args.run_id,
                 cutoffs=tuple(args.cutoffs or (1, 3, 5, 8)),
                 model=args.model,
+            )
+            _write_json(report["run"], None)
+        else:
+            if not args.allow_provider_calls:
+                raise EvaluationError("live mode requires --allow-provider-calls")
+            index_manifest = load_index_manifest(args.index_manifest)
+            observations, routes, timings = collect_live_retrieval(dataset)
+            report = replay_evaluation(
+                dataset,
+                observations,
+                index_manifest,
+                args.output,
+                args.trace_output,
+                args.run_id,
+                cutoffs=tuple(args.cutoffs or (1, 3, 5, 8)),
+                model=args.model,
+                mode="live",
+                route_types=routes,
+                timings_ms=timings,
             )
             _write_json(report["run"], None)
         return 0

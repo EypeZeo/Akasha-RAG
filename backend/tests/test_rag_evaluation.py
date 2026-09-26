@@ -8,6 +8,7 @@ import pytest
 
 from app.services.rag_evaluation import (
     answer_report,
+    collect_live_retrieval,
     EvaluationError,
     case_retrieval_metrics,
     load_dataset,
@@ -227,3 +228,45 @@ def test_answer_observations_reject_answer_text(tmp_path):
 
     with pytest.raises(EvaluationError, match="unknown field"):
         load_answer_observations(path)
+
+
+def test_live_collection_is_read_only_and_uses_injected_services():
+    dataset = load_dataset(FIXTURES / "rag_eval_synthetic.jsonl")
+
+    class DbContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *args):
+            return False
+
+    class FakeChroma:
+        def count(self):
+            return 1
+
+    class FakeRag:
+        def _route(self, query, has_data):
+            return "vector"
+
+        def _resolve_collection_scope(self, db, collection_id, platform):
+            return None
+
+        def _retrieve_hits_for_route(self, route, query, db, scope_ids, platform):
+            return [{
+                "chunk_id": "synthetic:chunk",
+                "platform": "douyin",
+                "platform_item_id": "synthetic-item",
+                "content_item_id": 1,
+                "score": 0.8,
+            }]
+
+    observations, routes, timings = collect_live_retrieval(
+        dataset,
+        session_factory_override=lambda: DbContext(),
+        rag_service_override=FakeRag(),
+        chroma_service_override=FakeChroma(),
+    )
+
+    assert set(observations) == {"synthetic-001", "synthetic-002", "synthetic-003"}
+    assert routes == {case_id: "vector" for case_id in observations}
+    assert all(set(timing) == {"route", "retrieval", "context", "generation", "total"} for timing in timings.values())
