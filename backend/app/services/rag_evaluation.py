@@ -220,6 +220,19 @@ class RetrievalObservation:
     final_context_chunk_ids: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ClaimAnnotation:
+    claim_id: str
+    present: bool
+    cited_chunk_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AnswerObservation:
+    claims: tuple[ClaimAnnotation, ...]
+    no_basis_substantive_claim: bool | None
+
+
 def _parse_scoped_item(value: object, path: str) -> ScopedItem:
     item = _mapping(value, path)
     _strict_keys(item, path, {"platform", "platform_item_id"})
@@ -502,6 +515,49 @@ def load_observations(path: str | Path) -> dict[str, RetrievalObservation]:
     return observations
 
 
+def load_answer_observations(path: str | Path) -> dict[str, AnswerObservation]:
+    """Load human answer/citation annotations without accepting answer text."""
+    observation_path = Path(path)
+    try:
+        raw = observation_path.read_bytes()
+        value = json.loads(raw.decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise EvaluationError(f"invalid answer observations file {observation_path}: {exc}") from exc
+    root = _mapping(value, "answer_observations")
+    observations: dict[str, AnswerObservation] = {}
+    for case_id, raw_observation in root.items():
+        case_path = f"answer_observations[{case_id!r}]"
+        _string(case_id, case_path, max_length=128)
+        observation = _mapping(raw_observation, case_path)
+        _strict_keys(observation, case_path, {"claims"}, {"no_basis_substantive_claim"})
+        claims: list[ClaimAnnotation] = []
+        seen_claims: set[str] = set()
+        for index, raw_claim in enumerate(_list(observation["claims"], f"{case_path}.claims")):
+            claim_path = f"{case_path}.claims[{index}]"
+            claim = _mapping(raw_claim, claim_path)
+            _strict_keys(claim, claim_path, {"claim_id", "present", "cited_chunk_ids"})
+            claim_id = _string(claim["claim_id"], f"{claim_path}.claim_id", max_length=128)
+            if claim_id in seen_claims:
+                raise _error(f"{claim_path}.claim_id", "duplicates another claim")
+            seen_claims.add(claim_id)
+            if not isinstance(claim["present"], bool):
+                raise _error(f"{claim_path}.present", "must be a boolean")
+            cited_ids = tuple(
+                _string(chunk_id, f"{claim_path}.cited_chunk_ids[{chunk_index}]", max_length=512)
+                for chunk_index, chunk_id in enumerate(
+                    _list(claim["cited_chunk_ids"], f"{claim_path}.cited_chunk_ids")
+                )
+            )
+            if len(set(cited_ids)) != len(cited_ids):
+                raise _error(f"{claim_path}.cited_chunk_ids", "contains duplicate chunk IDs")
+            claims.append(ClaimAnnotation(claim_id, claim["present"], cited_ids))
+        substantive = observation.get("no_basis_substantive_claim")
+        if substantive is not None and not isinstance(substantive, bool):
+            raise _error(f"{case_path}.no_basis_substantive_claim", "must be a boolean")
+        observations[case_id] = AnswerObservation(tuple(claims), substantive)
+    return observations
+
+
 def _ranked_unique(values: Sequence[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -659,6 +715,116 @@ def retrieval_report(
             "context": _aggregate_group(case_results, "context"),
         },
         "by_category": by_category,
+        "cases": case_results,
+    }
+
+
+def _mean(values: Sequence[float]) -> float | None:
+    return round(sum(values) / len(values), 6) if values else None
+
+
+def answer_report(
+    dataset: EvaluationDataset,
+    retrieval_observations: Mapping[str, RetrievalObservation],
+    answer_observations: Mapping[str, AnswerObservation],
+) -> dict:
+    """Calculate human-annotation-based citation and no-basis metrics."""
+    retrieval_ids = dataset.case_ids
+    unknown_retrieval = sorted(set(retrieval_observations) - retrieval_ids)
+    unknown_answers = sorted(set(answer_observations) - retrieval_ids)
+    if unknown_retrieval:
+        raise EvaluationError(f"retrieval observations contain unknown case ID(s): {', '.join(unknown_retrieval)}")
+    if unknown_answers:
+        raise EvaluationError(f"answer observations contain unknown case ID(s): {', '.join(unknown_answers)}")
+    valid_cases = [case for case in dataset.cases if case.answerability != "invalidated"]
+    missing_retrieval = sorted(case.case_id for case in valid_cases if case.case_id not in retrieval_observations)
+    missing_answers = sorted(case.case_id for case in valid_cases if case.case_id not in answer_observations)
+    if missing_retrieval:
+        raise EvaluationError(f"retrieval observations are missing case ID(s): {', '.join(missing_retrieval)}")
+    if missing_answers:
+        raise EvaluationError(f"answer observations are missing case ID(s): {', '.join(missing_answers)}")
+
+    case_results: list[dict] = []
+    for case in valid_cases:
+        annotation = answer_observations[case.case_id]
+        if case.answerability == "unanswerable":
+            if annotation.claims:
+                raise EvaluationError(f"{case.case_id}: unanswerable case cannot annotate claims")
+            if annotation.no_basis_substantive_claim is None:
+                raise EvaluationError(f"{case.case_id}: no-basis annotation is required")
+            case_results.append({
+                "case_id": case.case_id,
+                "category": case.category,
+                "answerability": case.answerability,
+                "no_basis_substantive_claim": annotation.no_basis_substantive_claim,
+            })
+            continue
+
+        required = {claim.claim_id: claim for claim in case.gold.required_claims}
+        actual = {claim.claim_id: claim for claim in annotation.claims}
+        if set(actual) != set(required):
+            missing = sorted(set(required) - set(actual))
+            extra = sorted(set(actual) - set(required))
+            raise EvaluationError(f"{case.case_id}: claim IDs differ; missing={missing}, extra={extra}")
+        context_ids = set(retrieval_observations[case.case_id].final_context_chunk_ids)
+        valid_citations = 0
+        total_citations = 0
+        cited_claims = 0
+        present_claims = sum(annotation_claim.present for annotation_claim in annotation.claims)
+        for claim_id, annotation_claim in actual.items():
+            supporting = set(required[claim_id].supporting_chunks)
+            claim_valid = False
+            for chunk_id in annotation_claim.cited_chunk_ids:
+                total_citations += 1
+                valid = chunk_id in context_ids and chunk_id in supporting
+                valid_citations += valid
+                claim_valid = claim_valid or valid
+            cited_claims += claim_valid
+        claim_count = len(required)
+        case_results.append({
+            "case_id": case.case_id,
+            "category": case.category,
+            "answerability": case.answerability,
+            "claim_recall": present_claims / claim_count,
+            "citation_precision": valid_citations / total_citations if total_citations else 0.0,
+            "citation_recall": cited_claims / claim_count,
+            "all_claims_correctly_cited": cited_claims == claim_count,
+        })
+
+    def group_summary(results: Sequence[dict]) -> dict:
+        answerable = [result for result in results if result["answerability"] == "answerable"]
+        unanswerable = [result for result in results if result["answerability"] == "unanswerable"]
+        return {
+            "case_count": len(results),
+            "answerable_case_count": len(answerable),
+            "unanswerable_case_count": len(unanswerable),
+            "claim_recall": _mean([result["claim_recall"] for result in answerable]),
+            "citation_precision": _mean([result["citation_precision"] for result in answerable]),
+            "citation_recall": _mean([result["citation_recall"] for result in answerable]),
+            "all_claims_correctly_cited_rate": _mean(
+                [float(result["all_claims_correctly_cited"]) for result in answerable]
+            ),
+            "no_basis_answer_rate": _mean(
+                [float(result["no_basis_substantive_claim"]) for result in unanswerable]
+            ),
+        }
+
+    categories = sorted({result["category"] for result in case_results})
+    return {
+        "report_schema_version": REPORT_SCHEMA_VERSION,
+        "report_type": "r0-answer-annotations",
+        "dataset_schema_version": dataset.schema_version,
+        "dataset_sha256": dataset.sha256,
+        "case_counts": {
+            "total": len(dataset.cases),
+            "valid": len(valid_cases),
+            "invalidated": sum(case.answerability == "invalidated" for case in dataset.cases),
+        },
+        "overall": group_summary(case_results),
+        "by_category": {
+            category: group_summary([result for result in case_results if result["category"] == category])
+            for category in categories
+        },
         "cases": case_results,
     }
 
