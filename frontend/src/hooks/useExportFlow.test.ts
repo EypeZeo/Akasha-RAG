@@ -9,6 +9,12 @@ vi.mock('../api');
 const ACTIVE_EXPORT_KEY = 'akasha:active_export';
 
 const t = (key: string) => key;
+const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+
+function waitForRealTime(milliseconds: number) {
+  return new Promise<void>(resolve => { realSetTimeout(resolve, milliseconds); });
+}
+
 const deferred = <T,>() => {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>(done => { resolve = done; });
@@ -58,7 +64,7 @@ describe('useExportFlow', () => {
   });
 
   it('stops polling once dismissExportCard is called', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.useFakeTimers();
     vi.mocked(api.getExportProgress).mockResolvedValue({ success: true, status: 'running', progress: 1, total: 3 } as any);
 
     const { result } = renderHook(() => useExportFlow(t));
@@ -69,6 +75,9 @@ describe('useExportFlow', () => {
     });
     const callsAfterStart = vi.mocked(api.getExportProgress).mock.calls.length;
     expect(callsAfterStart).toBeGreaterThan(0);
+
+    await waitForRealTime(1600);
+    expect(vi.mocked(api.getExportProgress).mock.calls.length).toBe(callsAfterStart);
 
     act(() => {
       result.current.dismissExportCard();
