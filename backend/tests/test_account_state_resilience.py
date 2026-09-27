@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 
 from app.services.account_state import ensure_source_account_profile_columns
 from app.services.bilibili.client import BilibiliClient
-from app.services.douyin_collector import DouyinCollector
+from app.services.douyin_collector import DouyinCollector, _find_user_data_dir
 
 
 def test_account_profile_columns_upgrade_an_existing_sqlite_database(tmp_path):
@@ -82,3 +82,23 @@ def test_douyin_retiring_login_worker_does_not_overwrite_logout_status():
         collector._login_and_fetch_sync()
 
     assert collector.status == "idle"
+
+
+def test_douyin_prefers_profile_with_saved_state_over_empty_cwd_profile(tmp_path, monkeypatch):
+    empty_profile = tmp_path / "cwd-profile"
+    backend_profile = tmp_path / "backend" / "app" / "storage" / "playwright_user_data"
+    empty_profile.mkdir()
+    backend_profile.mkdir(parents=True)
+    (backend_profile / "state.json.dpapi").write_bytes(b"protected")
+
+    monkeypatch.setattr("app.services.douyin_collector.settings.playwright_user_data_dir", str(empty_profile))
+    monkeypatch.setattr("app.services.douyin_collector.Path.cwd", lambda: tmp_path)
+    monkeypatch.setattr(
+        "app.services.douyin_collector.__file__",
+        str(tmp_path / "backend" / "app" / "services" / "douyin_collector.py"),
+    )
+
+    # The configured path itself has no state; the implementation must not
+    # discard a persisted session merely because cwd contains a directory.
+    selected = _find_user_data_dir()
+    assert selected == backend_profile

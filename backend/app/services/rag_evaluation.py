@@ -20,6 +20,7 @@ from typing import Mapping, Sequence
 
 EVALUATION_SCHEMA_VERSION = 1
 REPORT_SCHEMA_VERSION = 1
+LOCAL_INDEX_MANIFEST_SCHEMA_VERSION = 1
 DEFAULT_CUTOFFS = (1, 3, 5, 8)
 SUPPORTED_PLATFORMS = frozenset(("all", "douyin", "bilibili"))
 SUPPORTED_CATEGORIES = frozenset(
@@ -464,6 +465,150 @@ def load_index_manifest(path: str | Path) -> EvaluationIndexManifest:
         tuple(collections),
         hashlib.sha256(raw).hexdigest(),
     )
+
+
+def local_index_preflight(*, session_factory_override=None, chroma_service_override=None) -> dict:
+    """Inspect the local index without contacting providers or writing data."""
+    from app.db.session import session_factory
+    from app.models.entities import ContentItem, ContentPart, IngestionItem
+    from app.services.chroma_service import get_chroma_service
+    from sqlalchemy import func, select
+
+    factory = session_factory_override or session_factory
+    chroma = chroma_service_override or get_chroma_service()
+    with factory() as db:
+        content_count = int(db.scalar(select(func.count()).select_from(ContentItem)) or 0)
+        active_content_count = int(
+            db.scalar(select(func.count()).select_from(ContentItem).where(ContentItem.is_active.is_(True))) or 0
+        )
+        content_part_count = int(db.scalar(select(func.count()).select_from(ContentPart)) or 0)
+        status_counts = {
+            str(status): int(count)
+            for status, count in db.execute(
+                select(IngestionItem.status, func.count()).group_by(IngestionItem.status)
+            ).all()
+        }
+        done_rows = db.execute(
+            select(
+                IngestionItem.content_item_id,
+                IngestionItem.pipeline_version,
+                IngestionItem.source_fingerprint,
+                IngestionItem.index_manifest,
+                ContentItem.platform,
+                ContentItem.remote_item_id,
+                ContentItem.canonical_url,
+                IngestionItem.transcript_text,
+            )
+            .join(ContentItem, ContentItem.id == IngestionItem.content_item_id)
+            .where(IngestionItem.status == "done", ContentItem.is_active.is_(True))
+        ).all()
+
+    pipelines = sorted({str(row[1]).strip() for row in done_rows if str(row[1]).strip()})
+    recorded_fingerprints = sorted({str(row[2]).strip() for row in done_rows if str(row[2]).strip()})
+    manifests = sorted({str(row[3]).strip() for row in done_rows if str(row[3]).strip()})
+    fingerprint_row_count = sum(bool(str(row[2]).strip()) for row in done_rows)
+    manifest_row_count = sum(bool(str(row[3]).strip()) for row in done_rows)
+    fingerprints = []
+    for row in done_rows:
+        if str(row[2]).strip():
+            fingerprints.append(str(row[2]).strip())
+            continue
+        fingerprint_input = {
+            "content_item_id": int(row[0]),
+            "platform": str(row[4]),
+            "remote_item_id": str(row[5]),
+            "canonical_url": str(row[6] or ""),
+            "pipeline_version": str(row[1]),
+            "transcript_sha256": hashlib.sha256(str(row[7] or "").encode("utf-8")).hexdigest(),
+        }
+        fingerprints.append(
+            "sha256:" + hashlib.sha256(
+                json.dumps(fingerprint_input, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+        )
+    fingerprints = sorted(set(fingerprints))
+    done_count = status_counts.get("done", 0)
+    try:
+        chroma_total = int(chroma.count())
+    except Exception:
+        chroma_total = 0
+
+    collection_counts: dict[str, int | None] = {}
+    vector_content_item_ids: set[int] = set()
+    for platform in ("douyin", "bilibili"):
+        try:
+            collection = chroma._collection_for(platform)
+            collection_counts[platform] = int(collection.count())
+            if hasattr(collection, "get"):
+                for metadata in collection.get(include=["metadatas"]).get("metadatas", []):
+                    if metadata and isinstance(metadata.get("content_item_id"), int):
+                        vector_content_item_ids.add(metadata["content_item_id"])
+        except Exception:
+            collection_counts[platform] = None
+
+    done_content_item_ids = {int(row[0]) for row in done_rows}
+    checks = {
+        "has_done_ingestion": done_count > 0,
+        "has_vectors": chroma_total > 0,
+        "vectors_belong_to_done_items": bool(vector_content_item_ids) and vector_content_item_ids <= done_content_item_ids,
+        "pipeline_version_is_pinned": len(pipelines) == 1,
+    }
+    failures = [name for name, passed in checks.items() if not passed]
+    return {
+        "ready": not failures,
+        "checks": checks,
+        "failures": failures,
+        "database": {
+            "content_items": content_count,
+            "active_content_items": active_content_count,
+            "content_parts": content_part_count,
+            "ingestion_by_status": dict(sorted(status_counts.items())),
+        },
+        "index": {
+            "done_items": done_count,
+            "pipeline_versions": pipelines,
+            "source_fingerprints": fingerprints,
+            "recorded_source_fingerprints": recorded_fingerprints,
+            "source_fingerprint_count": len(fingerprints),
+            "source_fingerprint_row_count": fingerprint_row_count,
+            "index_manifest_count": len(manifests),
+            "index_manifest_row_count": manifest_row_count,
+            "chroma_vectors": chroma_total,
+            "chroma_collection_counts": collection_counts,
+            "vector_content_item_count": len(vector_content_item_ids),
+            "done_content_item_count": len(done_content_item_ids),
+        },
+    }
+
+
+def build_local_index_manifest(
+    index_id: str,
+    *,
+    session_factory_override=None,
+    chroma_service_override=None,
+) -> dict:
+    """Build the required frozen-index manifest from local metadata only."""
+    if not isinstance(index_id, str) or not index_id.strip():
+        raise EvaluationError("index_id must not be empty")
+    preflight = local_index_preflight(
+        session_factory_override=session_factory_override,
+        chroma_service_override=chroma_service_override,
+    )
+    if not preflight["ready"]:
+        raise EvaluationError(
+            "local index preflight failed: " + ", ".join(preflight["failures"])
+        )
+    pipeline_versions = preflight["index"]["pipeline_versions"]
+    return {
+        "schema_version": LOCAL_INDEX_MANIFEST_SCHEMA_VERSION,
+        "index_id": index_id.strip(),
+        "pipeline_version": pipeline_versions[0],
+        "source_fingerprints": preflight["index"]["source_fingerprints"],
+        "chroma_collections": [
+            {"name": f"akasha_{platform}", "platform": platform}
+            for platform in ("douyin", "bilibili")
+        ],
+    }
 
 
 def _parse_candidate(value: object, path: str) -> RetrievalCandidate:
@@ -1034,6 +1179,63 @@ def replay_evaluation(
     )
     _write_json_atomic(report, report_output)
     return report
+
+
+def write_markdown_summary(report: Mapping, output: str | Path) -> None:
+    """Write a privacy-safe human-readable projection of a JSON evaluation report."""
+    run = report.get("run") or {}
+    counts = report.get("case_counts") or {}
+    overall = report.get("overall") or {}
+
+    def metric_row(name: str, value: object) -> str:
+        return f"| {name} | {value if value is not None else 'unavailable'} |"
+
+    lines = [
+        "# R0 Evaluation Summary",
+        "",
+        "This report contains aggregate metrics and case IDs only. Questions, answers, source text, and secrets are excluded.",
+        "",
+        "## Run",
+        "",
+        f"| Field | Value |",
+        "| --- | --- |",
+    ]
+    for key in (
+        "run_id", "mode", "runner_version", "model", "index_id",
+        "index_manifest_sha256", "pipeline_version",
+    ):
+        lines.append(metric_row(key, run.get(key, "")))
+    lines.extend([
+        "",
+        "## Cases",
+        "",
+        "| Field | Value |",
+        "| --- | --- |",
+        metric_row("total", counts.get("total")),
+        metric_row("valid", counts.get("valid")),
+        metric_row("invalidated", counts.get("invalidated")),
+        metric_row("by category", counts.get("by_category", {})),
+        metric_row("by answerability", counts.get("by_answerability", {})),
+        "",
+        "## Retrieval",
+        "",
+        "| Group | Metrics |",
+        "| --- | --- |",
+    ])
+    for group in ("chunk", "item", "context"):
+        lines.append(metric_row(group, overall.get(group)))
+    lines.extend([
+        "",
+        "## Privacy",
+        "",
+        "- The JSON report is authoritative; this file is a generated review projection.",
+        "- Traces must remain in the approved private evaluation directory.",
+        "- Answer, citation, latency, token, and model-call metrics are unavailable until the corresponding observations are collected.",
+        "",
+    ])
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
 
 def collect_live_retrieval(

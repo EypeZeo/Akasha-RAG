@@ -5,6 +5,7 @@ import logging
 import sys
 import threading
 import time
+from pathlib import Path
 from typing import Iterable
 
 from app.core.config import settings
@@ -19,6 +20,15 @@ _write_lock = threading.RLock()
 _init_lock = threading.Lock()
 
 
+def _resolve_persist_dir(raw_path: str) -> str:
+    """Resolve storage relative to the backend package, independent of cwd."""
+    path = Path(raw_path)
+    if path.is_absolute():
+        return str(path)
+    backend_root = Path(__file__).resolve().parents[2]
+    return str(backend_root / path)
+
+
 class ChromaService:
     """Store each supported provider in its own durable Chroma collection."""
 
@@ -26,7 +36,7 @@ class ChromaService:
         if sys.version_info >= (3, 14):
             raise RuntimeError("ChromaDB 当前不兼容 Python 3.14，请使用 Python 3.12")
         import chromadb
-        self._client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
+        self._client = chromadb.PersistentClient(path=_resolve_persist_dir(settings.chroma_persist_dir))
         with _write_lock:
             self._collections = {platform: self._create_collection(platform) for platform in SUPPORTED_PLATFORMS}
         logger.info("ChromaDB 初始化完成: %s (%s)", settings.chroma_persist_dir,
