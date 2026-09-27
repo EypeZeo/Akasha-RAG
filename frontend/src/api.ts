@@ -167,7 +167,8 @@ export async function listCollections(platform?: string, signal?: AbortSignal): 
 }
 
 export async function listCollectionVideos(
-  collectionId: string, page = 1, size = 20, platform?: string, cursor?: string
+  collectionId: string, page = 1, size = 20, platform?: string, cursor?: string,
+  status: 'all' | 'pending' | 'done' | 'failed' | 'downloading' | 'transcribing' = 'all',
 ): Promise<{
   success: boolean;
   items: VideoItem[];
@@ -176,10 +177,12 @@ export async function listCollectionVideos(
   note_count?: number;
   next_cursor?: string | null;
   has_more?: boolean;
+  status_counts?: Record<string, number>;
 }> {
   const pQuery = platform && platform !== 'all' ? `&platform=${platform}` : '';
   const cQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
-  return request(`/favorites/collections/${collectionId}/videos?page=${page}&size=${size}${pQuery}${cQuery}`);
+  const sQuery = status !== 'all' ? `&status=${status}` : '';
+  return request(`/favorites/collections/${collectionId}/videos?page=${page}&size=${size}${pQuery}${cQuery}${sQuery}`);
 }
 
 // ---- Knowledge ----

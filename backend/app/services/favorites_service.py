@@ -762,7 +762,9 @@ class FavoritesService:
         size: int = 30,
         platform: Optional[str] = None,
         cursor: Optional[str] = None,
-    ) -> tuple[list[dict], int, str | None, bool]:
+        status: Optional[str] = None,
+        include_status_counts: bool = False,
+    ) -> tuple[list[dict], int, str | None, bool] | tuple[list[dict], int, str | None, bool, dict[str, int]]:
         """
         分页获取视频列表（基于数据库直接分页，杜绝内存泄漏）
         """
@@ -784,6 +786,10 @@ class FavoritesService:
                 next_cursor = self._encode_list_cursor(rows[-1][0].id)
             return rows, next_cursor, has_more
 
+        allowed_statuses = {"pending", "done", "failed", "downloading", "transcribing"}
+        if status and status != "all" and status not in allowed_statuses:
+            raise ValueError("不支持的入库状态")
+
         if collection_id == ALL_COLLECTION_ID:
             base_stmt = (
                 select(ContentItem, IngestionItem.status, IngestionItem.error_message)
@@ -796,10 +802,25 @@ class FavoritesService:
                 base_stmt = base_stmt.where(ContentItem.platform == platform)
                 count_stmt = count_stmt.where(ContentItem.platform == platform)
 
+            if status and status != "all":
+                base_stmt = base_stmt.where(IngestionItem.status == status)
+                count_stmt = count_stmt.outerjoin(IngestionItem, IngestionItem.content_item_id == ContentItem.id)
+                count_stmt = count_stmt.where(IngestionItem.status == status)
+
             total = db.scalar(count_stmt) or 0
             rows, next_cursor, has_more = page_rows(base_stmt)
 
-            return (
+            status_count_stmt = (
+                select(IngestionItem.status, func.count(ContentItem.id))
+                .select_from(ContentItem)
+                .outerjoin(IngestionItem, IngestionItem.content_item_id == ContentItem.id)
+                .where(ContentItem.is_active.is_(True))
+            )
+            if platform and platform != "all":
+                status_count_stmt = status_count_stmt.where(ContentItem.platform == platform)
+            status_rows = db.execute(status_count_stmt.group_by(IngestionItem.status)).all()
+
+            result = (
                 [
                     self._to_video_dict(row, status or "pending", ALL_COLLECTION_ID, err_msg or "")
                     for row, status, err_msg in rows
@@ -808,11 +829,15 @@ class FavoritesService:
                 next_cursor,
                 has_more,
             )
+            if include_status_counts:
+                return (*result, {str(row[0] or "pending"): int(row[1]) for row in status_rows})
+            return result
 
         # 指定收藏夹
         collection = resolve_collection(db, collection_id, platform)
         if collection is None:
-            return [], 0, None, False
+            empty_result = ([], 0, None, False)
+            return (*empty_result, {}) if include_status_counts else empty_result
 
         base_stmt = (
             select(ContentItem, IngestionItem.status, IngestionItem.error_message)
@@ -834,9 +859,29 @@ class FavoritesService:
             )
         )
         total = db.scalar(count_stmt) or 0
+        if status and status != "all":
+            base_stmt = base_stmt.where(IngestionItem.status == status)
+            count_stmt = count_stmt.outerjoin(IngestionItem, IngestionItem.content_item_id == ContentItem.id)
+            count_stmt = count_stmt.where(IngestionItem.status == status)
+            total = db.scalar(count_stmt) or 0
         rows, next_cursor, has_more = page_rows(base_stmt)
 
-        return (
+        status_count_stmt = (
+            select(IngestionItem.status, func.count(ContentItem.id))
+            .select_from(ContentItem)
+            .join(CollectionItemRelation, CollectionItemRelation.content_item_id == ContentItem.id)
+            .outerjoin(IngestionItem, IngestionItem.content_item_id == ContentItem.id)
+            .where(
+                CollectionItemRelation.collection_id == collection.id,
+                CollectionItemRelation.is_active.is_(True),
+                ContentItem.is_active.is_(True),
+            )
+        )
+        if platform and platform != "all":
+            status_count_stmt = status_count_stmt.where(ContentItem.platform == platform)
+        status_rows = db.execute(status_count_stmt.group_by(IngestionItem.status)).all()
+
+        result = (
             [
                 self._to_video_dict(row, status or "pending", collection_id, err_msg or "")
                 for row, status, err_msg in rows
@@ -845,12 +890,16 @@ class FavoritesService:
             next_cursor,
             has_more,
         )
+        if include_status_counts:
+            return (*result, {str(row[0] or "pending"): int(row[1]) for row in status_rows})
+        return result
 
     def count_videos_by_kind(
         self,
         db: Session,
         collection_id: str = ALL_COLLECTION_ID,
         platform: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> tuple[int, int]:
         """
         统计某收藏夹范围内的 视频 / 图文 数量（整栏口径，不受分页影响）。
@@ -859,7 +908,11 @@ class FavoritesService:
         返回 (video_count, note_count)。
         """
         if collection_id == ALL_COLLECTION_ID:
-            base = select(ContentItem.id, ContentItem.duration).where(ContentItem.is_active.is_(True))
+            base = (
+                select(ContentItem.id, ContentItem.duration)
+                .outerjoin(IngestionItem, IngestionItem.content_item_id == ContentItem.id)
+                .where(ContentItem.is_active.is_(True))
+            )
             if platform and platform != "all":
                 base = base.where(ContentItem.platform == platform)
         else:
@@ -873,12 +926,16 @@ class FavoritesService:
                     CollectionItemRelation,
                     CollectionItemRelation.content_item_id == ContentItem.id,
                 )
+                .outerjoin(IngestionItem, IngestionItem.content_item_id == ContentItem.id)
                 .where(
                     CollectionItemRelation.collection_id == col_pk,
                     CollectionItemRelation.is_active.is_(True),
                     ContentItem.is_active.is_(True),
                 )
             )
+
+        if status and status != "all":
+            base = base.where(IngestionItem.status == status)
 
         # One conditional-aggregate query instead of two separate COUNTs
         # over the same base filter (same pattern as list_pending_items).

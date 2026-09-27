@@ -155,6 +155,20 @@ def test_selected_retry_only_resets_the_requested_failure(pipeline):
     assert pipeline.cached("1003").status == "transcribing"
 
 
+def test_all_scope_includes_failed_items_and_resets_only_selected_rows(pipeline):
+    pipeline.add("1001", status="pending")
+    pipeline.add("1002", status="failed")
+    pipeline.add("1003", status="done", transcript="已经完成的正文，不应再次排队。")
+
+    with pipeline.factory() as db:
+        result = pipeline.service.start_sync(db, scope="all")
+
+    assert result["pending_count"] == 2
+    assert pipeline.cached("1001").status == "pending"
+    assert pipeline.cached("1002").status == "pending"
+    assert pipeline.cached("1003").status == "done"
+
+
 def test_embedding_failure_preserves_asr_checkpoint_for_retry(pipeline):
     pipeline.add()
     pipeline.embedding.side_effect = RuntimeError("embedding unavailable")

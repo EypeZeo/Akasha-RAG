@@ -15,10 +15,15 @@ export const COLLECTIONS_PER_PAGE_OPTIONS = [5, 8, 10, 15, 20, 0] as const;
 export const VIDEOS_PER_PAGE_OPTIONS = [10, 20, 50, 100] as const;
 export const ACTIVITY_BAR_POSITIONS = ['left', 'top', 'right', 'bottom'] as const;
 export type ActivityBarPosition = (typeof ACTIVITY_BAR_POSITIONS)[number];
+export const COLLECTION_EXPAND_MODES = ['anywhere', 'chevron'] as const;
+export type CollectionExpandMode = (typeof COLLECTION_EXPAND_MODES)[number];
 
 export const DEFAULT_COLLECTIONS_PER_PAGE = 8;
 export const DEFAULT_VIDEOS_PER_PAGE = 20;
 export const DEFAULT_ACTIVITY_BAR_POSITION: ActivityBarPosition = 'left';
+export const DEFAULT_COLLECTION_EXPAND_MODE: CollectionExpandMode = 'anywhere';
+export const STATUS_FILTER_ENABLED = [0, 1] as const;
+export const DEFAULT_STATUS_FILTER_ENABLED = 1;
 
 export const THEME_OPTIONS = ['dawn', 'midnight', 'ocean', 'forest'] as const;
 export type ThemeId = (typeof THEME_OPTIONS)[number];

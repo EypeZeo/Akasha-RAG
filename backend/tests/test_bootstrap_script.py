@@ -101,6 +101,14 @@ def test_start_bat_prepends_the_recorded_node_directory():
     assert "set \"PATH=" in source, "start.bat no longer prepends Node to PATH"
 
 
+def test_start_bat_shows_release_version_and_launches_this_checkout():
+    source = START_BAT.read_text(encoding="utf-8", errors="replace")
+    assert "%PROJECT_ROOT%version.txt" in source
+    assert "title Akasha-RAG %APP_VERSION%" in source
+    assert '"%PROJECT_ROOT%launcher.py"' in source
+    assert 'set "BACKEND_PY=%PROJECT_ROOT%backend\\.venv\\Scripts\\python.exe"' in source
+
+
 def test_bootstrap_records_the_node_directory(bootstrap_source):
     assert "node-dir.txt" in bootstrap_source, (
         "bootstrap.ps1 must record the selected Node directory for start.bat"

@@ -189,6 +189,7 @@ async def list_collection_videos(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=2000),
     cursor: str | None = Query(None, description="基于不可变本地 ID 的不透明游标"),
+    status: Literal["all", "pending", "done", "failed", "downloading", "transcribing"] = Query("all"),
     db: Session = Depends(get_db),
 ):
     """
@@ -202,15 +203,16 @@ async def list_collection_videos(
     :return: 分页内容列表
     """
     try:
-        items, total, next_cursor, has_more = favorites_service.list_collection_videos(
-            db, collection_id, page=page, size=size, platform=platform, cursor=cursor
+        items, total, next_cursor, has_more, status_counts = favorites_service.list_collection_videos(
+            db, collection_id, page=page, size=size, platform=platform, cursor=cursor, status=status,
+            include_status_counts=True,
         )
     except AmbiguousCollectionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:  # e.g. an invalid cursor
         return {"success": False, "message": str(exc), "items": [], "total": 0}
     video_count, note_count = favorites_service.count_videos_by_kind(
-        db, collection_id, platform=platform
+        db, collection_id, platform=platform, status=status
     )
     return {
         "success": True,
@@ -222,4 +224,5 @@ async def list_collection_videos(
         "size": size,
         "next_cursor": next_cursor,
         "has_more": has_more,
+        "status_counts": status_counts,
     }

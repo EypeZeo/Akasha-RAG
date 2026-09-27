@@ -2,12 +2,15 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import SourcesPanel from './SourcesPanel';
 import { useI18n } from '../i18n';
 import { useWorkspaceStore } from '../store/workspace';
+import type { CollectionExpandMode } from '../utils/settings';
 
 interface Props {
   onBuildDone: () => void;
   statsRefreshKey: number;
   collectionsPerPage: number;
   videosPerPage: number;
+  statusFilterEnabled?: boolean;
+  collectionExpandMode?: CollectionExpandMode;
   onOpenSettings: () => void;
 }
 
@@ -21,6 +24,8 @@ export default function SourcesStudio({
   statsRefreshKey,
   collectionsPerPage,
   videosPerPage,
+  statusFilterEnabled = true,
+  collectionExpandMode = 'anywhere',
   onOpenSettings,
 }: Props) {
   const { t } = useI18n();
@@ -68,6 +73,8 @@ export default function SourcesStudio({
           statsRefreshKey={statsRefreshKey}
           collectionsPerPage={collectionsPerPage}
           videosPerPage={videosPerPage}
+          statusFilterEnabled={statusFilterEnabled}
+          collectionExpandMode={collectionExpandMode}
           onOpenSettings={onOpenSettings}
         />
       </aside>

@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     """DashScope API Key，用于 ASR 语音转写和 Embedding 向量化"""
 
     # ===== LLM 配置 =====
-    llm_model: str = "deepseek-chat"
+    llm_model: str = "deepseek-flash"
     """LLM 模型名称"""
 
     llm_base_url: str = "https://api.deepseek.com"

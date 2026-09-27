@@ -13,8 +13,9 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
+import httpx
 from yt_dlp import YoutubeDL
 
 from app.core.config import settings
@@ -177,6 +178,110 @@ def _run_media_tool(command: list[str], timeout: float) -> subprocess.CompletedP
                           creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
 
 
+_MEDIA_EXTENSIONS = {".aac", ".m4a", ".mp3", ".mp4", ".ogg", ".wav", ".webm"}
+_MAX_MEDIA_BYTES = 256 * 1048576
+_MAX_MEDIA_DOWNLOAD_SECONDS = 240
+
+
+def _download_verified_media(
+    media_url: str,
+    headers: dict[str, str],
+    cookies: list[dict] | None,
+    destination: Path,
+) -> Path:
+    """Stream a browser-verified media URL when yt-dlp cannot fetch it.
+
+    The browser resolver has already verified that this URL belongs to the
+    requested Douyin item.  A small httpx stream is useful for signed CDN URLs:
+    it avoids sending an already-resolved URL through yt-dlp's extractor and
+    keeps the same browser headers/cookies.  This is a transport fallback, not
+    a second extractor.
+    """
+    proxy = detect_network_proxy()
+    proxy_scheme = urlsplit(proxy).scheme.lower() if proxy else ""
+    if proxy and proxy_scheme not in {"http", "https"}:
+        raise MediaPipelineError("备用媒体传输不支持当前代理协议")
+    stream_proxy = proxy
+    from app.services.douyin_media_resolver import is_allowed_media_url
+
+    if not is_allowed_media_url(media_url):
+        raise MediaPipelineError("备用媒体地址不在允许的抖音媒体域名范围内")
+    cookie_values = {
+        str(cookie.get("name")): str(cookie.get("value") or "")
+        for cookie in (cookies or [])
+        if isinstance(cookie, dict) and cookie.get("name")
+    }
+    request_headers = {
+        str(key): str(value)
+        for key, value in headers.items()
+        if str(key).casefold() != "cookie"
+    }
+    request_headers.setdefault("Accept", "*/*")
+    extension = Path(urlsplit(media_url).path).suffix.lower()
+    if extension not in _MEDIA_EXTENSIONS:
+        extension = ".mp4"
+    target = destination.with_suffix(extension)
+    partial = target.with_suffix(target.suffix + ".part")
+    partial.unlink(missing_ok=True)
+
+    initial_host = urlsplit(media_url).hostname
+    current_url = media_url
+    download_started = time.monotonic()
+    try:
+        timeout = httpx.Timeout(45.0, connect=20.0)
+        with httpx.Client(
+            proxy=stream_proxy,
+            follow_redirects=False,
+            timeout=timeout,
+            trust_env=False,
+        ) as client:
+            for redirect_count in range(6):
+                current_host = urlsplit(current_url).hostname
+                request_cookies = cookie_values if current_host == initial_host else {}
+                with client.stream(
+                    "GET", current_url, headers=request_headers, cookies=request_cookies,
+                ) as response:
+                    if response.status_code in {301, 302, 303, 307, 308}:
+                        location = response.headers.get("location")
+                        redirected_url = urljoin(current_url, location or "")
+                        if (redirect_count == 5 or not location
+                                or not is_allowed_media_url(redirected_url)):
+                            raise MediaPipelineError("媒体地址重定向超出允许范围")
+                        current_url = redirected_url
+                        continue
+                    response.raise_for_status()
+                    content_type = response.headers.get("content-type", "").casefold()
+                    if "text/" in content_type or "mpegurl" in content_type:
+                        raise MediaPipelineError("媒体地址返回了播放列表而不是媒体文件")
+                    content_length = response.headers.get("content-length")
+                    if content_length and int(content_length) > _MAX_MEDIA_BYTES:
+                        raise MediaPipelineError("媒体文件超过 256 MB 大小上限")
+                    written = 0
+                    with partial.open("wb") as output:
+                        for chunk in response.iter_bytes(64 * 1024):
+                            if time.monotonic() - download_started > _MAX_MEDIA_DOWNLOAD_SECONDS:
+                                raise MediaPipelineError("备用媒体下载超过 240 秒时限")
+                            written += len(chunk)
+                            if written > _MAX_MEDIA_BYTES:
+                                raise MediaPipelineError("媒体下载超过 256 MB 大小上限")
+                            output.write(chunk)
+                break
+            else:
+                raise MediaPipelineError("媒体地址重定向超过最大次数")
+    except MediaPipelineError:
+        partial.unlink(missing_ok=True)
+        raise
+    except (httpx.HTTPError, OSError, ValueError) as exc:
+        partial.unlink(missing_ok=True)
+        raise MediaPipelineError(f"备用媒体传输失败 ({type(exc).__name__})") from None
+
+    if written < 128:
+        partial.unlink(missing_ok=True)
+        raise MediaPipelineError("备用媒体传输返回空文件")
+    partial.replace(target)
+    return target
+
+
 def _valid_mp3(path: Path, ffmpeg: str) -> bool:
     if not path.is_file() or path.stat().st_size < 128:
         return False
@@ -275,6 +380,7 @@ def _download_raw(video_url: str, item_id: str, work_dir: Path, ffmpeg: str) -> 
             fallback_error = None
             for attempt in range(2):
                 budget_start[0] = time.monotonic()
+                media = None
                 try:
                     media = resolve_douyin_media(item_id)
                     options["outtmpl"] = str(work_dir / "browser.%(ext)s")
@@ -289,6 +395,18 @@ def _download_raw(video_url: str, item_id: str, work_dir: Path, ffmpeg: str) -> 
                     break
                 except Exception as error:
                     fallback_error = error
+                    if media is not None:
+                        try:
+                            _download_verified_media(
+                                media["url"],
+                                media.get("http_headers", {}),
+                                media.get("cookies", []),
+                                work_dir / "browser",
+                            )
+                            fallback_error = None
+                            break
+                        except Exception as stream_error:
+                            fallback_error = stream_error
                     if attempt == 0:
                         logger.info("浏览器媒体兜底第 1 次失败 [%s]，1.5 秒后重试", item_id)
                         time.sleep(1.5)

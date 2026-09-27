@@ -149,6 +149,194 @@ def test_fresh_cookie_error_uses_verified_media_and_isolated_cookiefile(cache, m
     assert "Cookie" not in options_seen[1]["http_headers"]
 
 
+def test_verified_media_stream_fallback_uses_proxy_and_publishes_complete_file(tmp_path, monkeypatch):
+    seen = {}
+
+    class Response:
+        status_code = 200
+        headers = {"content-length": "256", "content-type": "video/mp4"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def raise_for_status(self):
+            return None
+
+        def iter_bytes(self, _chunk_size):
+            return iter([b"x" * 256])
+
+    class Client:
+        def __init__(self, **kwargs):
+            seen["client"] = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def stream(self, method, url, **kwargs):
+            seen["request"] = (method, url, kwargs)
+            return Response()
+
+    monkeypatch.setattr(media.httpx, "Client", Client)
+    monkeypatch.setattr(media, "detect_network_proxy", lambda: "http://127.0.0.1:7890")
+
+    result = media._download_verified_media(
+        "https://v.douyinvod.com/signed/media.mp4",
+        {"Referer": "https://www.douyin.com/video/123"},
+        [{"name": "sessionid", "value": "secret"}],
+        tmp_path / "browser",
+    )
+
+    assert result.name == "browser.mp4"
+    assert result.read_bytes() == b"x" * 256
+    assert seen["client"]["proxy"] == "http://127.0.0.1:7890"
+    assert seen["request"][0] == "GET"
+    assert seen["request"][2]["cookies"] == {"sessionid": "secret"}
+
+
+def test_verified_media_stream_fallback_does_not_bypass_socks_proxy(tmp_path, monkeypatch):
+    monkeypatch.setattr(media, "detect_network_proxy", lambda: "socks5://127.0.0.1:1080")
+    monkeypatch.setattr(media.httpx, "Client", lambda **_: pytest.fail("must not connect directly"))
+    with pytest.raises(media.MediaPipelineError, match="不支持当前代理协议"):
+        media._download_verified_media(
+            "https://v.douyinvod.com/media.mp4", {}, [], tmp_path / "browser",
+        )
+
+
+def test_verified_media_stream_restricts_redirect_domains_and_drops_cross_host_cookies(tmp_path, monkeypatch):
+    requests = []
+
+    class Response:
+        def __init__(self, status_code, headers):
+            self.status_code = status_code
+            self.headers = headers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def raise_for_status(self):
+            return None
+
+        def iter_bytes(self, _chunk_size):
+            return iter([b"m" * 256])
+
+    class Client:
+        def __init__(self, **kwargs):
+            assert kwargs["follow_redirects"] is False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def stream(self, method, url, **kwargs):
+            requests.append((url, kwargs["cookies"]))
+            if len(requests) == 1:
+                return Response(302, {"location": "https://pstatp.com/media.mp4"})
+            return Response(200, {"content-type": "video/mp4"})
+
+    monkeypatch.setattr(media.httpx, "Client", Client)
+    monkeypatch.setattr(media, "detect_network_proxy", lambda: None)
+
+    result = media._download_verified_media(
+        "https://v.douyinvod.com/media.mp4", {},
+        [{"name": "sessionid", "value": "secret"}], tmp_path / "browser",
+    )
+
+    assert result.read_bytes() == b"m" * 256
+    assert requests == [
+        ("https://v.douyinvod.com/media.mp4", {"sessionid": "secret"}),
+        ("https://pstatp.com/media.mp4", {}),
+    ]
+
+
+def test_verified_media_stream_rejects_untrusted_redirect_before_following(tmp_path, monkeypatch):
+    requests = []
+
+    class Response:
+        status_code = 302
+        headers = {"location": "https://attacker.example/collect"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def stream(self, method, url, **kwargs):
+            requests.append(url)
+            return Response()
+
+    monkeypatch.setattr(media.httpx, "Client", Client)
+    monkeypatch.setattr(media, "detect_network_proxy", lambda: None)
+
+    with pytest.raises(media.MediaPipelineError, match="重定向超出允许范围"):
+        media._download_verified_media(
+            "https://v.douyinvod.com/media.mp4", {},
+            [{"name": "sessionid", "value": "secret"}], tmp_path / "browser",
+        )
+
+    assert requests == ["https://v.douyinvod.com/media.mp4"]
+    assert not list(tmp_path.glob("browser.*"))
+
+
+def test_browser_fallback_streams_verified_media_after_ytdlp_rejects_cdn_url(cache, monkeypatch):
+    from app.services import douyin_media_resolver as resolver
+
+    monkeypatch.setattr(resolver, "resolve_douyin_media", lambda _: {
+        "url": "https://v.douyinvod.com/media.mp4",
+        "http_headers": {"User-Agent": "browser"},
+        "cookies": [],
+    })
+    streamed = []
+
+    class YDL:
+        def __init__(self, options):
+            self.options = options
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def extract_info(self, url, download):
+            raise RuntimeError(f"rejected {url}")
+
+    def stream(url, headers, cookies, destination):
+        streamed.append((url, headers, cookies))
+        result = destination.with_suffix(".mp4")
+        result.write_bytes(b"complete media")
+        return result
+
+    monkeypatch.setattr(media, "YoutubeDL", YDL)
+    monkeypatch.setattr(media, "_download_verified_media", stream)
+
+    result = media._download_raw("https://www.douyin.com/video/123", "123", cache, "ffmpeg")
+
+    assert result.name == "browser.mp4"
+    assert streamed == [("https://v.douyinvod.com/media.mp4", {"User-Agent": "browser"}, [])]
+
+
 @pytest.mark.parametrize("item", ["../123", "123/456", "123*", ""])
 def test_invalid_ids_cannot_escape_cache_directory(cache, item):
     with pytest.raises(media.MediaPipelineError):

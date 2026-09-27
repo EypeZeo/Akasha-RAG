@@ -79,7 +79,7 @@ class KnowledgeService:
         if scope == "selected" and not selected_ids:
             return {"task_id": None, "pending_count": 0, "message": "未选择待入库内容"}
 
-        eligible_statuses = ("pending", "failed") if scope == "selected" else ("pending",)
+        eligible_statuses = ("pending", "failed")
         query = (
             select(ContentItem.id)
             .join(IngestionItem, IngestionItem.content_item_id == ContentItem.id)
@@ -156,17 +156,16 @@ class KnowledgeService:
                 "message": f"没有待入库的{type_label}，请先同步收藏夹",
             }
 
-        if scope == "selected":
-            # The existing single-item retry button must only reset its explicit
-            # failed IDs, never unrelated failures or an in-flight item.
-            target_ids = pending_ids
-            if target_ids:
-                db.execute(
-                    update(IngestionItem)
-                    .where(IngestionItem.content_item_id.in_(target_ids), IngestionItem.status == "failed")
-                    .values(status="pending", error_message="")
-                )
-                db.commit()
+        # The worker only claims pending rows. Failed rows are included in the
+        # selection above so a retry can be scoped the same way as a first run;
+        # reset only the rows selected by this request.
+        if pending_ids:
+            db.execute(
+                update(IngestionItem)
+                .where(IngestionItem.content_item_id.in_(pending_ids), IngestionItem.status == "failed")
+                .values(status="pending", error_message="")
+            )
+            db.commit()
 
         task_id = str(uuid.uuid4())[:8]
         worker.submit(
@@ -771,7 +770,7 @@ class KnowledgeService:
                 IngestionItem.content_item_id == ContentItem.id,
             )
             .where(
-                IngestionItem.status == "pending",
+                IngestionItem.status.in_(("pending", "failed")),
                 ContentItem.is_active.is_(True),
             )
         )
