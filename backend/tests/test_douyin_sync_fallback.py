@@ -158,6 +158,9 @@ def test_successful_paginated_provider_result_is_normalized(monkeypatch):
     assert snapshot.videos[0].duration == 12
     assert collector.get_sync_diagnostic()["outcome"] == "success"
     assert any(".call(api" in script for script in page.evaluate_scripts)
+    fetch_script = next(script for script in page.evaluate_scripts if ".call(api" in script)
+    assert "while (guard < 30 && collections.length < 100)" in fetch_script
+    assert "while (cG < 120 && rows.length < 500)" in fetch_script
 
 
 def test_cached_snapshot_survives_live_sync_failure(monkeypatch):
