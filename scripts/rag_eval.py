@@ -24,15 +24,18 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from app.services.rag_evaluation import (  # noqa: E402
     answer_report,
+    build_local_index_manifest,
     EvaluationError,
     load_dataset,
     load_answer_observations,
     load_index_manifest,
     load_observations,
+    local_index_preflight,
     collect_live_retrieval,
     replay_evaluation,
     retrieval_report,
     write_sanitized_traces,
+    write_markdown_summary,
 )
 
 
@@ -72,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     replay.add_argument("--trace-output", required=True)
     replay.add_argument("--run-id", required=True)
     replay.add_argument("--model", default="")
+    replay.add_argument("--markdown-output")
     replay.add_argument("--cutoff", action="append", type=int, dest="cutoffs")
     live = sub.add_parser("live", help="collect read-only retrieval observations from local SQLite/Chroma")
     live.add_argument("--dataset", required=True)
@@ -83,15 +87,22 @@ def main(argv: list[str] | None = None) -> int:
     live.add_argument("--allow-provider-calls", action="store_true",
                       help="required because embeddings may call the configured provider")
     live.add_argument("--cutoff", action="append", type=int, dest="cutoffs")
+    live.add_argument("--markdown-output")
     answer_metrics = sub.add_parser("answer-metrics", help="calculate human answer/citation metrics")
     answer_metrics.add_argument("--dataset", required=True)
     answer_metrics.add_argument("--observations", required=True)
     answer_metrics.add_argument("--answers", required=True)
     answer_metrics.add_argument("--output")
+    preflight = sub.add_parser("preflight", help="inspect local SQLite/Chroma readiness without provider calls")
+    preflight.add_argument("--output")
+    manifest = sub.add_parser("manifest", help="create a frozen local index manifest after preflight")
+    manifest.add_argument("--index-id", required=True)
+    manifest.add_argument("--output", required=True)
     args = parser.parse_args(argv)
     try:
-        dataset = load_dataset(args.dataset)
+        dataset = load_dataset(args.dataset) if hasattr(args, "dataset") else None
         if args.command == "validate":
+            assert dataset is not None
             categories = {}
             for case in dataset.cases:
                 categories[case.category] = categories.get(case.category, 0) + 1
@@ -103,10 +114,12 @@ def main(argv: list[str] | None = None) -> int:
                 "categories": dict(sorted(categories.items())),
             }, None)
         elif args.command == "metrics":
+            assert dataset is not None
             observations = load_observations(args.observations)
             report = retrieval_report(dataset, observations, tuple(args.cutoffs or (1, 3, 5, 8)))
             _write_json(report, args.output)
         elif args.command == "trace":
+            assert dataset is not None
             observations = load_observations(args.observations)
             count = write_sanitized_traces(
                 dataset,
@@ -121,10 +134,16 @@ def main(argv: list[str] | None = None) -> int:
             )
             _write_json({"written_traces": count, "output": str(Path(args.output))}, None)
         elif args.command == "answer-metrics":
+            assert dataset is not None
             observations = load_observations(args.observations)
             answers = load_answer_observations(args.answers)
             _write_json(answer_report(dataset, observations, answers), args.output)
+        elif args.command == "preflight":
+            _write_json(local_index_preflight(), args.output)
+        elif args.command == "manifest":
+            _write_json(build_local_index_manifest(args.index_id), args.output)
         elif args.command == "replay":
+            assert dataset is not None
             observations = load_observations(args.observations)
             index_manifest = load_index_manifest(args.index_manifest)
             report = replay_evaluation(
@@ -137,8 +156,11 @@ def main(argv: list[str] | None = None) -> int:
                 cutoffs=tuple(args.cutoffs or (1, 3, 5, 8)),
                 model=args.model,
             )
+            if args.markdown_output:
+                write_markdown_summary(report, args.markdown_output)
             _write_json(report["run"], None)
         else:
+            assert dataset is not None
             if not args.allow_provider_calls:
                 raise EvaluationError("live mode requires --allow-provider-calls")
             index_manifest = load_index_manifest(args.index_manifest)
@@ -156,6 +178,8 @@ def main(argv: list[str] | None = None) -> int:
                 route_types=routes,
                 timings_ms=timings,
             )
+            if args.markdown_output:
+                write_markdown_summary(report, args.markdown_output)
             _write_json(report["run"], None)
         return 0
     except EvaluationError as exc:

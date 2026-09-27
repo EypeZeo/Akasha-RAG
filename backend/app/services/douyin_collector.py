@@ -58,6 +58,14 @@ def _find_user_data_dir() -> Path:
         Path.cwd() / "backend" / "app" / "storage" / "playwright_user_data",
     ]
     for p in candidates:
+        # A launcher started from the repository root can create an empty
+        # ``app/storage`` directory before the backend resolves its own
+        # storage path. Prefer a directory that contains the protected or
+        # legacy Playwright state instead of treating an empty directory as
+        # an existing login profile.
+        if (p / "state.json.dpapi").is_file() or (p / "state.json").is_file():
+            return p
+    for p in candidates:
         if p.exists():
             return p
     target = candidates[1]
@@ -99,6 +107,32 @@ class FavoriteScrapeSnapshot:
     invalid_count: int = 0
 
 
+@dataclass
+class DouyinSyncDiagnostic:
+    """Privacy-safe provider diagnostics for the last collection attempt."""
+
+    phase: str = "idle"
+    outcome: str = "unknown"
+    error_code: Optional[str] = None
+    module_id: Optional[str] = None
+    export_keys: list[str] = field(default_factory=list)
+    list_export_found: bool = False
+    video_export_found: bool = False
+    provider_status_code: Optional[int] = None
+
+    def as_dict(self) -> dict:
+        return {
+            "phase": self.phase,
+            "outcome": self.outcome,
+            "error_code": self.error_code,
+            "module_id": self.module_id,
+            "export_keys": list(self.export_keys),
+            "list_export_found": self.list_export_found,
+            "video_export_found": self.video_export_found,
+            "provider_status_code": self.provider_status_code,
+        }
+
+
 class DouyinCollector:
     """抖音数据采集器 — 登录 + 抓取一体化"""
 
@@ -115,6 +149,7 @@ class DouyinCollector:
         self.storage_state_path: Path = self.user_data_dir / "state.json"
         self._profile: dict[str, str] = self._load_profile()
         self._snapshot: Optional[FavoriteScrapeSnapshot] = None
+        self._sync_diagnostic = DouyinSyncDiagnostic()
         self._qr_image_base64: Optional[str] = None
         self._qr_ready_event = threading.Event()
         self._qr_error: Optional[str] = None
@@ -161,6 +196,48 @@ class DouyinCollector:
     def get_profile(self) -> dict[str, str]:
         """Return the best-effort display profile captured during login."""
         return dict(self._profile)
+
+    def get_sync_diagnostic(self) -> dict:
+        """Return sanitized details about the last provider collection attempt."""
+        return self._sync_diagnostic.as_dict()
+
+    def _set_sync_diagnostic(self, **changes) -> None:
+        current = self._sync_diagnostic.as_dict()
+        current.update(changes)
+        self._sync_diagnostic = DouyinSyncDiagnostic(
+            phase=str(current.get("phase") or "idle"),
+            outcome=str(current.get("outcome") or "unknown"),
+            error_code=current.get("error_code"),
+            module_id=current.get("module_id"),
+            export_keys=list(current.get("export_keys") or [])[:20],
+            list_export_found=bool(current.get("list_export_found")),
+            video_export_found=bool(current.get("video_export_found")),
+            provider_status_code=current.get("provider_status_code"),
+        )
+
+    def _record_provider_result(self, result: object, module_id: object) -> None:
+        """Copy only allowlisted, non-sensitive fields returned by page JS."""
+        if not isinstance(result, dict):
+            self._set_sync_diagnostic(
+                phase="provider_call",
+                outcome="failed",
+                error_code="invalid_provider_result",
+                module_id=str(module_id)[:128] if module_id is not None else None,
+            )
+            return
+        status_code = result.get("statusCode")
+        if isinstance(status_code, bool) or not isinstance(status_code, int):
+            status_code = None
+        self._set_sync_diagnostic(
+            phase="provider_call",
+            outcome="success" if result.get("ok") else "failed",
+            error_code=str(result.get("error"))[:64] if result.get("error") else None,
+            module_id=str(module_id)[:128] if module_id is not None else None,
+            export_keys=[str(key)[:80] for key in (result.get("exportKeys") or []) if isinstance(key, str)],
+            list_export_found=bool(result.get("listExportFound")),
+            video_export_found=bool(result.get("videoExportFound")),
+            provider_status_code=status_code,
+        )
 
     def _load_profile(self) -> dict[str, str]:
         try:
@@ -659,6 +736,11 @@ class DouyinCollector:
                 logger.warning("刷新页面探测异常: %s", reload_err)
 
         if not mid:
+            self._set_sync_diagnostic(
+                phase="module_discovery",
+                outcome="failed",
+                error_code="module_not_found",
+            )
             raise RuntimeError("抖音页面加载失败：收藏夹 API 模块未检测到，请确认网络正常后重试")
 
         # 执行 JS 调用 Webpack collects 模块
@@ -680,6 +762,7 @@ class DouyinCollector:
 
                 // 智能查找 API 函数
                 let listFn = null, videoFn = null;
+                const exportKeys = Object.keys(api || {}).slice(0, 20).map(key => String(key).slice(0, 80));
                 for (const key of Object.keys(api)) {
                     const v = api[key];
                     if (typeof v !== 'function') continue;
@@ -692,7 +775,9 @@ class DouyinCollector:
                 if (!listFn) listFn = api.So;
                 if (!videoFn) videoFn = api.d6;
                 if (typeof listFn !== "function" || typeof videoFn !== "function")
-                    return {ok:false, error:"bad_exports", keys:Object.keys(api||{}).slice(0,20)};
+                    return {ok:false, error:"bad_exports", exportKeys,
+                        listExportFound:typeof listFn === "function",
+                        videoExportFound:typeof videoFn === "function"};
 
                 // 拉收藏夹列表（支持弱网重试）
                 const collections = [];
@@ -700,12 +785,14 @@ class DouyinCollector:
                 while (guard < 30 && collections.length < 100) {
                     guard++;
                     let r = null;
+                    let providerFailure = null;
                     for (let retry = 0; retry < 3; retry++) {
                         try {
                             r = await listFn.call(api, {cursor, offset:30});
                             if (r && r.statusCode === 0) break;
                         } catch(e) {
                             r = null;
+                            providerFailure = "provider_call_threw";
                         }
                         if (retry < 2) {
                             await new Promise(res => setTimeout(res, RETRY_DELAYS_MS[retry]));
@@ -713,7 +800,9 @@ class DouyinCollector:
                     }
                     if (!r || r.statusCode !== 0) {
                         if (collections.length > 0) break;
-                        return {ok:false, error:"list_status", statusCode:r?.statusCode, msg:r?.statusMsg};
+                        return {ok:false, error:providerFailure || "list_status",
+                            statusCode:typeof r?.statusCode === "number" ? r.statusCode : null,
+                            exportKeys, listExportFound:true, videoExportFound:true};
                     }
                     for (const c of (Array.isArray(r.data) ? r.data : []))
                         if (c && c.collectionFolderId) collections.push(c);
@@ -732,18 +821,27 @@ class DouyinCollector:
                     while (cG < 120 && rows.length < 500) {
                         cG++;
                         let vr = null;
+                        let providerFailure = null;
                         for (let retry = 0; retry < 3; retry++) {
                             try {
                                 vr = await videoFn.call(api, {collectsId:cid, cursor:cCur, offset:20});
                                 if (vr && vr.statusCode === 0) break;
                             } catch(e) {
                                 vr = null;
+                                providerFailure = "provider_call_threw";
                             }
                             if (retry < 2) {
                                 await new Promise(res => setTimeout(res, RETRY_DELAYS_MS[retry]));
                             }
                         }
-                        if (!vr || vr.statusCode !== 0) break;
+                        if (!vr || vr.statusCode !== 0) {
+                            if (rows.length === 0) {
+                                return {ok:false, error:providerFailure || "video_status",
+                                    statusCode:typeof vr?.statusCode === "number" ? vr.statusCode : null,
+                                    exportKeys, listExportFound:true, videoExportFound:true};
+                            }
+                            break;
+                        }
                         for (const v of (Array.isArray(vr.data) ? vr.data : [])) {
                             const vid = String(v?.awemeId || v?.groupId || "").trim();
                             if (!vid || seen.has(vid)) continue;
@@ -772,10 +870,12 @@ class DouyinCollector:
                     }
                     byCol[cid] = rows;
                 }
-                return {ok:true, collections, itemsByCollection:byCol, invalidCount: totalInvalidCount};
+                return {ok:true, collections, itemsByCollection:byCol, invalidCount: totalInvalidCount,
+                    exportKeys, listExportFound:true, videoExportFound:true, statusCode:0};
             }
         """, mid)
 
+        self._record_provider_result(result, mid)
         if not isinstance(result, dict) or not result.get("ok"):
             error = result.get("error", "unknown") if isinstance(result, dict) else str(result)
             raise RuntimeError(f"Webpack 模块调用失败: {error}")
@@ -845,6 +945,16 @@ class DouyinCollector:
         acquired = self._lock.acquire(blocking=True, timeout=60.0)
         if not acquired:
             raise RuntimeError("当前有采集或同步任务正在进行中，请稍候再试")
+        self._set_sync_diagnostic(
+            phase="browser_start",
+            outcome="in_progress",
+            error_code=None,
+            module_id=None,
+            export_keys=[],
+            list_export_found=False,
+            video_export_found=False,
+            provider_status_code=None,
+        )
         try:
             with sync_playwright() as p:
                 self._active_playwright = p
@@ -898,12 +1008,19 @@ class DouyinCollector:
                     self._active_playwright = None
         except Exception as exc:
             logger.exception("实时同步收藏夹异常")
+            if self._sync_diagnostic.outcome != "failed":
+                self._set_sync_diagnostic(
+                    phase="browser_sync",
+                    outcome="failed",
+                    error_code="browser_sync_failed",
+                )
             try:
                 snapshot = self._snapshot_from_database()
                 if snapshot is not None:
                     self._snapshot = snapshot
                     self.status = "logged_in"
                     self.message = f"实时同步失败，已保留本地快照（{len(snapshot.videos)} 个视频）"
+                    self._set_sync_diagnostic(outcome="fallback_cached")
                     logger.warning("实时同步失败，保留本地快照: %d 个视频", len(snapshot.videos))
                     return snapshot
             except Exception as fallback_error:

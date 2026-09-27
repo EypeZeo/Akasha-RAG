@@ -73,6 +73,7 @@ async def list_platforms_status(db: Session = Depends(get_db)):
                 "nickname": dy_nickname,
                 "avatar_url": dy_avatar,
                 "message": dy_msg,
+                "sync_diagnostic": collector.get_sync_diagnostic(),
             },
             {
                 "platform": "bilibili",
@@ -162,6 +163,7 @@ async def douyin_login_status():
         "status": status,
         "message": message,
         "qrcode_image_base64": collector.get_qrcode() or "",
+        "sync_diagnostic": collector.get_sync_diagnostic(),
     }
 
 

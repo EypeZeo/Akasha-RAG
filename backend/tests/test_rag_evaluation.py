@@ -8,6 +8,7 @@ import pytest
 
 from app.services.rag_evaluation import (
     answer_report,
+    build_local_index_manifest,
     collect_live_retrieval,
     EvaluationError,
     case_retrieval_metrics,
@@ -15,12 +16,14 @@ from app.services.rag_evaluation import (
     load_answer_observations,
     load_index_manifest,
     load_observations,
+    local_index_preflight,
     ndcg_at_k,
     privacy_hash,
     recall_at_k,
     retrieval_report,
     replay_evaluation,
     write_sanitized_traces,
+    write_markdown_summary,
 )
 
 
@@ -270,3 +273,120 @@ def test_live_collection_is_read_only_and_uses_injected_services():
     assert set(observations) == {"synthetic-001", "synthetic-002", "synthetic-003"}
     assert routes == {case_id: "vector" for case_id in observations}
     assert all(set(timing) == {"route", "retrieval", "context", "generation", "total"} for timing in timings.values())
+
+
+def test_local_index_preflight_reports_ready_metadata_without_provider_calls():
+    class DbContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def __init__(self):
+            self.scalar_values = iter([3, 3, 6])
+
+        def scalar(self, _query):
+            return next(self.scalar_values)
+
+        def execute(self, query):
+            query_text = str(query)
+            if "GROUP BY ingestion_items.status" in query_text:
+                return type("Result", (), {"all": lambda self: [("done", 3)]})()
+            return type("Result", (), {
+                "all": lambda self: [
+                    (1, "v0.7.1", "fingerprint-a", "manifest-a", "douyin", "item-a", "https://example.test/a", "text-a"),
+                    (2, "v0.7.1", "fingerprint-b", "manifest-b", "douyin", "item-b", "https://example.test/b", "text-b"),
+                    (3, "v0.7.1", "fingerprint-c", "manifest-c", "douyin", "item-c", "https://example.test/c", "text-c"),
+                ]
+            })()
+
+    class Collection:
+        def count(self):
+            return 3
+
+        def get(self, include=None):
+            return {"metadatas": [{"content_item_id": 1}, {"content_item_id": 2}, {"content_item_id": 3}]}
+
+    class FakeChroma:
+        def count(self):
+            return 6
+
+        def _collection_for(self, platform):
+            return Collection()
+
+    preflight = local_index_preflight(
+        session_factory_override=lambda: DbContext(),
+        chroma_service_override=FakeChroma(),
+    )
+
+    assert preflight["ready"] is True
+    assert preflight["index"]["pipeline_versions"] == ["v0.7.1"]
+    assert preflight["index"]["source_fingerprints"] == [
+        "fingerprint-a", "fingerprint-b", "fingerprint-c"
+    ]
+
+    manifest = build_local_index_manifest(
+        "local-r0-2026-09-27",
+        session_factory_override=lambda: DbContext(),
+        chroma_service_override=FakeChroma(),
+    )
+    assert manifest["pipeline_version"] == "v0.7.1"
+    assert manifest["source_fingerprints"] == preflight["index"]["source_fingerprints"]
+    assert manifest["chroma_collections"] == [
+        {"name": "akasha_douyin", "platform": "douyin"},
+        {"name": "akasha_bilibili", "platform": "bilibili"},
+    ]
+
+
+def test_local_index_manifest_fails_closed_when_index_is_empty():
+    class DbContext:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def scalar(self, _query):
+            return 0
+
+        def execute(self, _query):
+            return type("Result", (), {"all": lambda self: []})()
+
+    class FakeChroma:
+        def count(self):
+            return 0
+
+        def _collection_for(self, platform):
+            raise AssertionError("empty index should not need collection access")
+
+    with pytest.raises(EvaluationError, match="local index preflight failed"):
+        build_local_index_manifest(
+            "empty-index",
+            session_factory_override=lambda: DbContext(),
+            chroma_service_override=FakeChroma(),
+        )
+
+
+def test_markdown_summary_contains_aggregate_metadata_but_no_case_text(tmp_path):
+    dataset = load_dataset(FIXTURES / "rag_eval_synthetic.jsonl")
+    observations = load_observations(FIXTURES / "rag_eval_synthetic_observations.json")
+    report = retrieval_report(dataset, observations)
+    report["run"] = {
+        "run_id": "private-run",
+        "mode": "replay",
+        "runner_version": "r0-replay-1",
+        "model": "deepseek-flash",
+        "index_id": "private-index",
+        "index_manifest_sha256": "a" * 64,
+        "pipeline_version": "v0.7.0",
+    }
+    output = tmp_path / "summary.md"
+
+    write_markdown_summary(report, output)
+
+    text = output.read_text(encoding="utf-8")
+    assert "private-run" in text
+    assert "exact_fact" in text
+    assert "What color is the synthetic marker?" not in text
+    assert "The marker is blue." not in text
