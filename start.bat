@@ -3,8 +3,12 @@ setlocal EnableExtensions DisableDelayedExpansion
 chcp 65001 >nul
 set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
-title Akasha-RAG Launcher
-cd /d "%~dp0"
+set "PROJECT_ROOT=%~dp0"
+cd /d "%PROJECT_ROOT%"
+
+set "APP_VERSION=unknown"
+if exist "%PROJECT_ROOT%version.txt" set /p APP_VERSION=<"%PROJECT_ROOT%version.txt"
+title Akasha-RAG %APP_VERSION%
 
 if /I not "%OS%"=="Windows_NT" (
   echo Unsupported operating system. Akasha-RAG supports Windows only; Linux and macOS are not supported.
@@ -12,43 +16,33 @@ if /I not "%OS%"=="Windows_NT" (
   goto preflight_failed
 )
 
-if not exist "%~dp0scripts\bootstrap.ps1" (
-  echo Startup preflight script is missing: %~dp0scripts\bootstrap.ps1
+if not exist "%PROJECT_ROOT%scripts\bootstrap.ps1" (
+  echo Startup preflight script is missing: %PROJECT_ROOT%scripts\bootstrap.ps1
   set "EXIT_CODE=1"
   goto preflight_failed
 )
 
-echo Akasha-RAG is starting...
-echo ========================================================
-powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\bootstrap.ps1" -ProjectRoot "%~dp0."
+echo [START] Akasha-RAG %APP_VERSION%
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%PROJECT_ROOT%scripts\bootstrap.ps1" -ProjectRoot "%PROJECT_ROOT%."
 set "EXIT_CODE=%ERRORLEVEL%"
 if not "%EXIT_CODE%"=="0" goto preflight_failed
 
-set "BACKEND_PY=backend\.venv\Scripts\python.exe"
+set "BACKEND_PY=%PROJECT_ROOT%backend\.venv\Scripts\python.exe"
 if not exist "%BACKEND_PY%" (
   echo Startup preflight completed without creating the backend virtual environment.
   set "EXIT_CODE=1"
   goto preflight_failed
 )
 
-:start_app
-REM ---------------------------------------------------------------------------
-REM bootstrap.ps1 records the Node directory it actually selected (system Node,
-REM or the project-local one under .runtime\).  launcher.py finds node/npm via
-REM shutil.which(), so without this the project-local Node would be invisible and
-REM the frontend would fail to start on a machine with no system Node.
-REM Process-local only: nothing touches the persistent user or system PATH.
-REM ---------------------------------------------------------------------------
-set "NODE_DIR_FILE=%~dp0.runtime\node-dir.txt"
+REM bootstrap.ps1 records the selected Node directory for this process.
+set "NODE_DIR_FILE=%PROJECT_ROOT%.runtime\node-dir.txt"
 if exist "%NODE_DIR_FILE%" (
   for /f "usebackq delims=" %%D in ("%NODE_DIR_FILE%") do (
     if exist "%%~D\node.exe" set "PATH=%%~D;%PATH%"
   )
 )
 
-echo.
-echo Launching unified manager launcher.py...
-"%BACKEND_PY%" launcher.py
+"%BACKEND_PY%" "%PROJECT_ROOT%launcher.py"
 set "EXIT_CODE=%ERRORLEVEL%"
 if not "%EXIT_CODE%"=="0" goto launcher_failed
 endlocal & exit /b 0

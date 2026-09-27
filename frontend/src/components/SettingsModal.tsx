@@ -6,6 +6,8 @@ import {
   VIDEOS_PER_PAGE_OPTIONS,
   ACTIVITY_BAR_POSITIONS,
   type ActivityBarPosition,
+  COLLECTION_EXPAND_MODES,
+  type CollectionExpandMode,
   THEME_OPTIONS,
   type ThemeId,
 } from '../utils/settings';
@@ -23,6 +25,10 @@ interface SettingsModalProps {
   onVideosPerPageChange: (n: number) => void;
   activityBarPosition: ActivityBarPosition;
   onActivityBarPositionChange: (p: ActivityBarPosition) => void;
+  statusFilterEnabled?: number;
+  onStatusFilterEnabledChange?: (value: number) => void;
+  collectionExpandMode?: CollectionExpandMode;
+  onCollectionExpandModeChange?: (value: CollectionExpandMode) => void;
   theme: ThemeId;
   onThemeChange: (theme: ThemeId) => void;
   cacheMb: number | null;
@@ -96,6 +102,10 @@ export default function SettingsModal({
   onVideosPerPageChange,
   activityBarPosition,
   onActivityBarPositionChange,
+  statusFilterEnabled = 1,
+  onStatusFilterEnabledChange = () => {},
+  collectionExpandMode = 'anywhere',
+  onCollectionExpandModeChange = () => {},
   theme,
   onThemeChange,
   cacheMb,
@@ -753,6 +763,29 @@ export default function SettingsModal({
                 >
                   {ACTIVITY_BAR_POSITIONS.map(p => (
                     <option key={p} value={p}>{t(`activityBarPos_${p}`)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center justify-between gap-2 text-xs text-[var(--color-ink-soft)] sm:col-span-2">
+                <span>{t('statusFilterEnabled')}</span>
+                <input
+                  type="checkbox"
+                  checked={statusFilterEnabled === 1}
+                  onChange={event => onStatusFilterEnabledChange(event.target.checked ? 1 : 0)}
+                  className="h-4 w-4 accent-[var(--color-accent)]"
+                />
+              </label>
+              <label className="flex items-center justify-between gap-2 text-xs text-[var(--color-ink-soft)] sm:col-span-2">
+                <span>{t('collectionExpandTitle')}</span>
+                <select
+                  value={collectionExpandMode}
+                  onChange={event => onCollectionExpandModeChange(event.target.value as CollectionExpandMode)}
+                  className="bg-white border border-[var(--color-border)] rounded-lg text-xs px-2 py-1 focus:outline-none focus:border-accent"
+                >
+                  {COLLECTION_EXPAND_MODES.map(mode => (
+                    <option key={mode} value={mode}>
+                      {mode === 'anywhere' ? t('collectionExpandAnywhere') : t('collectionExpandChevron')}
+                    </option>
                   ))}
                 </select>
               </label>

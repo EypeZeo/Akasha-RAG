@@ -15,6 +15,11 @@ import {
   DEFAULT_COLLECTIONS_PER_PAGE,
   DEFAULT_VIDEOS_PER_PAGE,
   DEFAULT_ACTIVITY_BAR_POSITION,
+  DEFAULT_COLLECTION_EXPAND_MODE,
+  DEFAULT_STATUS_FILTER_ENABLED,
+  COLLECTION_EXPAND_MODES,
+  STATUS_FILTER_ENABLED,
+  type CollectionExpandMode,
   type ThemeId,
 } from '../utils/settings';
 
@@ -51,6 +56,12 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
   );
   const [videosPerPage, setVideosPerPage] = useLocalStorageSetting<number>(
     'ui.videosPerPage', VIDEOS_PER_PAGE_OPTIONS, DEFAULT_VIDEOS_PER_PAGE,
+  );
+  const [statusFilterEnabled, setStatusFilterEnabled] = useLocalStorageSetting<number>(
+    'ui.statusFilterEnabled', STATUS_FILTER_ENABLED, DEFAULT_STATUS_FILTER_ENABLED,
+  );
+  const [collectionExpandMode, setCollectionExpandMode] = useLocalStorageSetting<CollectionExpandMode>(
+    'ui.collectionExpandMode', COLLECTION_EXPAND_MODES, DEFAULT_COLLECTION_EXPAND_MODE,
   );
 
   const handleAccountsChanged = useCallback(() => {
@@ -270,6 +281,8 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
               statsRefreshKey={statsRefreshKey}
               collectionsPerPage={collectionsPerPage}
               videosPerPage={videosPerPage}
+              statusFilterEnabled={statusFilterEnabled === 1}
+              collectionExpandMode={collectionExpandMode}
               onOpenSettings={() => setShowSettings(true)}
             />
           </div>
@@ -309,6 +322,10 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
         onVideosPerPageChange={setVideosPerPage}
         activityBarPosition={activityBarPosition}
         onActivityBarPositionChange={setActivityBarPosition}
+        statusFilterEnabled={statusFilterEnabled}
+        onStatusFilterEnabledChange={setStatusFilterEnabled}
+        collectionExpandMode={collectionExpandMode}
+        onCollectionExpandModeChange={setCollectionExpandMode}
         theme={theme}
         onThemeChange={onThemeChange}
         cacheMb={cacheMb}

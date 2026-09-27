@@ -56,6 +56,8 @@ interface SetupProps {
   statsRefreshKey: number;
   collectionsPerPage: number;
   videosPerPage: number;
+  statusFilterEnabled?: boolean;
+  collectionExpandMode?: 'anywhere' | 'chevron';
   onOpenSettings: () => void;
 }
 
@@ -69,6 +71,8 @@ function buildElement(propsOverride: Partial<SetupProps>) {
         statsRefreshKey={propsOverride.statsRefreshKey ?? 0}
         collectionsPerPage={propsOverride.collectionsPerPage ?? 20}
         videosPerPage={propsOverride.videosPerPage ?? 20}
+        statusFilterEnabled={propsOverride.statusFilterEnabled}
+        collectionExpandMode={propsOverride.collectionExpandMode}
         onOpenSettings={propsOverride.onOpenSettings ?? vi.fn()}
       />
     </I18nProvider>
@@ -296,6 +300,57 @@ describe('SourcesPanel collections list & pagination', () => {
 });
 
 describe('SourcesPanel expanded video list & search', () => {
+  it('filters collection items by ingestion state and requests the chosen status', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true,
+      items: [
+        makeVideo({ id: 1, title: 'Completed item', status: 'done' }),
+        makeVideo({ id: 2, title: 'Failed item', status: 'failed' }),
+        makeVideo({ id: 3, title: 'Pending item', status: 'pending' }),
+      ],
+      total: 3,
+      video_count: 3,
+      note_count: 0,
+      status_counts: { done: 1, failed: 1, pending: 1 },
+    });
+    setup();
+
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('Completed item');
+    fireEvent.click(screen.getByRole('button', { name: `${TRANSLATIONS.en.itemFailed} (1)` }));
+
+    await waitFor(() => {
+      expect(api.listCollectionVideos).toHaveBeenLastCalledWith('col-1', 1, 20, 'all', undefined, 'failed');
+    });
+    expect(await screen.findByText('Failed item')).toBeTruthy();
+    expect(screen.queryByText('Completed item')).toBeNull();
+  });
+
+  it('in chevron mode only the trailing arrow expands a collection', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true,
+      items: [],
+      total: 3,
+      status_counts: { pending: 2, failed: 1 },
+    });
+    const view = setup({ collectionExpandMode: 'chevron' });
+
+    fireEvent.click(await screen.findByText('Test Collection'));
+    expect(view.onSelectCollection).toHaveBeenCalledWith('col-1', undefined);
+    view.rerender({ selectedId: 'col-1' });
+    await waitFor(() => {
+      expect(api.listCollectionVideos).toHaveBeenCalledWith('col-1', 1, 1, 'all');
+    });
+    expect(api.listCollectionVideos).not.toHaveBeenCalledWith('col-1', 1, 20, 'all', undefined);
+    expect(await screen.findByText(`${TRANSLATIONS.en.oneClickIngest} (3)`)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: TRANSLATIONS.en.expandSources }));
+    await waitFor(() => {
+      expect(api.listCollectionVideos).toHaveBeenCalledWith('col-1', 1, 20, 'all', undefined);
+    });
+  });
+
   it('shows a loading state while videos are being fetched, then renders them', async () => {
     const { promise, resolve } = deferred<Awaited<ReturnType<typeof api.listCollectionVideos>>>();
     vi.mocked(api.listCollectionVideos).mockReturnValue(promise);

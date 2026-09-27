@@ -68,6 +68,11 @@ def _media_url(value: object) -> str | None:
     return None
 
 
+def is_allowed_media_url(value: object) -> bool:
+    """Whether a URL is an HTTPS media address on a supported provider CDN."""
+    return _media_url(value) is not None
+
+
 def _extract_media(payload: object, item_id: str) -> str | None:
     """Ignore recommendations and music; inspect only an exact item's video."""
     pending = [payload]

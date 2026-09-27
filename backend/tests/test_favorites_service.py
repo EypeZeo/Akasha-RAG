@@ -9,7 +9,13 @@ from sqlalchemy.orm import sessionmaker
 
 from app._version import get_version
 from app.db.base import Base
-from app.models.entities import FavoriteCollection, FavoriteVideo
+from app.models.entities import (
+    CollectionItemRelation,
+    ContentItem,
+    FavoriteCollection,
+    FavoriteVideo,
+    IngestionItem,
+)
 from app.services.favorites_service import ALL_COLLECTION_ID, favorites_service
 
 
@@ -114,6 +120,50 @@ def test_count_videos_by_kind_issues_a_single_query(db):
     assert len(select_queries) == 1
 
 
+def test_video_status_filter_and_counts_are_scoped_to_collection_and_platform(db):
+    douyin = FavoriteCollection(platform="douyin", remote_collection_id="status-scope", title="Douyin")
+    bilibili = FavoriteCollection(platform="bilibili", remote_collection_id="status-scope", title="Bilibili")
+    db.add_all([douyin, bilibili])
+    db.flush()
+
+    records = [
+        (douyin, "dy-pending", "pending", 30),
+        (douyin, "dy-done", "done", 45),
+        (douyin, "dy-failed", "failed", 60),
+        (bilibili, "bi-done", "done", 75),
+    ]
+    for collection, remote_id, status, duration in records:
+        item = ContentItem(
+            platform=collection.platform,
+            remote_item_id=remote_id,
+            title=remote_id,
+            duration=duration,
+            is_active=True,
+        )
+        db.add(item)
+        db.flush()
+        db.add_all([
+            IngestionItem(content_item_id=item.id, status=status),
+            CollectionItemRelation(collection_id=collection.id, content_item_id=item.id),
+        ])
+    db.commit()
+
+    items, total, _cursor, _has_more, counts = favorites_service.list_videos(
+        db, "status-scope", platform="douyin", status="failed", include_status_counts=True,
+    )
+    assert total == 1
+    assert [item["remote_item_id"] for item in items] == ["dy-failed"]
+    assert counts == {"pending": 1, "done": 1, "failed": 1}
+    assert favorites_service.count_videos_by_kind(
+        db, "status-scope", platform="douyin", status="failed",
+    ) == (1, 0)
+
+    _items, _total, _cursor, _has_more, platform_counts = favorites_service.list_videos(
+        db, ALL_COLLECTION_ID, platform="bilibili", include_status_counts=True,
+    )
+    assert platform_counts == {"done": 1}
+
+
 @pytest.mark.asyncio
 async def test_sync_from_douyin_forces_refetch_by_default(monkeypatch):
     """用户点「同步」→ sync_from_douyin(force=True) → fetch_snapshot(force=True)。"""
@@ -201,4 +251,3 @@ async def test_sync_from_bilibili_tolerates_deleted_videos(db, monkeypatch):
     assert result["collections_total"] == 1
     assert result["videos_total"] == 19
     assert result["added_videos"] == 19
-

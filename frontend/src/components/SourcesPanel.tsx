@@ -5,7 +5,7 @@ import ExportModal from './ExportModal';
 import ExportProgressCard from './ExportProgressCard';
 import ApiKeyMissingModal from './ApiKeyMissingModal';
 import { useI18n } from '../i18n';
-import { VIDEOS_PER_PAGE_OPTIONS } from '../utils/settings';
+import { VIDEOS_PER_PAGE_OPTIONS, type CollectionExpandMode } from '../utils/settings';
 import { aggregateSyncCounts, getFailedPlatforms } from '../utils/syncSummary';
 import { useWorkspaceStore } from '../store/workspace';
 import { useExportFlow } from '../hooks/useExportFlow';
@@ -22,6 +22,8 @@ interface Props {
   collectionsPerPage: number;
   /** 收藏夹作品每页显示条数 */
   videosPerPage: number;
+  statusFilterEnabled?: boolean;
+  collectionExpandMode?: CollectionExpandMode;
   onOpenSettings: () => void;
 }
 
@@ -53,6 +55,7 @@ interface VideoScope {
   platform: string;
   page: number;
   pageSize: number;
+  status: 'all' | 'pending' | 'done' | 'failed';
 }
 
 interface VideoData extends VideoScope {
@@ -61,6 +64,7 @@ interface VideoData extends VideoScope {
   /** 整栏（非当前页）视频/图文数量，来自服务端 */
   videoCount: number;
   noteCount: number;
+  statusCounts?: Record<string, number>;
 }
 
 /** 收藏夹的身份是（所属平台, 远端 ID），不是裸 ID：两个平台可以有同一个远端 ID。合成的"全部收藏"行没有所属平台。 */
@@ -84,6 +88,8 @@ export default function SourcesPanel({
   statsRefreshKey,
   collectionsPerPage,
   videosPerPage,
+  statusFilterEnabled = true,
+  collectionExpandMode = 'anywhere',
   onOpenSettings,
 }: Props) {
   const { t } = useI18n();
@@ -100,6 +106,7 @@ export default function SourcesPanel({
   // 打开确认弹窗那一刻的作用域快照：弹窗开着期间选中项/平台再变，也不影响这次入库/导出的目标。
   const [buildScope, setBuildScope] = useState<ActionScope | null>(null);
   const [exportScope, setExportScope] = useState<ActionScope | null>(null);
+  const [actionStatusData, setActionStatusData] = useState<{ key: string; counts: Record<string, number> } | null>(null);
   const mountedRef = useRef(true);
   const [buildInitialType, setBuildInitialType] = useState<'all' | 'video' | 'note'>('all');
   const [showApiKeyMissing, setShowApiKeyMissing] = useState(false);
@@ -135,6 +142,8 @@ export default function SourcesPanel({
   };
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'video' | 'note'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'done' | 'failed'>('all');
+  const videoStatusRef = useRef<'all' | 'pending' | 'done' | 'failed'>('all');
   // 收藏夹列表页码属于一个"作用域"（平台 + 每页数量）：作用域一变，就在这次渲染里回到第 1 页——渲染期调整
   // state（React 会丢掉这次渲染、立刻带着新 state 重来，用户看不到中间帧），而不是用 effect 去复位。
   // effect 在提交之后才异步执行：用户恰好在"列表已渲染、effect 还没跑"的窗口里点了"下一页"，点击的更新先入队、
@@ -244,7 +253,7 @@ export default function SourcesPanel({
    * 发起时若该收藏夹已不是展开的那个，直接不发。提交前确认：仍是最新一次、平台仍适用——
    * 任何一项不成立，视频、计数、spinner、游标一概不写。
    */
-  const fetchVideos = useCallback(async (collectionId: string, page: number) => {
+  const fetchVideos = useCallback(async (collectionId: string, page: number, requestedStatus = videoStatusRef.current) => {
     const row = expandedRowRef.current;
     if (!mountedRef.current || !row || collectionId !== row.id || !compatible(row, currentPlatform())) return;
     const scope: VideoScope = {
@@ -252,6 +261,7 @@ export default function SourcesPanel({
       platform: requestPlatform(row, currentPlatform()),
       page,
       pageSize: videoPageSizeRef.current,
+      status: requestedStatus,
     };
     const token = ++videosReqRef.current;
     videoScopeRef.current = scope;
@@ -265,10 +275,12 @@ export default function SourcesPanel({
     const settleWithoutData = () => setVideoData(prev =>
       prev && prev.collectionId === scope.collectionId && prev.platform === scope.platform
         ? prev
-        : { ...scope, items: [], total: 0, videoCount: 0, noteCount: 0 });
+        : { ...scope, items: [], total: 0, videoCount: 0, noteCount: 0, statusCounts: {} });
     setLoadingVideos(true);
     try {
-      const r = await api.listCollectionVideos(collectionId, page, scope.pageSize, scope.platform, cursors.get(page));
+      const r = scope.status === 'all'
+        ? await api.listCollectionVideos(collectionId, page, scope.pageSize, scope.platform, cursors.get(page))
+        : await api.listCollectionVideos(collectionId, page, scope.pageSize, scope.platform, cursors.get(page), scope.status);
       if (!isCurrent()) return;
       if (r.success) {
         setVideoData({
@@ -277,6 +289,7 @@ export default function SourcesPanel({
           total: r.total,
           videoCount: r.video_count ?? 0,
           noteCount: r.note_count ?? 0,
+          statusCounts: r.status_counts,
         });
         if (r.next_cursor) cursors.set(page + 1, r.next_cursor);
       } else {
@@ -342,6 +355,13 @@ export default function SourcesPanel({
     videoCursorsRef.current = new Map([[1, undefined]]);
     refreshExpandedVideos({ page: 1 });
   }, [videosPerPage, refreshExpandedVideos]);
+
+  useEffect(() => {
+    if (statusFilterEnabled || videoStatusRef.current === 'all') return;
+    videoStatusRef.current = 'all';
+    setStatusFilter('all');
+    refreshExpandedVideos({ page: 1 });
+  }, [statusFilterEnabled, refreshExpandedVideos]);
 
   // 当收藏夹列表为空时自适应轻量轮询检测（针对初次扫码后后台异步持久化的场景），免去用户手动 F5 刷新
   useEffect(() => {
@@ -494,7 +514,7 @@ export default function SourcesPanel({
     isSubmittingRef.current = true;
     setIsSubmitting(true);
     const isAll = scope === 'all';
-    const initialTotal = isAll ? (stats?.video_cache?.pending ?? 0) : selectedIds!.length;
+    const initialTotal = isAll ? actionRetryableCount : selectedIds!.length;
     setBuildTotalHint(initialTotal);
     const typeLabel = contentType === 'video' ? t('shortVideo') : (contentType === 'note' ? t('imageNote') : t('categoryContent'));
     try {
@@ -549,7 +569,20 @@ export default function SourcesPanel({
     changeExpanded(row);
     setVideoSearch('');
     setTypeFilter('all');
+    videoStatusRef.current = 'all';
+    setStatusFilter('all');
     fetchVideos(row.id, 1);
+  };
+
+  const handleCollectionExpand = (col: api.CollectionItem) => {
+    void handleCollectionClick(col);
+  };
+
+  const handleStatusFilterChange = (next: 'all' | 'pending' | 'done' | 'failed') => {
+    videoStatusRef.current = next;
+    setStatusFilter(next);
+    const id = expandedIdRef.current;
+    if (id) fetchVideos(id, 1, next);
   };
 
   const handlePageChange = (newPage: number) => {
@@ -616,7 +649,8 @@ export default function SourcesPanel({
   const failedCount = stats?.video_cache?.failed ?? 0;
   const processingCount = (stats?.video_cache?.downloading ?? 0) + (stats?.video_cache?.transcribing ?? 0);
   const pendingCount = stats?.video_cache?.pending ?? 0;
-  const isStuck = processingCount > 0 || (failedCount > 0 && pendingCount === 0 && processingCount === 0);
+  const retryableCount = pendingCount + failedCount;
+  const canResetFailed = failedCount > 0;
 
   const totalVideo = stats?.detail?.video?.total ?? stats?.content_types?.total_video ?? stats?.video_cache?.total_video ?? 0;
   const totalNote = stats?.detail?.note?.total ?? stats?.content_types?.total_note ?? stats?.video_cache?.total_note ?? 0;
@@ -644,6 +678,8 @@ export default function SourcesPanel({
   // 整栏（非当前页）视频/图文数量，来自服务端，用于分类计数与"是否隐藏分类筛选行"的判定
   const expandedVideoCount = shownVideos?.videoCount ?? 0;
   const expandedNoteCount = shownVideos?.noteCount ?? 0;
+  const statusCounts = shownVideos?.statusCounts ?? {};
+  const hasStatusCounts = shownVideos?.statusCounts !== undefined;
   const videosLoading = loadingVideos || (expandedId !== null && shownVideos === null);
 
   // 分类计数：优先用服务端整栏口径（跨分页稳定）；服务端字段缺失时回退到当前页统计
@@ -656,6 +692,7 @@ export default function SourcesPanel({
 
   // 展开收藏夹内容的本地关键词搜索与分类筛选 (300ms 防抖)
   const filteredVideos = expandedVideos.filter(v => {
+    if (statusFilter !== 'all' && v.status !== statusFilter) return false;
     const isNote = v.item_type === 'note' || (v.duration ?? 0) === 0;
     if (typeFilter === 'video' && isNote) return false;
     if (typeFilter === 'note' && !isNote) return false;
@@ -682,6 +719,43 @@ export default function SourcesPanel({
         title: targetRow.title === '全部收藏' ? t('allFavorites') : targetRow.title,
       }
       : null;
+  const actionScopeId = actionScope?.id ?? null;
+  const actionScopePlatform = actionScope?.platform ?? null;
+  const actionScopeKey = actionScopeId && actionScopePlatform
+    ? JSON.stringify([actionScopePlatform, actionScopeId])
+    : '';
+
+  useEffect(() => {
+    if (!actionScopeId || !actionScopePlatform || actionScopeId === 'all'
+        || actionScopeId === expandedIdRef.current) {
+      setActionStatusData(null);
+      return;
+    }
+
+    let isCurrent = true;
+    setActionStatusData(null);
+    void Promise.resolve(api.listCollectionVideos(actionScopeId, 1, 1, actionScopePlatform))
+      .then(response => {
+        if (isCurrent && response.success && response.status_counts) {
+          setActionStatusData({
+            key: JSON.stringify([actionScopePlatform, actionScopeId]),
+            counts: response.status_counts,
+          });
+        }
+      })
+      .catch(() => {});
+
+    return () => { isCurrent = false; };
+  }, [actionScopeId, actionScopePlatform, expandedId, statsRefreshKey]);
+
+  const actionStatusCounts =
+    shownVideos?.collectionId === actionScopeId && shownVideos.platform === actionScopePlatform
+      ? shownVideos.statusCounts
+      : (actionStatusData?.key === actionScopeKey ? actionStatusData.counts : undefined);
+  const actionRetryableCount = actionStatusCounts
+    ? (actionStatusCounts.pending ?? 0) + (actionStatusCounts.failed ?? 0)
+    : retryableCount;
+
   const openScopedExport = () => {
     if (!actionScope) return;
     setExportScope({ ...actionScope });
@@ -875,18 +949,22 @@ export default function SourcesPanel({
             const isSelected = selectedRow !== null && rowKey(selectedRow) === rowKey(identity);
             const isExpanded = expanded !== null && rowKey(expanded) === rowKey(identity);
             const displayTitle = col.title === '全部收藏' ? t('allFavorites') : col.title;
-            return (
-              <div key={rowKey(identity)} className="rounded-xl transition-all">
+             return (
+               <div
+                 key={rowKey(identity)}
+                 className={`flex items-center rounded-xl transition-all border ${
+                   isSelected
+                     ? 'border-accent/40 bg-accent-light shadow-sm'
+                     : 'border-transparent hover:border-[var(--color-border)] hover:bg-white/60'
+                 }`}
+               >
                 <button
-                  onClick={() => handleCollectionClick(col)}
-                  className={`w-full text-left p-2.5 rounded-xl transition-all border ${
-                    isSelected
-                      ? 'border-accent/40 bg-accent-light shadow-sm'
-                      : 'border-transparent hover:border-[var(--color-border)] hover:bg-white/60'
-                  }`}
+                  type="button"
+                  onClick={() => collectionExpandMode === 'anywhere' ? handleCollectionClick(col) : onSelectCollection(identity.id, identity.owner || undefined)}
+                  className="flex-1 min-w-0 text-left p-2.5 rounded-xl transition-all cursor-pointer"
                 >
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 truncate flex-1">
+                    <div className="flex items-center gap-1.5 truncate">
                       {col.platform === 'bilibili' && (
                         <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-pink-50 text-pink-600 border border-pink-200/60 flex-shrink-0">
                           {t('platformBilibili')}
@@ -899,19 +977,55 @@ export default function SourcesPanel({
                       )}
                       <span className="text-sm font-semibold text-[var(--color-ink)] truncate">{displayTitle}</span>
                     </div>
-                    <span className="text-[11px] text-[var(--color-ink-muted)] ml-2 flex-shrink-0 flex items-center gap-1">
-                      <span>{col.video_count}</span>
-                      <span className="text-[9px]">{isExpanded ? '▲' : '▼'}</span>
-                    </span>
+                    {collectionExpandMode === 'anywhere' && (
+                      <span className="text-[11px] text-[var(--color-ink-muted)] ml-2 flex-shrink-0 flex items-center gap-1">
+                        <span>{col.video_count}</span>
+                        <span className="text-[9px]">{isExpanded ? '▲' : '▼'}</span>
+                      </span>
+                    )}
                   </div>
                 </button>
+                {collectionExpandMode === 'chevron' && (
+                  <button
+                    type="button"
+                    onClick={() => handleCollectionExpand(col)}
+                    aria-label={isExpanded ? t('collapse') : t('expandSources')}
+                    className="h-full min-h-10 px-2.5 text-[11px] text-[var(--color-ink-muted)] hover:text-accent cursor-pointer flex items-center gap-1"
+                  >
+                    <span>{col.video_count}</span>
+                    <span className="text-[9px]">{isExpanded ? '▲' : '▼'}</span>
+                  </button>
+                )}
 
                 {/* Expanded video list */}
                 {isExpanded && (
                   <div className="ml-2 mt-1 border-l-2 border-accent/30 pl-2.5 py-1 flex flex-col gap-1.5">
-                    {/* 分类筛选与搜索 (0.3s 防抖) */}
-                    <div className="flex flex-col gap-1.5 mb-1.5">
-                      {expandedVideos.length > 0 && hasNotesInCollection && (
+                      {/* 分类和状态筛选与搜索 (0.3s 防抖) */}
+                      <div className="flex flex-col gap-1.5 mb-1.5">
+                        {statusFilterEnabled && hasStatusCounts && (
+                          <div className="flex items-center gap-1 p-0.5 bg-black/[0.03] rounded-lg text-[10px]">
+                            {([
+                              ['all', t('allStatuses'), undefined],
+                              ['done', t('ingested'), statusCounts.done ?? 0],
+                              ['failed', t('itemFailed'), statusCounts.failed ?? 0],
+                              ['pending', t('notIngested'), statusCounts.pending ?? 0],
+                            ] as const).map(([value, label, count]) => (
+                              <button
+                                key={value}
+                                type="button"
+                                onClick={() => handleStatusFilterChange(value)}
+                                className={`flex-1 py-1 rounded-md font-medium transition-all cursor-pointer ${
+                                  statusFilter === value
+                                    ? 'bg-white shadow-2xs text-accent font-bold'
+                                    : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]'
+                                }`}
+                              >
+                                {label}{count === undefined ? '' : ` (${count})`}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {expandedVideos.length > 0 && hasNotesInCollection && (
                         <div className="flex items-center gap-1 p-0.5 bg-black/[0.03] rounded-lg text-[10px]">
                           <button
                             onClick={() => setTypeFilter('all')}
@@ -1237,7 +1351,7 @@ export default function SourcesPanel({
                 />
               </div>
 
-              {isStuck && (
+              {canResetFailed && (
                 <button
                   onClick={async () => {
                     try {
@@ -1265,14 +1379,14 @@ export default function SourcesPanel({
               <div className="grid grid-cols-2 gap-2 mt-1">
                 <button
                   onClick={() => openBuildModal('all')}
-                  disabled={pendingCount === 0 || !actionScope}
+                  disabled={actionRetryableCount === 0 || !actionScope}
                   className="group py-2.5 rounded-xl bg-gradient-to-r from-accent to-accent-hover text-white text-xs font-bold shadow-sm hover:shadow active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <svg className="w-3.5 h-3.5 shrink-0 group-hover:scale-110 transition-transform duration-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/>
                     <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/>
                   </svg>
-                  <span>{t('oneClickIngest')} ({pendingCount})</span>
+                  <span>{t('oneClickIngest')} ({actionRetryableCount})</span>
                 </button>
                 <button
                   onClick={openScopedExport}
