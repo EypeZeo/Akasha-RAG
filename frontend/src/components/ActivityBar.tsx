@@ -21,6 +21,7 @@ interface TabDef {
 const TABS: TabDef[] = [
   { id: 'sources', icon: '📚', labelKey: 'tabSources' },
   { id: 'chat', icon: '✨', labelKey: 'tabChat' },
+  { id: 'developer', icon: '🔧', labelKey: 'tabDeveloper' },
 ];
 
 export default function ActivityBar({

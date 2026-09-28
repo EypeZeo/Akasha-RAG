@@ -213,6 +213,23 @@ class Settings(BaseSettings):
     douyin_favorites_url: str = "https://www.douyin.com/user/self?from_login=1"
     """抖音收藏夹页面 URL"""
 
+    # ===== 开发者模式 =====
+    developer_mode: bool = Field(default=False)
+    """
+    开发者模式开关：启用后前端将显示"开发者面板" Tab，展示系统资源监控、
+    网络状态、缓存统计等诊断信息。
+    可通过环境变量 DEVELOPER_MODE=true 或前端设置面板开启。
+    """
+
+    enable_proxy_validation: bool = Field(default=False)
+    """
+    启用代理连通性验证：启用后启动时会测试代理服务器连通性，
+    可能增加 3-5 秒启动延迟。仅在代理配置不稳定时建议开启。
+    """
+
+    metrics_collection_interval_seconds: int = Field(default=5, ge=1, le=60)
+    """系统指标收集间隔（秒），开发者模式下有效"""
+
     # ===== 项目路径 =====
     @property
     def project_root(self) -> Path:

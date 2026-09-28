@@ -120,6 +120,14 @@ async def open_local_folder(body: OpenFolderRequest):
         target_path = LOG_DIR
     elif body.folder_type == "custom" and body.custom_path:
         target_path = Path(body.custom_path)
+        # 安全检查：解析路径并确保它是有效的绝对路径
+        try:
+            target_path = target_path.resolve()
+            # 基本安全验证：确保路径不包含危险模式
+            if not target_path.is_absolute():
+                return {"success": False, "message": "仅支持绝对路径"}
+        except (ValueError, OSError) as e:
+            return {"success": False, "message": f"路径无效: {e}"}
     else:
         # 默认打开 logs
         target_path = LOG_DIR

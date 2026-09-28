@@ -7,8 +7,11 @@ the Windows Internet Settings proxy. No proxy credentials are logged.
 from __future__ import annotations
 
 import os
+import socket
 import urllib.request
 from urllib.parse import urlsplit, urlunsplit
+
+from loguru import logger
 
 
 def _normalise_proxy(value: str | None) -> str | None:
@@ -56,13 +59,101 @@ def _windows_proxy() -> str | None:
         return None
 
 
-def detect_network_proxy() -> str | None:
-    """Return an explicit/local conventional proxy, or None for TUN/direct mode."""
+def _should_bypass_proxy(hostname: str) -> bool:
+    """检查给定主机名是否应该绕过代理（根据 NO_PROXY 环境变量）"""
+    no_proxy = os.environ.get("NO_PROXY") or os.environ.get("no_proxy")
+    if not no_proxy:
+        return False
+    
+    # 标准化主机名
+    hostname = hostname.lower().strip()
+    
+    # 解析 NO_PROXY 列表（逗号分隔）
+    bypass_list = [entry.strip().lower() for entry in no_proxy.split(",")]
+    
+    for pattern in bypass_list:
+        if not pattern:
+            continue
+        
+        # 精确匹配
+        if pattern == hostname:
+            return True
+        
+        # 域名后缀匹配（例如 .example.com 匹配 api.example.com）
+        if pattern.startswith(".") and hostname.endswith(pattern):
+            return True
+        
+        # 通配符匹配（例如 *.example.com）
+        if pattern.startswith("*."):
+            domain_suffix = pattern[1:]  # 去掉 *
+            if hostname.endswith(domain_suffix):
+                return True
+        
+        # localhost 特殊处理
+        if pattern == "localhost" and hostname in ("localhost", "127.0.0.1", "::1"):
+            return True
+    
+    return False
+
+
+def _test_proxy_connectivity(proxy_url: str, timeout: float = 3.0) -> tuple[bool, str]:
+    """
+    测试代理连通性
+    返回 (是否可用, 错误信息)
+    """
+    try:
+        parsed = urlsplit(proxy_url)
+        host = parsed.hostname
+        port = parsed.port or 8080
+        
+        # 尝试连接代理服务器
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((host, port))
+        sock.close()
+        return True, ""
+    except socket.timeout:
+        return False, f"代理连接超时: {proxy_url}"
+    except socket.gaierror:
+        return False, f"无法解析代理地址: {proxy_url}"
+    except ConnectionRefusedError:
+        return False, f"代理连接被拒绝: {proxy_url}"
+    except Exception as e:
+        return False, f"代理连接失败: {proxy_url} ({type(e).__name__}: {e})"
+
+
+def detect_network_proxy(validate: bool = False) -> str | None:
+    """
+    Return an explicit/local conventional proxy, or None for TUN/direct mode.
+    
+    Args:
+        validate: 是否验证代理连通性（可能增加启动延迟）
+    """
     proxies = urllib.request.getproxies()
     for key in ("https", "http", "all"):
         if proxy := _normalise_proxy(proxies.get(key)):
+            if validate:
+                is_available, error = _test_proxy_connectivity(proxy)
+                if not is_available:
+                    logger.warning(f"检测到代理但连通性测试失败: {error}")
+                    continue
             return proxy
-    for key in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"):
+    
+    # 检查大写和小写环境变量以提高兼容性
+    for key in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
         if proxy := _normalise_proxy(os.environ.get(key)):
+            if validate:
+                is_available, error = _test_proxy_connectivity(proxy)
+                if not is_available:
+                    logger.warning(f"环境变量 {key} 指定的代理连通性测试失败: {error}")
+                    continue
             return proxy
-    return _windows_proxy()
+    
+    proxy = _windows_proxy()
+    if proxy and validate:
+        is_available, error = _test_proxy_connectivity(proxy)
+        if not is_available:
+            logger.warning(f"Windows 注册表代理连通性测试失败: {error}")
+            return None
+    
+    return proxy

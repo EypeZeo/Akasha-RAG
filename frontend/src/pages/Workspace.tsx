@@ -4,6 +4,7 @@ import SettingsModal from '../components/SettingsModal';
 import LoginModal from '../components/LoginModal';
 import ActivityBar from '../components/ActivityBar';
 import SourcesStudio from '../components/SourcesStudio';
+import DeveloperPanel from '../components/DeveloperPanel';
 import { useI18n } from '../i18n';
 import * as api from '../api';
 import { useWorkspaceStore } from '../store/workspace';
@@ -306,6 +307,16 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
               onOpenSettings={() => setShowSettings(true)}
             />
           </main>
+
+          <div
+            id="workspace-pane-developer"
+            role="tabpanel"
+            aria-label={t('tabDeveloper')}
+            hidden={activeTab !== 'developer'}
+            className="absolute inset-0"
+          >
+            <DeveloperPanel />
+          </div>
         </div>
       </div>
 

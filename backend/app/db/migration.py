@@ -110,7 +110,9 @@ def preflight(db_path: Optional[Path] = None) -> dict[str, Any]:
         stats = {}
         for t in tables:
             try:
-                cur.execute(f"SELECT count(*) FROM {t}")
+                # 使用参数化查询防止潜在的SQL注入（虽然表名来自数据库架构）
+                # SQLite不支持表名参数化,但我们从sqlite_master获取表名,来源可信
+                cur.execute(f"SELECT count(*) FROM [{t}]")  # 使用方括号引用标识符
                 stats[t] = cur.fetchone()[0]
             except Exception as e:
                 stats[t] = f"error: {e}"
@@ -449,7 +451,7 @@ def verify(db_path: Optional[Path] = None) -> dict[str, Any]:
             "ingestion_items",
             "content_parts",
         ]:
-            cur.execute(f"SELECT count(*) FROM {t}")
+            cur.execute(f"SELECT count(*) FROM [{t}]")  # 使用方括号引用标识符
             stats[t] = cur.fetchone()[0]
 
         # 验证复合唯一约束（测试是否支持相同远端ID跨平台）

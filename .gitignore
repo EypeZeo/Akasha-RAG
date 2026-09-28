@@ -1,5 +1,6 @@
 # 敏感信息（递归）
 **/.env
+**/.env.*
 *.pem
 *.key
 *cookies*.txt
@@ -39,6 +40,9 @@ FRONTEND_FIXES.md
 MODEL_UPGRADE.md
 UPGRADE_COMPLETE.md
 PROJECT_REPORT.html
+
+# 内部规划文档（不公开）
+docs/PLATFORM_ROADMAP.md
 
 # IDE
 .idea/

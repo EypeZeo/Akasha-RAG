@@ -141,6 +141,14 @@ class UnifiedLauncher:
         self.browser_opened = False
         self.browser_lock = threading.Lock()
 
+    def __del__(self) -> None:
+        """确保日志文件在对象销毁时正确关闭"""
+        try:
+            if hasattr(self, 'log_file') and self.log_file and not self.log_file.closed:
+                self.log_file.close()
+        except Exception:
+            pass
+
     def log_message(self, prefix: str, text: str, color: str = "") -> None:
         line = text.rstrip("\r\n")
         if not line:

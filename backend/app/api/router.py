@@ -1,11 +1,11 @@
 """
 API 路由聚合模块
 
-将各子路由（auth / favorites / knowledge / chat）注册到统一前缀 /api 下。
+将各子路由（auth / favorites / knowledge / chat / metrics）注册到统一前缀 /api 下。
 """
 from fastapi import APIRouter, Depends
 
-from app.api.routes import auth, chat, favorites, knowledge, settings, system
+from app.api.routes import auth, chat, favorites, knowledge, metrics, settings, system
 from app.core.security import require_local_client
 
 api_router = APIRouter(prefix="/api", dependencies=[Depends(require_local_client)])
@@ -16,3 +16,4 @@ api_router.include_router(knowledge.router)
 api_router.include_router(chat.router)
 api_router.include_router(system.router)
 api_router.include_router(settings.router)
+api_router.include_router(metrics.router)
