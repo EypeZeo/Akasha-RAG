@@ -650,16 +650,20 @@ export default function SourcesPanel({
   const processingCount = (stats?.video_cache?.downloading ?? 0) + (stats?.video_cache?.transcribing ?? 0);
   const pendingCount = stats?.video_cache?.pending ?? 0;
   const retryableCount = pendingCount + failedCount;
-  const canResetFailed = failedCount > 0;
+  const canResetFailed = failedCount > 0 || processingCount > 0;
 
   const totalVideo = stats?.detail?.video?.total ?? stats?.content_types?.total_video ?? stats?.video_cache?.total_video ?? 0;
   const totalNote = stats?.detail?.note?.total ?? stats?.content_types?.total_note ?? stats?.video_cache?.total_note ?? 0;
 
   const videoDone = stats?.detail?.video?.done ?? 0;
   const videoPending = stats?.detail?.video?.pending ?? 0;
+  const videoFailed = stats?.detail?.video?.failed ?? 0;
+  const videoRetryable = videoPending + videoFailed;
 
   const noteDone = stats?.detail?.note?.done ?? 0;
   const notePending = stats?.detail?.note?.pending ?? 0;
+  const noteFailed = stats?.detail?.note?.failed ?? 0;
+  const noteRetryable = notePending + noteFailed;
 
   // 修正总计统计：避免 Object.values 将 total_video / total_note 重复累加导致翻倍
   const totalCount = (totalVideo + totalNote > 0)
@@ -952,54 +956,58 @@ export default function SourcesPanel({
              return (
                <div
                  key={rowKey(identity)}
-                 className={`flex items-center rounded-xl transition-all border ${
-                   isSelected
-                     ? 'border-accent/40 bg-accent-light shadow-sm'
-                     : 'border-transparent hover:border-[var(--color-border)] hover:bg-white/60'
-                 }`}
+                 className="flex flex-col rounded-xl transition-all"
                >
-                <button
-                  type="button"
-                  onClick={() => collectionExpandMode === 'anywhere' ? handleCollectionClick(col) : onSelectCollection(identity.id, identity.owner || undefined)}
-                  className="flex-1 min-w-0 text-left p-2.5 rounded-xl transition-all cursor-pointer"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 truncate">
-                      {col.platform === 'bilibili' && (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-pink-50 text-pink-600 border border-pink-200/60 flex-shrink-0">
-                          {t('platformBilibili')}
-                        </span>
-                      )}
-                      {col.platform === 'douyin' && (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-black/5 text-[var(--color-ink-soft)] border border-black/10 flex-shrink-0">
-                          {t('platformDouyin')}
-                        </span>
-                      )}
-                      <span className="text-sm font-semibold text-[var(--color-ink)] truncate">{displayTitle}</span>
-                    </div>
-                    {collectionExpandMode === 'anywhere' && (
-                      <span className="text-[11px] text-[var(--color-ink-muted)] ml-2 flex-shrink-0 flex items-center gap-1">
-                        <span>{col.video_count}</span>
-                        <span className="text-[9px]">{isExpanded ? '▲' : '▼'}</span>
-                      </span>
-                    )}
-                  </div>
-                </button>
-                {collectionExpandMode === 'chevron' && (
-                  <button
-                    type="button"
-                    onClick={() => handleCollectionExpand(col)}
-                    aria-label={isExpanded ? t('collapse') : t('expandSources')}
-                    className="h-full min-h-10 px-2.5 text-[11px] text-[var(--color-ink-muted)] hover:text-accent cursor-pointer flex items-center gap-1"
-                  >
-                    <span>{col.video_count}</span>
-                    <span className="text-[9px]">{isExpanded ? '▲' : '▼'}</span>
-                  </button>
-                )}
+                 <div
+                   className={`flex items-center justify-between rounded-xl transition-all border ${
+                     isSelected
+                       ? 'border-accent/40 bg-accent-light shadow-2xs'
+                       : 'border-transparent hover:border-[var(--color-border)] hover:bg-white/60'
+                   }`}
+                 >
+                   <button
+                     type="button"
+                     onClick={() => collectionExpandMode === 'anywhere' ? handleCollectionClick(col) : onSelectCollection(identity.id, identity.owner || undefined)}
+                     className="flex-1 min-w-0 text-left p-2.5 rounded-xl transition-all cursor-pointer"
+                   >
+                     <div className="flex items-center justify-between">
+                       <div className="flex items-center gap-1.5 truncate">
+                         {col.platform === 'bilibili' && (
+                           <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-pink-50 text-pink-600 border border-pink-200/60 flex-shrink-0">
+                             {t('platformBilibili')}
+                           </span>
+                         )}
+                         {col.platform === 'douyin' && (
+                           <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-black/5 text-[var(--color-ink-soft)] border border-black/10 flex-shrink-0">
+                             {t('platformDouyin')}
+                           </span>
+                         )}
+                         <span className="text-sm font-semibold text-[var(--color-ink)] truncate">{displayTitle}</span>
+                       </div>
+                       {collectionExpandMode === 'anywhere' && (
+                         <span className="text-[11px] text-[var(--color-ink-muted)] ml-2 flex-shrink-0 flex items-center gap-1">
+                           <span>{col.video_count}</span>
+                           <span className="text-[9px]">{isExpanded ? '▲' : '▼'}</span>
+                         </span>
+                       )}
+                     </div>
+                   </button>
+                   {collectionExpandMode === 'chevron' && (
+                     <button
+                       type="button"
+                       onClick={() => handleCollectionExpand(col)}
+                       aria-label={isExpanded ? t('collapse') : t('expandSources')}
+                       className="px-2.5 py-2 self-stretch text-[11px] text-[var(--color-ink-muted)] hover:text-accent rounded-r-xl transition-colors cursor-pointer flex items-center gap-1 shrink-0"
+                     >
+                       <span>{col.video_count}</span>
+                       <span className="text-[9px]">{isExpanded ? '▲' : '▼'}</span>
+                     </button>
+                   )}
+                 </div>
 
-                {/* Expanded video list */}
-                {isExpanded && (
-                  <div className="ml-2 mt-1 border-l-2 border-accent/30 pl-2.5 py-1 flex flex-col gap-1.5">
+                 {/* Expanded video list */}
+                 {isExpanded && (
+                   <div className="ml-2 mt-1 border-l-2 border-accent/30 pl-2.5 py-1 flex flex-col gap-1.5">
                       {/* 分类和状态筛选与搜索 (0.3s 防抖) */}
                       <div className="flex flex-col gap-1.5 mb-1.5">
                         {statusFilterEnabled && hasStatusCounts && (
@@ -1310,7 +1318,12 @@ export default function SourcesPanel({
             <>
               <div className="flex items-center justify-between text-[11px] text-[var(--color-ink-muted)]">
                 <span>
-                  ✅ <span className="font-semibold text-[var(--color-ink)]">{doneCount}</span> {t('ingested')} · ⏳ <span className="font-semibold text-[var(--color-ink)]">{pendingCount}</span> {t('pending')}
+                  ✅ <span className="font-semibold text-[var(--color-ink)]">{doneCount}</span> {t('ingested')} · ⏳ <span className="font-semibold text-[var(--color-ink)]">{retryableCount}</span> {t('pending')}
+                  {failedCount > 0 && (
+                    <span className="text-red-500 font-medium ml-1">
+                      ({t('itemFailed')} {failedCount})
+                    </span>
+                  )}
                 </span>
                 <span className="font-medium text-[10px] text-[var(--color-ink-muted)]">{t('total')} {totalCount}</span>
               </div>
@@ -1326,7 +1339,7 @@ export default function SourcesPanel({
                     </div>
                     <div className="flex justify-between text-[9px] text-[var(--color-ink-muted)] mt-0.5">
                       <span>{t('ingested')} <strong className="text-blue-700">{videoDone}</strong></span>
-                      <span>{t('pending')} <strong className={videoPending > 0 ? 'text-amber-600' : 'text-gray-400'}>{videoPending}</strong></span>
+                      <span>{t('pending')} <strong className={videoRetryable > 0 ? 'text-amber-600' : 'text-gray-400'}>{videoRetryable}</strong></span>
                     </div>
                   </div>
 
@@ -1338,7 +1351,7 @@ export default function SourcesPanel({
                     </div>
                     <div className="flex justify-between text-[9px] text-[var(--color-ink-muted)] mt-0.5">
                       <span>{t('ingested')} <strong className="text-purple-700">{noteDone}</strong></span>
-                      <span>{t('pending')} <strong className={notePending > 0 ? 'text-amber-600' : 'text-gray-400'}>{notePending}</strong></span>
+                      <span>{t('pending')} <strong className={noteRetryable > 0 ? 'text-amber-600' : 'text-gray-400'}>{noteRetryable}</strong></span>
                     </div>
                   </div>
                 </div>
@@ -1403,32 +1416,32 @@ export default function SourcesPanel({
               </div>
 
               {/* 仅入库视频 / 仅入库图文 快捷分流入口 */}
-              {videoPending > 0 && notePending > 0 && (
+              {videoRetryable > 0 && noteRetryable > 0 && (
                 <div className="flex gap-1.5">
                   <button
                     onClick={() => openBuildModal('video')}
                     disabled={!actionScope}
                     className="flex-1 py-1.5 px-2 rounded-lg text-[10px] bg-blue-50/80 hover:bg-blue-100 text-blue-700 border border-blue-200/60 font-medium transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-1"
-                    title={`${t('onlyIngestVideo')} (${videoPending})`}
+                    title={`${t('onlyIngestVideo')} (${videoRetryable})`}
                   >
                     <svg className="w-3 h-3 text-blue-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="m22 8-6 4 6 4V8Z" />
                       <rect width="14" height="12" x="2" y="6" rx="2" />
                     </svg>
-                    <span>{t('onlyIngestVideo')} ({videoPending})</span>
+                    <span>{t('onlyIngestVideo')} ({videoRetryable})</span>
                   </button>
                   <button
                     onClick={() => openBuildModal('note')}
                     disabled={!actionScope}
                     className="flex-1 py-1.5 px-2 rounded-lg text-[10px] bg-purple-50/80 hover:bg-purple-100 text-purple-700 border border-purple-200/60 font-medium transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-1"
-                    title={`${t('onlyIngestNote')} (${notePending})`}
+                    title={`${t('onlyIngestNote')} (${noteRetryable})`}
                   >
                     <svg className="w-3 h-3 text-purple-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
                       <circle cx="9" cy="9" r="2" />
                       <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
                     </svg>
-                    <span>{t('onlyIngestNote')} ({notePending})</span>
+                    <span>{t('onlyIngestNote')} ({noteRetryable})</span>
                   </button>
                 </div>
               )}
@@ -1440,7 +1453,7 @@ export default function SourcesPanel({
 
       {showBuildConfirm && buildScope && (
         <BuildConfirmModal
-          pendingCount={pendingCount}
+          pendingCount={actionRetryableCount}
           initialType={buildInitialType}
           collectionId={buildScope.id}
           collectionTitle={buildScope.title}

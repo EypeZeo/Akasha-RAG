@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -15,7 +16,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
 from app.db import session as session_module
-from app.models.entities import FavoriteCollection, FavoriteVideo, VideoCache
+from app.models.entities import ContentItem, FavoriteCollection, FavoriteVideo, IngestionItem, VideoCache
 from app.services import knowledge_service as knowledge_module
 from app.services import media_service as media_module
 from app.services.vision_service import vision_service
@@ -254,6 +255,59 @@ def test_idle_reset_keeps_transcript_checkpoint(pipeline, monkeypatch):
     assert result == {"success": True, "reset_count": 1}
     assert pipeline.cached().status == "pending"
     assert pipeline.cached().transcript_text
+
+
+def test_idle_reset_clears_retry_metadata_and_processed_at(pipeline, monkeypatch):
+    from app.api.routes import knowledge as route
+
+    monkeypatch.setattr(route, "worker", pipeline.progress)
+    pipeline.add("1001", status="failed", transcript="这是一份重试时必须保留的音频转写检查点。")
+    with pipeline.factory() as db:
+        item = db.scalar(select(IngestionItem).where(IngestionItem.platform_item_id == "1001"))
+        item.attempt_count = 4
+        item.error_code = "download_failed"
+        item.error_message = "旧错误"
+        item.processed_at = datetime.now(timezone.utc)
+        item.next_retry_at = datetime.now(timezone.utc)
+        item.lease_owner = "stale-worker"
+        item.lease_expires_at = datetime.now(timezone.utc)
+        db.commit()
+
+    with pipeline.factory() as db:
+        result = asyncio.run(route.reset_failed_videos(db))
+
+    assert result == {"success": True, "reset_count": 1}
+    reset = pipeline.cached()
+    assert reset.status == "pending"
+    assert reset.transcript_text
+    assert reset.attempt_count == 0
+    assert reset.error_code is None
+    assert reset.error_message == ""
+    assert reset.processed_at is None
+    assert reset.next_retry_at is None
+    assert reset.lease_owner is None
+    assert reset.lease_expires_at is None
+
+
+def test_stats_ignore_inactive_content_items(pipeline):
+    pipeline.add("1001", status="done", duration=20, transcript="已完成的视频正文。")
+    pipeline.add("1002", status="failed", duration=20)
+    pipeline.chroma.count = Mock(return_value=0)
+    with pipeline.factory() as db:
+        db.execute(
+            update(ContentItem)
+            .where(ContentItem.remote_item_id == "1002")
+            .values(is_active=False)
+        )
+        db.commit()
+
+    pipeline.service.invalidate_stats_cache()
+    with pipeline.factory() as db:
+        stats = pipeline.service.get_stats(db)
+
+    assert stats["video_cache"]["done"] == 1
+    assert stats["video_cache"]["failed"] == 0
+    assert stats["detail"]["video"] == {"total": 1, "done": 1, "pending": 0, "failed": 0}
 
 
 def test_worker_progress_is_snapshot_and_initialized_before_publish():

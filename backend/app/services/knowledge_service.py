@@ -163,9 +163,19 @@ class KnowledgeService:
             db.execute(
                 update(IngestionItem)
                 .where(IngestionItem.content_item_id.in_(pending_ids), IngestionItem.status == "failed")
-                .values(status="pending", error_message="")
+                .values(
+                    status="pending",
+                    attempt_count=0,
+                    error_code=None,
+                    error_message="",
+                    processed_at=None,
+                    next_retry_at=None,
+                    lease_owner=None,
+                    lease_expires_at=None,
+                )
             )
             db.commit()
+            self.invalidate_stats_cache()
 
         task_id = str(uuid.uuid4())[:8]
         worker.submit(
@@ -225,6 +235,7 @@ class KnowledgeService:
                         .values(**values)
                     )
                     db.commit()
+                    self.invalidate_stats_cache()
 
         def bail_if_cancelled(
             content_ref: int | str,
@@ -296,6 +307,8 @@ class KnowledgeService:
                     )
                     db.commit()
                     claimed = result.rowcount == 1
+                    if claimed:
+                        self.invalidate_stats_cache()
                 if not claimed:
                     return
 
@@ -548,9 +561,16 @@ class KnowledgeService:
                                     IngestionItem.content_item_id.in_(cids),
                                     IngestionItem.status.in_(("downloading", "transcribing")),
                                 )
-                                .values(status="pending", error_message="已取消入库")
+                                .values(
+                                    status="pending",
+                                    error_message="已取消入库",
+                                    next_retry_at=None,
+                                    lease_owner=None,
+                                    lease_expires_at=None,
+                                )
                             )
                             db.commit()
+                            self.invalidate_stats_cache()
                 except Exception as exc:
                     logger.warning("取消后回退残留状态异常: %s", exc)
             try:
@@ -564,6 +584,11 @@ class KnowledgeService:
             raise RuntimeError(f"入库处理结束：{failed_count}/{total} 个内容失败，请查看作品失败原因后重试")
         logger.info("知识库入库流水线全部执行完毕: 共 %d 个内容", total)
 
+    def invalidate_stats_cache(self) -> None:
+        """使统计缓存立即失效，促使下次查询重新计算最新统计。"""
+        with self._stats_lock:
+            self._stats_cache = None
+
     def get_stats(self, db: Session) -> dict:
         """Return a short-lived stale value while one request refreshes it."""
         now = time.monotonic()
@@ -576,10 +601,12 @@ class KnowledgeService:
             self._stats_refreshing = True
         try:
             value = self._compute_stats(db)
-        finally:
+        except Exception:
             with self._stats_lock:
                 self._stats_refreshing = False
+            raise
         with self._stats_lock:
+            self._stats_refreshing = False
             self._stats_cache = (time.monotonic(), value)
         return dict(value)
 
@@ -590,32 +617,19 @@ class KnowledgeService:
         :param db: 数据库会话
         :return: 统计数据
         """
-        # 各状态视频/内容数量
-        pending = db.scalar(
-            select(func.count()).select_from(IngestionItem).where(
-                IngestionItem.status == "pending"
-            )
-        ) or 0
-        done = db.scalar(
-            select(func.count()).select_from(IngestionItem).where(
-                IngestionItem.status == "done"
-            )
-        ) or 0
-        failed = db.scalar(
-            select(func.count()).select_from(IngestionItem).where(
-                IngestionItem.status == "failed"
-            )
-        ) or 0
-        downloading = db.scalar(
-            select(func.count()).select_from(IngestionItem).where(
-                IngestionItem.status == "downloading"
-            )
-        ) or 0
-        transcribing = db.scalar(
-            select(func.count()).select_from(IngestionItem).where(
-                IngestionItem.status == "transcribing"
-            )
-        ) or 0
+        # 各状态视频/内容数量（必须过滤 ContentItem.is_active 以保证与明细和收藏夹一致）
+        base_ingestion = (
+            select(IngestionItem.status, func.count(IngestionItem.id))
+            .join(ContentItem, ContentItem.id == IngestionItem.content_item_id)
+            .where(ContentItem.is_active.is_(True))
+            .group_by(IngestionItem.status)
+        )
+        status_map = dict(db.execute(base_ingestion).all())
+        pending = status_map.get("pending", 0)
+        done = status_map.get("done", 0)
+        failed = status_map.get("failed", 0)
+        downloading = status_map.get("downloading", 0)
+        transcribing = status_map.get("transcribing", 0)
 
         # 细分统计视频与图文数量
         total_video = db.scalar(
@@ -902,9 +916,18 @@ class KnowledgeService:
 
         # 2. 重置 IngestionItem
         ingestion.status = "pending"
+        ingestion.attempt_count = 0
         ingestion.transcript_text = ""
+        ingestion.summary = ""
+        ingestion.transcript_checkpoint = ""
+        ingestion.index_manifest = ""
+        ingestion.error_code = None
         ingestion.error_message = ""
+        ingestion.has_substantive_content = False
         ingestion.processed_at = None
+        ingestion.next_retry_at = None
+        ingestion.lease_owner = None
+        ingestion.lease_expires_at = None
 
         # 3. 清理音频缓存
         audio_dir = Path(settings.audio_cache_dir)
@@ -914,6 +937,7 @@ class KnowledgeService:
                 audio_file.unlink(missing_ok=True)
 
         db.commit()
+        self.invalidate_stats_cache()
         logger.info("内容已重置为待入库: %s", platform_item_id)
         return {"platform_item_id": platform_item_id, "platform": content_item.platform, "status": "pending"}
 

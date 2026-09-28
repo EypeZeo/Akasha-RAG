@@ -485,7 +485,10 @@ def local_index_preflight(*, session_factory_override=None, chroma_service_overr
         status_counts = {
             str(status): int(count)
             for status, count in db.execute(
-                select(IngestionItem.status, func.count()).group_by(IngestionItem.status)
+                select(IngestionItem.status, func.count(IngestionItem.id))
+                .join(ContentItem, ContentItem.id == IngestionItem.content_item_id)
+                .where(ContentItem.is_active.is_(True))
+                .group_by(IngestionItem.status)
             ).all()
         }
         done_rows = db.execute(
