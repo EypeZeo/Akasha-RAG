@@ -21,12 +21,13 @@ function setup(position: 'left' | 'top' = 'left') {
 }
 
 describe('ActivityBar', () => {
-  it('exposes a tablist with two tabs and correct aria-selected', () => {
+  it('exposes a tablist with three tabs and correct aria-selected', () => {
     setup();
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(2);
+    expect(tabs).toHaveLength(3);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
     expect(tabs[1]).toHaveAttribute('aria-selected', 'false');
+    expect(tabs[2]).toHaveAttribute('aria-selected', 'false');
     expect(tabs[0]).toHaveAttribute('aria-controls', 'workspace-pane-sources');
   });
 
@@ -50,7 +51,7 @@ describe('ActivityBar', () => {
     const { onTabChange } = setup('left');
     screen.getAllByRole('tab')[0].focus();
     await userEvent.keyboard('{End}');
-    expect(onTabChange).toHaveBeenCalledWith('chat');
+    expect(onTabChange).toHaveBeenCalledWith('developer');
   });
 
   it('clicking a tab reports the change', async () => {
