@@ -1,84 +1,66 @@
 # Changelog
 
-## [1.1.1] - 2025-01-XX
+## [1.1.1](https://github.com/EypeZeo/Akasha-RAG/compare/v1.1.0...v1.1.1) (2026-09-28)
 
-### 🎉 新增功能
+### ✨ 新功能 / Features
 
-#### 开发者模式与系统监控
-- **开发者面板**：新增完整的开发者面板 UI，支持实时监控
-  - 系统资源监控（CPU、内存、磁盘使用率）
-  - 进程信息展示（PID、线程数、运行时长）
-  - 网络状态监控（代理模式、流量统计、错误率）
-  - 缓存统计可视化（音频缓存、向量库、数据库大小）
-  - 数据库表统计（各表记录数）
-  - 自动刷新（每 5 秒更新一次）
-  - 支持深色模式
-  - 国际化支持（8 种语言）
+* **开发者面板 (Developer Panel)**: 新增完整的系统监控面板 UI，支持实时资源监控（CPU、内存、磁盘使用率、网络流量）、进程信息与缓存可视化，支持深色模式与 8 语言国际化。
+  * Added a comprehensive Developer Panel UI with real-time system resource monitoring (CPU, memory, disk, network traffic), process metrics, and cache visualization, with dark mode and 8-language i18n support.
+* **系统指标监控 API (System Metrics API)**: 新增 `/api/metrics/*` 端点（`system`、`network`、`cache`、`database`、`health`、`performance`、`audit/recent`），提供全方位系统可观测性。
+  * Introduced `/api/metrics/*` endpoints for system observability, health checks, performance, and cache diagnostics.
+* **审计日志系统 (Audit Logging)**: 内置 12 种结构化审计事件类型（认证、数据操作、配置变更、安全防护），支持 JSON 存储、10MB 自动轮转压缩及 90 天保留策略。
+  * Built-in audit logging system covering 12 event types with structured JSON storage, 10MB auto-rotation with ZIP compression, and 90-day retention.
+* **开发者模式开关 (Developer Mode Toggle)**: 新增 `DEVELOPER_MODE` 环境变量与运行时动态切换能力，支持通过前端界面或 API 快速启停调试视图。
+  * Added `DEVELOPER_MODE` environment variable and runtime toggle via UI/API for on-demand debugging.
+* **自动依赖同步 (Auto Dependency Sync)**: 启动阶段自动检测并同步 `uv.lock` 依赖状态，保证本地与开发环境依赖一致性。
+  * Auto-detect and sync `uv.lock` dependencies during startup preflight to prevent environment drift.
 
-- **监控 API**：新增 5 个系统监控端点
-  - `GET /api/metrics/system` - 系统资源指标
-  - `GET /api/metrics/network` - 网络状态
-  - `GET /api/metrics/cache` - 缓存统计
-  - `GET /api/metrics/database` - 数据库统计
-  - `GET /api/metrics/health` - 健康检查
-  - `GET /api/metrics/audit/recent` - 审计日志查询
-  - `GET /api/metrics/performance` - 性能指标
+### 🔒 安全加固 / Security Improvements
 
-- **审计日志系统**：完整的操作审计功能
-  - 12 种审计事件类型（登录、数据操作、设置变更、安全事件等）
-  - JSON 结构化日志存储
-  - 自动日志轮转（10MB）+ ZIP 压缩
-  - 90 天日志保留策略
-  - 支持通过 API 查询最近 500 条日志
+* **资源泄漏防护 (Resource Leak Prevention)**:
+  * 修复启动器日志文件描述符泄漏，添加 `__del__` 确保异常时正确关闭文件流。
+    * Fixed launcher log file descriptor leaks with guaranteed cleanup on exit.
+  * ASR 转写子进程增加 5 秒超时保护，彻底消除挂起阻塞隐患。
+    * Added timeout protection to ASR subprocesses to prevent indefinite hanging.
+  * 完善 Playwright 浏览器上下文异常清理逻辑，杜绝内存泄漏。
+    * Enhanced browser context cleanup in Playwright scrapers to avoid memory leaks.
+* **网络代理与连通性增强 (Network Proxy Enhancements)**:
+  * 统一支持环境变量小写命名（`http_proxy`、`https_proxy`、`all_proxy`）。
+    * Standardized support for lowercase proxy environment variables.
+  * 增强 `NO_PROXY` 规则支持，涵盖 IP/localhost 精确匹配、域名后缀与通配符绕过。
+    * Enhanced `NO_PROXY` bypass rules covering localhost, domain suffixes, and wildcards.
+  * 新增代理服务器连通性主动验证机制（`ENABLE_PROXY_VALIDATION`）与原生 SOCKS 代理支持。
+    * Added optional proxy preflight connectivity validation and native SOCKS proxy support.
+* **SQL 注入与路径遍历防护 (Injection & Traversal Protection)**:
+  * 数据库迁移脚本中对所有标识符采用方括号严格转义，杜绝 SQL 注入隐患。
+    * Quoted all identifier symbols in SQLite database migrations.
+  * 系统路由与文件操作严格校验绝对路径与目录穿越行为。
+    * Enforced path traversal validation on system file routes.
 
-- **开发者模式配置**
-  - 新增 `DEVELOPER_MODE` 环境变量
-  - 支持运行时动态切换（通过前端或 API）
-  - `GET /api/settings/developer-mode` - 查询状态
-  - `POST /api/settings/developer-mode` - 切换模式
+### 🚀 性能优化 / Performance Improvements
 
-### 🔒 安全改进
+* 引入 `psutil>=5.9` 轻量级系统监控库，采集系统核心性能指标。
+  * Integrated `psutil>=5.9` for lightweight, non-blocking hardware metrics collection.
+* 优化服务启动检测与依赖验证流程，大幅降低无锁状态异常崩溃率。
+  * Streamlined bootstrap check and dependency validation pipeline.
 
-#### 资源泄漏修复
-- **启动器日志文件泄漏**：添加 `__del__` 方法确保异常时正确关闭日志文件
-- **ASR 子进程超时**：为 `process.communicate()` 添加 5 秒超时，避免无限阻塞
-- **浏览器上下文清理**：改进错误日志，避免内存泄漏（每个泄漏 50-100MB）
+### 📝 文档规范 / Documentation
 
-#### 网络代理增强
-- **支持小写环境变量**：现在同时检查 `http_proxy`、`https_proxy`、`all_proxy`
-- **NO_PROXY 绕过支持**：新增 `_should_bypass_proxy()` 函数，支持：
-  - 精确匹配（localhost）
-  - 域名后缀匹配（.example.com）
-  - 通配符匹配（*.example.com）
-- **代理连通性探测**：可选的代理服务器连通性测试（`ENABLE_PROXY_VALIDATION`）
-- **统一 SOCKS 支持**：移除不必要的 SOCKS 代理限制
+* 新增 `SECURITY_AND_IMPROVEMENTS.md` 安全审计报告与整改清单。
+  * Added `SECURITY_AND_IMPROVEMENTS.md` security audit report.
+* 新增 `IMPLEMENTATION_SUMMARY.md` 完整功能落地指南。
+  * Added `IMPLEMENTATION_SUMMARY.md` comprehensive implementation summary.
+* 新增 `docs/PLATFORM_ROADMAP.md` 多平台接入演进方案与内部规划。
+  * Added `docs/PLATFORM_ROADMAP.md` multi-platform integration roadmap.
 
-#### 其他安全修复
-- **SQL 注入防护**：迁移脚本中使用方括号引用标识符
-- **路径遍历防护**：系统路由添加路径验证和绝对路径检查
+### 🐛 缺陷修复 / Bug Fixes
 
-### 🚀 性能优化
-
-- **自动依赖同步**：启动时自动检测并更新 `uv.lock`，避免手动干预
-- **依赖管理**：新增 `psutil>=5.9` 用于系统监控
-
-### 📝 文档
-
-- **安全审计报告**：`SECURITY_AND_IMPROVEMENTS.md` - 详细的安全审计和改进总结
-- **实施总结**：`IMPLEMENTATION_SUMMARY.md` - 完整的功能实现文档
-- **平台接入规划**：`docs/PLATFORM_ROADMAP.md` - 知乎、小红书等平台的详细技术方案（2800+ 行，内部文档）
-
-### 🐛 Bug 修复
-
-- 修复启动时 `uv.lock` 过时导致的失败问题
-- 修复开发者面板 Tab 切换时的显示问题
-- 修复审计日志中文编码问题
-
-### 🔧 内部改进
-
-- 统一错误处理机制
-- 改进日志记录（屏蔽敏感信息）
-- 代码质量提升（添加类型注解、文档字符串）
+* 修复旧版 `uv.lock` 冲突导致的项目冷启动失败。
+  * Fixed cold start failures caused by outdated lockfiles.
+* 修复开发者面板在移动端与小屏幕下的 Tab 切换与深色模式样式异常。
+  * Fixed developer panel tab switching and dark mode layout issues.
+* 修复结构化审计日志中的 UTF-8 中文乱码问题。
+  * Fixed Chinese character encoding issues in audit logs.
 
 ---
 
