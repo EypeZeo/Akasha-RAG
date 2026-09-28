@@ -8,7 +8,7 @@ import { create } from 'zustand';
  * `utils/settings` (`akasha:` localStorage keys). PR-C will migrate the chat
  * transcript / draft / streaming refs here so a tab switch never loses them.
  */
-export type WorkspaceTab = 'sources' | 'chat';
+export type WorkspaceTab = 'sources' | 'chat' | 'developer';
 export type Platform = 'all' | 'douyin' | 'bilibili';
 
 interface WorkspaceState {

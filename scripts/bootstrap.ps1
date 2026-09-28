@@ -426,10 +426,16 @@ function Sync-Backend {
     [string]$venvDirectory = Join-Path -Path $BackendDirectory -ChildPath '.venv'
     [string]$stampPath = Join-Path -Path $venvDirectory -ChildPath '.akasha-lock.sha256'
     [string]$uv = Get-UvCommand
-    # Verify the lock before allowing uv to touch an existing environment.  A stale
-    # lock would otherwise let `uv sync --locked` remove the old venv before failing.
-    & $uv lock --check --project $BackendDirectory
-    Assert-LastExitCode -Operation 'Backend lockfile validation'
+    
+    # Verify the lock before allowing uv to touch an existing environment.
+    # If the lock is stale, automatically update it.
+    & $uv lock --check --project $BackendDirectory 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host '[BOOTSTRAP] 检测到依赖变更，正在更新 uv.lock...' -ForegroundColor Yellow
+        & $uv lock --project $BackendDirectory
+        Assert-LastExitCode -Operation 'Backend lockfile update'
+    }
+    
     [string]$lockHash = Get-Sha256 -Path $lockPath
     [bool]$needsSync = -not (Test-Path -LiteralPath $BackendPython -PathType Leaf)
     if (-not $needsSync -and -not (Test-Path -LiteralPath $stampPath -PathType Leaf)) {

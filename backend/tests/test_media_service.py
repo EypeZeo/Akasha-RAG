@@ -199,13 +199,50 @@ def test_verified_media_stream_fallback_uses_proxy_and_publishes_complete_file(t
     assert seen["request"][2]["cookies"] == {"sessionid": "secret"}
 
 
-def test_verified_media_stream_fallback_does_not_bypass_socks_proxy(tmp_path, monkeypatch):
+def test_verified_media_stream_fallback_supports_socks_proxy(tmp_path, monkeypatch):
+    """SOCKS 代理现在被支持（需要 httpx[socks]）"""
+    seen = {}
+    
+    class FakeClient:
+        def __init__(self, **kwargs):
+            seen["client"] = kwargs
+        
+        def __enter__(self):
+            return self
+        
+        def __exit__(self, *args):
+            pass
+        
+        def stream(self, method, url, **kwargs):
+            seen["request"] = (method, url, kwargs)
+            
+            class FakeResponse:
+                status_code = 200
+                headers = {}
+                
+                def __enter__(self):
+                    return self
+                
+                def __exit__(self, *args):
+                    pass
+                
+                def raise_for_status(self):
+                    pass
+                
+                def iter_bytes(self, chunk_size):
+                    yield b"x" * 256
+            
+            return FakeResponse()
+    
     monkeypatch.setattr(media, "detect_network_proxy", lambda: "socks5://127.0.0.1:1080")
-    monkeypatch.setattr(media.httpx, "Client", lambda **_: pytest.fail("must not connect directly"))
-    with pytest.raises(media.MediaPipelineError, match="不支持当前代理协议"):
-        media._download_verified_media(
-            "https://v.douyinvod.com/media.mp4", {}, [], tmp_path / "browser",
-        )
+    monkeypatch.setattr(media.httpx, "Client", FakeClient)
+    
+    result = media._download_verified_media(
+        "https://v.douyinvod.com/media.mp4", {}, [], tmp_path / "browser",
+    )
+    
+    assert result.name == "browser.mp4"
+    assert seen["client"]["proxy"] == "socks5://127.0.0.1:1080"
 
 
 def test_verified_media_stream_restricts_redirect_domains_and_drops_cross_host_cookies(tmp_path, monkeypatch):

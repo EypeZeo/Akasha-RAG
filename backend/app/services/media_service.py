@@ -198,9 +198,8 @@ def _download_verified_media(
     a second extractor.
     """
     proxy = detect_network_proxy()
-    proxy_scheme = urlsplit(proxy).scheme.lower() if proxy else ""
-    if proxy and proxy_scheme not in {"http", "https"}:
-        raise MediaPipelineError("备用媒体传输不支持当前代理协议")
+    # 移除 SOCKS 代理限制 - httpx 0.28+ 支持 SOCKS5 通过 httpx[socks]
+    # 如果未安装 httpx[socks]，连接时会自动报错
     stream_proxy = proxy
     from app.services.douyin_media_resolver import is_allowed_media_url
 

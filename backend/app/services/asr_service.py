@@ -111,11 +111,17 @@ class ASRService:
                         sent_input = True
                         if cancel_check():
                             process.kill()
-                            process.communicate()
+                            try:
+                                process.communicate(timeout=5.0)
+                            except subprocess.TimeoutExpired:
+                                logger.warning("ASR 工作进程未能在 5 秒内终止，强制清理")
                             raise RuntimeError("ASR 转写已取消，工作进程已终止")
                         if time.monotonic() >= deadline:
                             process.kill()
-                            process.communicate()
+                            try:
+                                process.communicate(timeout=5.0)
+                            except subprocess.TimeoutExpired:
+                                logger.warning("ASR 工作进程超时后未能在 5 秒内终止，强制清理")
                             raise subprocess.TimeoutExpired(command, settings.asr_timeout_seconds)
         except subprocess.TimeoutExpired:
             raise RuntimeError(

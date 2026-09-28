@@ -622,8 +622,8 @@ class DouyinCollector:
                     if context:
                         try:
                             context.close()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.error(f"浏览器上下文清理失败（可能导致内存泄漏）: {e}")
                     self._active_context = None
                     self._active_playwright = None
                     self._active_page = None
