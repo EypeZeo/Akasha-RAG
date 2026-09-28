@@ -90,7 +90,7 @@ export default function DeveloperPanel() {
         const data = await res.json();
         setDeveloperMode(data.enabled);
         setLoading(false);
-      } catch (err) {
+      } catch (_err) {
         setError('无法连接到后端服务');
         setLoading(false);
       }
@@ -115,7 +115,7 @@ export default function DeveloperPanel() {
         setCacheMetrics(cache);
         setDatabaseMetrics(database);
         setError('');
-      } catch (err) {
+      } catch (_err) {
         setError('获取监控数据失败');
       }
     };
@@ -137,7 +137,7 @@ export default function DeveloperPanel() {
       });
       const data = await res.json();
       setDeveloperMode(data.enabled);
-    } catch (err) {
+    } catch (_err) {
       setError('切换开发者模式失败');
     }
   };

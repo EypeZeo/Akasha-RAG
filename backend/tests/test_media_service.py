@@ -226,6 +226,9 @@ def test_verified_media_stream_fallback_supports_socks_proxy(tmp_path, monkeypat
                 def __exit__(self, *args):
                     pass
                 
+                def raise_for_status(self):
+                    pass
+                
                 def iter_bytes(self, chunk_size):
                     yield b"x" * 256
             
