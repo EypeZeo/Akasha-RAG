@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useI18n } from '../i18n';
 
 interface SystemMetrics {
   process: {
