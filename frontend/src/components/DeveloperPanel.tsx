@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useI18n } from '../i18n';
-import * as api from '../api';
 
 interface SystemMetrics {
   process: {
@@ -73,7 +72,6 @@ interface DatabaseMetrics {
 }
 
 export default function DeveloperPanel() {
-  const { t } = useI18n();
   const [developerMode, setDeveloperMode] = useState(false);
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null);
   const [networkMetrics, setNetworkMetrics] = useState<NetworkMetrics | null>(null);
