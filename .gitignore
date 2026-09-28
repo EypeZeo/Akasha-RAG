@@ -1,5 +1,6 @@
 # 敏感信息（递归）
 **/.env
+**/.env.dpapi
 *.pem
 *.key
 *cookies*.txt

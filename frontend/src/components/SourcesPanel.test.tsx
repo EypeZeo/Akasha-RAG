@@ -746,6 +746,24 @@ describe('SourcesPanel clear all knowledge', () => {
   });
 });
 
+describe('SourcesPanel recovery controls', () => {
+  it('shows reset for stuck processing items even when failed count is zero', async () => {
+    vi.mocked(api.getKnowledgeStats).mockResolvedValue({
+      success: true,
+      video_cache: { done: 1, pending: 0, failed: 0, downloading: 1, transcribing: 0 },
+    });
+    vi.mocked(api.resetFailedVideos).mockResolvedValue({ success: true, reset_count: 1 });
+
+    setup();
+    const resetButton = await screen.findByText(TRANSLATIONS.en.resetFailed);
+    fireEvent.click(resetButton);
+
+    await waitFor(() => {
+      expect(api.resetFailedVideos).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
 describe('SourcesPanel sync favorites', () => {
   function noopSync(overrides: Partial<Awaited<ReturnType<typeof api.syncFavorites>>> = {}) {
     return {
