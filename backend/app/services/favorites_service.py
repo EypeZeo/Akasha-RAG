@@ -87,6 +87,10 @@ class FavoritesService:
             db, snapshot, collections_by_platform
         )
         db.commit()
+        # The status panel uses a short-lived cache, so a successful sync must
+        # publish its new pending/done counts immediately.
+        from app.services.knowledge_service import knowledge_service
+        knowledge_service.invalidate_stats_cache()
 
         total_collections = (
             db.scalar(
@@ -582,7 +586,21 @@ class FavoritesService:
                 db.execute(
                     sql_update(IngestionItem)
                     .where(IngestionItem.content_item_id == item.id)
-                    .values(status="pending", transcript_text="", summary="", error_message="")
+                    .values(
+                        status="pending",
+                        attempt_count=0,
+                        transcript_text="",
+                        summary="",
+                        transcript_checkpoint="",
+                        index_manifest="",
+                        error_code=None,
+                        error_message="",
+                        has_substantive_content=False,
+                        processed_at=None,
+                        next_retry_at=None,
+                        lease_owner=None,
+                        lease_expires_at=None,
+                    )
                 )
                 db.flush()
             # else: brand new item, nothing existed before -- just add its

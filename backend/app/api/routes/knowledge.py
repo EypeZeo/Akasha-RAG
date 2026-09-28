@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.db.session import get_db
-from app.models.entities import CollectionItemRelation, ContentItem, VideoCache
+from app.models.entities import CollectionItemRelation, ContentItem, IngestionItem, VideoCache
 from app.services.batch_export_service import batch_export_service
 from app.services.collection_scope import AmbiguousCollectionError, CollectionNotFoundError, resolve_collection
 from app.services.knowledge_service import knowledge_service
@@ -141,13 +141,28 @@ async def reset_failed_videos(db: Session = Depends(get_db)):
             "message": "入库任务仍在执行或排队，请等待任务结束后重置失败项",
         }
     reset_statuses = ["failed", "downloading", "transcribing"]
-    result = db.execute(
-        sql_update(VideoCache)
-        .where(VideoCache.status.in_(reset_statuses))
-        .values(status="pending", error_message="")
+    res_ingestion = db.execute(
+        sql_update(IngestionItem)
+        .where(
+            IngestionItem.status.in_(reset_statuses),
+            IngestionItem.content_item_id.in_(
+                select(ContentItem.id).where(ContentItem.is_active.is_(True))
+            ),
+        )
+        .values(
+            status="pending",
+            attempt_count=0,
+            error_code=None,
+            error_message="",
+            processed_at=None,
+            next_retry_at=None,
+            lease_owner=None,
+            lease_expires_at=None,
+        )
     )
     db.commit()
-    count = result.rowcount
+    knowledge_service.invalidate_stats_cache()
+    count = res_ingestion.rowcount
     return {"success": True, "reset_count": count}
 
 
@@ -165,6 +180,7 @@ async def delete_video(platform_item_id: str, platform: str | None = Query(None)
     """
     try:
         result = knowledge_service.delete_video(db, platform_item_id, platform)
+        knowledge_service.invalidate_stats_cache()
         return {"success": True, **result}
     except ValueError as exc:
         return {"success": False, "message": str(exc)}
@@ -350,18 +366,37 @@ def _clear_all_knowledge_sync(db: Session, body: ClearAllRequest) -> dict:
             rows = db.execute(
                 select(ContentItem.id, ContentItem.remote_item_id, ContentItem.platform).join(
                     CollectionItemRelation, CollectionItemRelation.content_item_id == ContentItem.id
-                ).where(CollectionItemRelation.collection_id == collection_pk, CollectionItemRelation.is_active.is_(True))
+                ).where(
+                    CollectionItemRelation.collection_id == collection_pk,
+                    CollectionItemRelation.is_active.is_(True),
+                    ContentItem.is_active.is_(True),
+                )
             ).all()
             vids = [row.remote_item_id for row in rows]
             if vids:
                 for row in rows:
                     chroma.delete_by_video(row.remote_item_id, platform=row.platform, content_item_id=row.id)
                 db.execute(
-                    sql_update(VideoCache)
-                    .where(VideoCache.content_item_id.in_([row.id for row in rows]))
-                    .values(status="pending", transcript_text="", summary="", error_message="")
+                    sql_update(IngestionItem)
+                    .where(IngestionItem.content_item_id.in_([row.id for row in rows]))
+                    .values(
+                        status="pending",
+                        attempt_count=0,
+                        transcript_text="",
+                        summary="",
+                        transcript_checkpoint="",
+                        index_manifest="",
+                        error_code=None,
+                        error_message="",
+                        has_substantive_content=False,
+                        processed_at=None,
+                        next_retry_at=None,
+                        lease_owner=None,
+                        lease_expires_at=None,
+                    )
                 )
                 db.commit()
+                knowledge_service.invalidate_stats_cache()
             return {"success": True, "reset_count": len(vids)}
         else:
             # 清空全部，或按平台清空一个平台
@@ -380,14 +415,27 @@ def _clear_all_knowledge_sync(db: Session, body: ClearAllRequest) -> dict:
                 chroma.clear_all()
             chroma_cleared = True
 
-            update_stmt = sql_update(VideoCache).values(
-                status="pending", transcript_text="", summary="", error_message=""
+            update_ingestion = sql_update(IngestionItem).values(
+                status="pending",
+                attempt_count=0,
+                transcript_text="",
+                summary="",
+                transcript_checkpoint="",
+                index_manifest="",
+                error_code=None,
+                error_message="",
+                has_substantive_content=False,
+                processed_at=None,
+                next_retry_at=None,
+                lease_owner=None,
+                lease_expires_at=None,
             )
             if target_platform:
                 scoped_content_ids = select(ContentItem.id).where(ContentItem.platform == target_platform)
-                update_stmt = update_stmt.where(VideoCache.content_item_id.in_(scoped_content_ids))
-            result = db.execute(update_stmt)
+                update_ingestion = update_ingestion.where(IngestionItem.content_item_id.in_(scoped_content_ids))
+            result = db.execute(update_ingestion)
             db.commit()
+            knowledge_service.invalidate_stats_cache()
             return {"success": True, "reset_count": result.rowcount}
 
     except AmbiguousCollectionError as exc:
