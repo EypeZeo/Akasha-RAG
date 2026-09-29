@@ -1,7 +1,9 @@
 """知乎采集器的离线契约测试。"""
 from __future__ import annotations
 
-from app.services.zhihu_collector import ZhihuCollector
+import pytest
+
+from app.services.zhihu_collector import ZhihuCollector, ZhihuRequestError
 
 
 def _collector_without_browser() -> ZhihuCollector:
@@ -113,6 +115,41 @@ def test_local_limit_prevents_complete_snapshot_when_provider_has_more_rows():
 
     assert [row["id"] for row in rows] == [1, 2, 3]
     assert complete is False
+
+
+def test_page_collection_projection_deduplicates_and_rejects_untrusted_ids():
+    rows = ZhihuCollector._normalise_page_collections([
+        {"id": "42", "title": "工作"},
+        {"id": "42", "title": "重复"},
+        {"id": "not-an-id", "title": "忽略"},
+        {"id": "99", "title": ""},
+    ])
+
+    assert rows == [
+        {"id": "42", "title": "工作"},
+        {"id": "99", "title": "收藏夹 99"},
+    ]
+
+
+def test_page_item_projection_accepts_only_public_answer_or_article_urls():
+    rows = ZhihuCollector._normalise_page_items([
+        {"type": "answer", "id": "10", "url": "https://www.zhihu.com/question/1/answer/10", "title": "回答", "excerpt": "正文"},
+        {"type": "article", "id": "20", "url": "https://zhuanlan.zhihu.com/p/20", "title": "文章", "author": "作者", "excerpt": "内容"},
+        {"type": "answer", "id": "10", "url": "https://www.zhihu.com/question/1/answer/10"},
+        {"type": "answer", "id": "30", "url": "https://example.test/answer/30"},
+    ])
+
+    assert [row["content"]["id"] for row in rows] == ["10", "20"]
+    assert rows[1]["content"]["author"] == {"name": "作者"}
+
+
+def test_fetch_json_rejects_a_success_status_with_html_content():
+    class _HtmlPage:
+        def evaluate(self, *_args):
+            return {"status": 200, "contentType": "text/html; charset=utf-8", "text": "null"}
+
+    with pytest.raises(ZhihuRequestError, match="没有返回 JSON"):
+        ZhihuCollector._fetch_json(_HtmlPage(), "https://www.zhihu.com/api/v4/favlists")
 
 class _QrElement:
     def __init__(self, *, visible=True, box=None, image_ready=True, payload=b'\x89PNG\r\n\x1a\nqr'):

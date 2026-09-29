@@ -42,7 +42,10 @@ if exist "%NODE_DIR_FILE%" (
   )
 )
 
-"%BACKEND_PY%" "%PROJECT_ROOT%launcher.py"
+REM Run the long-lived launcher in a fresh cmd.exe, not inside this batch file.
+REM Once this batch has returned, closing the visible launcher window cannot
+REM trigger cmd.exe's "Terminate batch job (Y/N)?" prompt.
+start "Akasha-RAG %APP_VERSION%" "%ComSpec%" /d /c ""%BACKEND_PY%" "%PROJECT_ROOT%launcher.py""
 set "EXIT_CODE=%ERRORLEVEL%"
 if not "%EXIT_CODE%"=="0" goto launcher_failed
 endlocal & exit /b 0

@@ -473,7 +473,11 @@ class ZhihuCollector:
     def _fetch_json(page, url: str) -> dict[str, Any]:
         result = page.evaluate("""async (target) => {
             const response = await fetch(target, {credentials: 'include', headers: {Accept: 'application/json'}});
-            return {status: response.status, text: await response.text()};
+            return {
+                status: response.status,
+                contentType: response.headers.get('content-type') || '',
+                text: await response.text(),
+            };
         }""", url)
         status = int(result.get("status", 0))
         if status in (401, 403):
@@ -483,6 +487,8 @@ class ZhihuCollector:
             )
         if status < 200 or status >= 300:
             raise ZhihuRequestError(f"知乎接口请求失败（HTTP {status}）", status_code=status)
+        if "json" not in str(result.get("contentType") or "").lower():
+            raise ZhihuRequestError("知乎接口没有返回 JSON；收藏夹将使用已登录网页读取")
         try:
             payload = json.loads(result.get("text", ""))
         except json.JSONDecodeError as exc:
@@ -534,6 +540,141 @@ class ZhihuCollector:
             logger.warning("知乎%s达到本地上限 %d，快照标记为不完整", label, max_items)
         return rows[:max_items], complete
 
+    @staticmethod
+    def _normalise_page_collections(rows: Any) -> list[dict[str, str]]:
+        """Validate the small DOM projection used for the signed-favlist fallback."""
+        if not isinstance(rows, list):
+            return []
+        seen: set[str] = set()
+        collections: list[dict[str, str]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            collection_id = _first_text(row.get("id"))
+            if not collection_id.isdigit() or collection_id in seen:
+                continue
+            seen.add(collection_id)
+            title = _first_text(row.get("title"), f"收藏夹 {collection_id}")[:300]
+            collections.append({"id": collection_id, "title": title})
+        return collections
+
+    @staticmethod
+    def _normalise_page_items(rows: Any) -> list[dict[str, Any]]:
+        """Turn trusted same-origin card projections into the existing item shape."""
+        if not isinstance(rows, list):
+            return []
+        items: list[dict[str, Any]] = []
+        seen: set[tuple[str, str]] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            kind = _first_text(row.get("type")).lower()
+            remote_id = _first_text(row.get("id"))
+            url = _first_text(row.get("url"))
+            if kind not in {"answer", "article"} or not remote_id or not _is_public_zhihu_url(url):
+                continue
+            key = (kind, remote_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append({
+                "content": {
+                    "type": kind,
+                    "id": remote_id,
+                    "url": url,
+                    "title": _first_text(row.get("title"), f"知乎{kind} {remote_id}")[:500],
+                    "author": {"name": _first_text(row.get("author"))[:200]},
+                    "excerpt": _first_text(row.get("excerpt"))[:20_000],
+                }
+            })
+        return items
+
+    def _read_collections_from_page(self, page) -> tuple[list[dict[str, str]], dict[str, list[dict[str, Any]]]]:
+        """Read the signed Zhihu collection UI through the already logged-in page.
+
+        Zhihu's collection REST endpoints require an ephemeral browser signature.
+        Calling them with a hand-written ``fetch`` can return HTTP 200 plus an
+        HTML/null body or HTTP 403.  The normal web pages already run in the
+        authenticated browser context and server-render the visible cards, so
+        use a deliberately narrow DOM projection instead.  This is always an
+        incomplete snapshot: pagination is not guessed, and old local rows are
+        consequently never removed from a partial provider view.
+        """
+        account = self._fetch_json(page, f"{_ZHIHU_HOME}/api/v4/me")
+        url_token = _first_text(account.get("url_token"))
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", url_token):
+            raise ZhihuRequestError("知乎登录态缺少账号标识，请重新登录", status_code=401)
+
+        page.goto(
+            f"{_ZHIHU_HOME}/people/{quote(url_token, safe='')}/collections",
+            wait_until="domcontentloaded",
+            timeout=45_000,
+        )
+        page.wait_for_selector("main", state="attached", timeout=15_000)
+        try:
+            page.wait_for_selector('main a[href*="/collection/"]', state="attached", timeout=10_000)
+        except Exception:
+            is_explicitly_empty = page.evaluate(
+                "() => document.body.innerText.includes('还没有收藏夹')"
+            )
+            if not is_explicitly_empty:
+                raise ZhihuRequestError("知乎收藏夹页面未加载完成，请稍后重试")
+        raw_collections = page.evaluate("""() => {
+            const rows = [];
+            const seen = new Set();
+            for (const link of document.querySelectorAll('main a[href*="/collection/"]')) {
+                const match = (link.getAttribute('href') || '').match(/^\\/collection\\/(\\d+)(?:[/?#].*)?$/);
+                if (!match || seen.has(match[1])) continue;
+                seen.add(match[1]);
+                const heading = link.querySelector('h1, h2, h3, [class*="Title"]');
+                const title = (heading?.textContent || link.textContent || '').trim().split(/\\n+/)[0];
+                rows.push({id: match[1], title});
+            }
+            return rows;
+        }""")
+        collections = self._normalise_page_collections(raw_collections)
+        collection_items: dict[str, list[dict[str, Any]]] = {}
+        for collection in collections:
+            collection_id = collection["id"]
+            page.goto(
+                f"{_ZHIHU_HOME}/collection/{quote(collection_id, safe='')}",
+                wait_until="domcontentloaded",
+                timeout=45_000,
+            )
+            page.wait_for_selector("main", state="attached", timeout=15_000)
+            try:
+                page.wait_for_selector("main .ContentItem", state="attached", timeout=8_000)
+            except Exception:
+                # An empty collection is valid.  Treat an uncertain page as
+                # partial rather than inventing a destructive empty result.
+                logger.info("知乎收藏夹 %s 当前未渲染内容卡片", collection_id)
+            raw_items = page.evaluate("""() => {
+                const rows = [];
+                for (const card of document.querySelectorAll('main .ContentItem')) {
+                    const links = [...card.querySelectorAll('a[href]')]
+                        .map(link => new URL(link.getAttribute('href'), location.origin).href);
+                    const answer = links.find(url => /\\/question\\/\\d+\\/answer\\/(\\d+)(?:[/?#]|$)/.test(url));
+                    const article = links.find(url => /(?:zhuanlan\\.)?zhihu\\.com\\/p\\/(\\d+)(?:[/?#]|$)/.test(url));
+                    const url = answer || article;
+                    const match = url?.match(answer ? /\\/answer\\/(\\d+)(?:[/?#]|$)/ : /\\/p\\/(\\d+)(?:[/?#]|$)/);
+                    if (!url || !match) continue;
+                    const titleNode = card.querySelector('h1, h2, h3, [class*="Title"]');
+                    const authorNode = card.querySelector('.AuthorInfo-name, .UserLink-link');
+                    const bodyNode = card.querySelector('.RichContent-inner, [class*="RichContent"]');
+                    rows.push({
+                        type: answer ? 'answer' : 'article',
+                        id: match[1],
+                        url,
+                        title: (titleNode?.textContent || '').trim(),
+                        author: (authorNode?.textContent || '').trim(),
+                        excerpt: (bodyNode?.textContent || card.textContent || '').trim(),
+                    });
+                }
+                return rows;
+            }""")
+            collection_items[collection_id] = self._normalise_page_items(raw_items)
+        return collections, collection_items
+
     def _open_sync_page(self):
         state = read_json(self._state_path)
         if not isinstance(state, dict):
@@ -578,34 +719,22 @@ class ZhihuCollector:
             playwright, browser, context, page = self._open_sync_page()
             collections: list[FavoriteScrapedCollection] = []
             videos: list[FavoriteScrapedVideo] = []
-            collection_items: dict[str, list[dict[str, Any]]] = {}
-            favlists, collections_complete = self._fetch_paginated(
-                page,
-                f"{_ZHIHU_HOME}/api/v4/favlists?limit={_PAGE_SIZE}&offset=0",
-                page_size=_PAGE_SIZE,
-                max_items=_MAX_COLLECTIONS,
-                label="收藏夹",
-            )
-            items_complete = True
+            favlists, collection_items = self._read_collections_from_page(page)
+            # The UI can be lazily paginated.  Never treat the first rendered
+            # page as exhaustive, so snapshot persistence cannot deactivate
+            # collections/items that were simply below the fold.
+            collections_complete = False
+            items_complete = False
             for raw in favlists:
-                collection_id = _first_text(raw.get("id"), raw.get("favlist_id"))
+                collection_id = _first_text(raw.get("id"))
                 if not collection_id:
                     continue
-                title = _first_text(raw.get("title"), raw.get("name"), f"收藏夹 {collection_id}")
+                title = _first_text(raw.get("title"), f"收藏夹 {collection_id}")
                 collections.append(FavoriteScrapedCollection(
                     platform_collection_id=collection_id,
                     title=title,
-                    video_count=max(_safe_int(raw.get("item_count") or raw.get("items_count") or raw.get("count")), 0),
+                    video_count=len(collection_items.get(collection_id, [])),
                 ))
-                items, collection_complete = self._fetch_paginated(
-                    page,
-                    f"{_ZHIHU_HOME}/api/v4/favlists/{quote(collection_id, safe='')}/items?limit={_PAGE_SIZE}&offset=0",
-                    page_size=_PAGE_SIZE,
-                    max_items=_MAX_ITEMS_PER_COLLECTION,
-                    label=f"收藏夹 {collection_id} 内容",
-                )
-                collection_items[collection_id] = items
-                items_complete = items_complete and collection_complete
 
             by_key: dict[str, FavoriteScrapedVideo] = {}
             for collection_id, raw_items in collection_items.items():
