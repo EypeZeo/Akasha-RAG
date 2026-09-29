@@ -115,10 +115,9 @@ def test_local_limit_prevents_complete_snapshot_when_provider_has_more_rows():
     assert complete is False
 
 class _QrElement:
-    def __init__(self, *, visible=True, box=None, pixels=None, image_ready=True, payload=b'\x89PNG\r\n\x1a\nqr'):
+    def __init__(self, *, visible=True, box=None, image_ready=True, payload=b'\x89PNG\r\n\x1a\nqr'):
         self.visible = visible
         self.box = box or {'width': 120, 'height': 120}
-        self.pixels = pixels if pixels is not None else {'dark': 2200, 'light': 10000, 'total': 14400}
         self.image_ready = image_ready
         self.payload = payload
 
@@ -129,7 +128,7 @@ class _QrElement:
         return self.box
 
     def evaluate(self, script):
-        return self.pixels if 'getImageData' in script else self.image_ready
+        return self.image_ready
 
     def screenshot(self, *, type):
         assert type == 'png'
@@ -174,12 +173,22 @@ def test_qrcode_capture_only_reads_the_exact_zhihu_canvas():
     assert page.selectors == ['div.Qrcode-container div.Qrcode-img canvas.Qrcode-qrcode']
 
 
-def test_qrcode_capture_rejects_blank_or_wrong_shaped_canvas():
-    blank = _QrElement(pixels={'dark': 0, 'light': 14400, 'total': 14400})
+def test_qrcode_capture_rejects_hidden_or_wrong_shaped_canvas():
+    hidden = _QrElement(visible=False)
     narrow = _QrElement(box={'width': 20, 'height': 120})
 
-    assert ZhihuCollector._capture_qrcode(_QrPage(canvas=[blank])) is None
+    assert ZhihuCollector._capture_qrcode(_QrPage(canvas=[hidden])) is None
     assert ZhihuCollector._capture_qrcode(_QrPage(canvas=[narrow])) is None
+
+
+def test_qrcode_capture_accepts_a_cross_origin_tainted_canvas():
+    class _TaintedCanvas(_QrElement):
+        def evaluate(self, _script):
+            raise RuntimeError('SecurityError: canvas is tainted by cross-origin data')
+
+    encoded = ZhihuCollector._capture_qrcode(_QrPage(canvas=[_TaintedCanvas()]))
+
+    assert encoded is not None
 
 
 def test_qrcode_wait_requires_two_matching_complete_captures(monkeypatch):
