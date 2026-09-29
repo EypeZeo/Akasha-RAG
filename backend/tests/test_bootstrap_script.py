@@ -109,6 +109,12 @@ def test_start_bat_shows_release_version_and_launches_this_checkout():
     assert 'set "BACKEND_PY=%PROJECT_ROOT%backend\\.venv\\Scripts\\python.exe"' in source
 
 
+def test_start_bat_runs_the_long_lived_launcher_outside_the_batch_process():
+    """Closing the launcher console must not leave cmd.exe a batch to cancel."""
+    source = START_BAT.read_text(encoding="utf-8", errors="replace")
+    assert 'start "Akasha-RAG %APP_VERSION%" "%ComSpec%" /d /c' in source
+
+
 def test_bootstrap_records_the_node_directory(bootstrap_source):
     assert "node-dir.txt" in bootstrap_source, (
         "bootstrap.ps1 must record the selected Node directory for start.bat"
