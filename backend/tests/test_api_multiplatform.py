@@ -80,15 +80,17 @@ def test_bilibili_logout_endpoint(client):
         mock_clear.assert_called_once()
 
 
-def test_logout_all_endpoint_clears_both_platforms(client):
+def test_logout_all_endpoint_clears_every_platform_without_touching_local_state(client):
     with patch("app.api.routes.auth.collector.logout", return_value=(True, "已退出登录")) as mock_douyin, \
-         patch("app.api.routes.auth.bilibili_client.clear_state") as mock_bilibili:
+         patch("app.api.routes.auth.bilibili_client.clear_state") as mock_bilibili, \
+         patch("app.api.routes.auth.zhihu_collector.logout", return_value=(True, "已退出知乎登录")) as mock_zhihu:
         resp = client.post("/api/auth/logout-all")
 
     assert resp.status_code == 200
     assert resp.json()["success"] is True
     mock_douyin.assert_called_once()
     mock_bilibili.assert_called_once()
+    mock_zhihu.assert_called_once()
 
 
 def test_favorites_collections_platform_filter(client):
@@ -140,6 +142,23 @@ def test_favorites_sync_routes_zhihu_to_its_collector(client):
     assert response.json()["success"] is True
     assert "知乎平台 2 个文章/回答" in response.json()["summary_message"]
     sync.assert_awaited_once()
+
+
+def test_all_sync_skips_zhihu_when_the_local_session_is_missing(client):
+    douyin_result = {"videos_total": 1, "videos_count": 1, "notes_count": 0, "invalid_count": 0}
+    bilibili_result = {"videos_total": 1, "invalid_count": 0}
+    with patch("app.services.favorites_service.favorites_service.sync_from_douyin", AsyncMock(return_value=douyin_result)), \
+         patch("app.services.favorites_service.favorites_service.sync_from_bilibili", AsyncMock(return_value=bilibili_result)), \
+         patch("app.services.favorites_service.favorites_service.sync_from_zhihu", AsyncMock()) as sync_zhihu, \
+         patch("app.api.routes.favorites.zhihu_collector.get_status", return_value={"status": "idle"}):
+        response = client.post("/api/favorites/sync?platform=all")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["success"] is True
+    assert body["partial"] is True
+    assert body["platform_results"]["zhihu"] == {"success": False, "message": "知乎未登录，请先完成登录"}
+    sync_zhihu.assert_not_awaited()
 
 
 def test_knowledge_pending_platform_filter(client):
