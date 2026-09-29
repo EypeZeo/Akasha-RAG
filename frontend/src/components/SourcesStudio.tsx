@@ -2,7 +2,13 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import SourcesPanel from './SourcesPanel';
 import { useI18n } from '../i18n';
 import { useWorkspaceStore } from '../store/workspace';
-import type { CollectionExpandMode } from '../utils/settings';
+import {
+  MAX_SOURCES_PANEL_WIDTH,
+  MIN_SOURCES_PANEL_WIDTH,
+  readSourcesPanelWidth,
+  writeSourcesPanelWidth,
+  type CollectionExpandMode,
+} from '../utils/settings';
 
 interface Props {
   onBuildDone: () => void;
@@ -34,7 +40,7 @@ export default function SourcesStudio({
   const setSelectedCollectionId = useWorkspaceStore(s => s.setSelectedCollectionId);
   const setActiveTab = useWorkspaceStore(s => s.setActiveTab);
 
-  const [leftWidth, setLeftWidth] = useState(340);
+  const [leftWidth, setLeftWidth] = useState(readSourcesPanelWidth);
   const [isDragging, setIsDragging] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -47,7 +53,7 @@ export default function SourcesStudio({
     if (!isDragging) return;
     const onMove = (e: MouseEvent) => {
       const left = containerRef.current?.getBoundingClientRect().left || 0;
-      setLeftWidth(Math.max(260, Math.min(560, e.clientX - left)));
+      setLeftWidth(Math.max(MIN_SOURCES_PANEL_WIDTH, Math.min(MAX_SOURCES_PANEL_WIDTH, e.clientX - left)));
     };
     const onUp = () => setIsDragging(false);
     window.addEventListener('mousemove', onMove);
@@ -57,6 +63,10 @@ export default function SourcesStudio({
       window.removeEventListener('mouseup', onUp);
     };
   }, [isDragging]);
+
+  useEffect(() => {
+    if (!isDragging) writeSourcesPanelWidth(leftWidth);
+  }, [isDragging, leftWidth]);
 
   return (
     <div

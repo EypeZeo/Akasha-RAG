@@ -322,6 +322,21 @@ class ZhihuCollector:
             self.message = "已退出知乎登录"
         return True, self.message
 
+    def _invalidate_saved_login(self, message: str) -> None:
+        """Remove a provider-rejected session so the next UI read can re-login.
+
+        A locally unexpired ``z_c0`` cookie is not proof that Zhihu still
+        accepts the session.  Keeping such a state after a failed live check
+        makes the frontend disable the Zhihu login tab indefinitely.
+        """
+        delete_json(self._state_path)
+        delete_json(self._profile_path)
+        with self._lock:
+            self._profile = {}
+            self._qrcode_image_base64 = None
+            self.status = "idle"
+            self.message = message
+
     def _login_worker(self) -> None:
         context = None
         browser = None
@@ -687,6 +702,7 @@ class ZhihuCollector:
             page = context.new_page()
             page.goto(_ZHIHU_HOME, wait_until="domcontentloaded", timeout=45_000)
             if not self._page_logged_in(page, context):
+                self._invalidate_saved_login("知乎登录态已失效，请重新登录")
                 raise ZhihuRequestError("知乎登录态已失效，请重新登录", status_code=401)
             return playwright, browser, context, page
         except Exception:

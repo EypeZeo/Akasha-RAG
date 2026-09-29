@@ -97,6 +97,15 @@ describe('LoginModal', () => {
     expect(screen.getByAltText('Bilibili QR Code')).toBeTruthy();
   });
 
+  it('tells the user that Zhihu QR retrieval is still in progress until an image arrives', async () => {
+    vi.mocked(api.zhihuLoginStart).mockResolvedValue({ success: true, status: 'pending', message: 'please scan' });
+    setup('zhihu');
+
+    await waitFor(() => expect(api.zhihuLoginStart).toHaveBeenCalledTimes(1));
+    expect(screen.getAllByText(TRANSLATIONS.en.zhihuLoginOpening).length).toBeGreaterThan(0);
+    expect(screen.queryByText(TRANSLATIONS.en.zhihuLoginWaiting)).toBeNull();
+  });
+
   it('clicking the close/cancel button calls onClose', async () => {
     const { onClose } = setup();
     await waitFor(() => expect(screen.getByText(TRANSLATIONS.en.cancelLogin)).toBeTruthy());
