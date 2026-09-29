@@ -731,8 +731,7 @@ export default function SourcesPanel({
 
   useEffect(() => {
     if (!actionScopeId || !actionScopePlatform
-        || (actionScopeId === 'all' && actionScopePlatform === 'all')
-        || actionScopeId === expandedIdRef.current) {
+        || (actionScopeId === 'all' && actionScopePlatform === 'all')) {
       setActionStatusData(null);
       return;
     }
@@ -753,10 +752,12 @@ export default function SourcesPanel({
     return () => { isCurrent = false; };
   }, [actionScopeId, actionScopePlatform, expandedId, statsRefreshKey]);
 
-  const actionStatusCounts =
+  const shownActionStatusCounts =
     shownVideos?.collectionId === actionScopeId && shownVideos.platform === actionScopePlatform
       ? shownVideos.statusCounts
-      : (actionStatusData?.key === actionScopeKey ? actionStatusData.counts : undefined);
+      : undefined;
+  const actionStatusCounts = shownActionStatusCounts
+    ?? (actionStatusData?.key === actionScopeKey ? actionStatusData.counts : undefined);
   // A synthetic "all" collection is still scoped when a concrete platform is
   // selected.  Only the literal (all platform, all collection) pair may use
   // the global stats fallback; otherwise wait for the scope-count request
