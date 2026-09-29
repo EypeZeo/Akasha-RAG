@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useId, useRef } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import * as api from '../api';
 import { useI18n } from '../i18n';
 import Dialog from './ui/Dialog';
@@ -6,560 +6,411 @@ import Dialog from './ui/Dialog';
 interface Props {
   onClose: () => void;
   onSuccess: () => void;
-  initialPlatform?: 'douyin' | 'bilibili';
+  initialPlatform?: api.PlatformKind;
+}
+
+type DouyinStatus = 'loading' | 'pending' | 'syncing' | 'success' | 'expired' | 'failed';
+type BilibiliStatus = 'loading' | 'pending' | 'scanned' | 'success' | 'expired' | 'failed';
+type ZhihuStatus = 'idle' | 'pending' | 'logged_in' | 'expired' | 'failed';
+
+const PLATFORM_ORDER: api.PlatformKind[] = ['douyin', 'bilibili', 'zhihu'];
+
+function Spinner({ color = 'accent' }: { color?: 'accent' | 'pink' | 'blue' }) {
+  const border = color === 'pink' ? 'border-pink-200 border-t-pink-600' : color === 'blue' ? 'border-blue-200 border-t-blue-600' : 'border-accent/20 border-t-accent';
+  return <span className={`w-8 h-8 rounded-full border-3 animate-spin ${border}`} />;
 }
 
 export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douyin' }: Props) {
   const { t } = useI18n();
   const titleId = useId();
-  const [platform, setPlatform] = useState<'douyin' | 'bilibili'>(initialPlatform);
-
-  // Douyin state
+  const [platform, setPlatform] = useState<api.PlatformKind>(initialPlatform);
+  const [platformsReady, setPlatformsReady] = useState(false);
+  const [loggedInPlatforms, setLoggedInPlatforms] = useState<Set<api.PlatformKind>>(() => new Set());
   const [dyQrImg, setDyQrImg] = useState<string | null>(null);
-  const [dyStatus, setDyStatus] = useState<'loading' | 'pending' | 'syncing' | 'success' | 'expired' | 'failed'>('loading');
+  const [dyStatus, setDyStatus] = useState<DouyinStatus>('loading');
   const [dyMessage, setDyMessage] = useState('');
-  const [dyRenderError, setDyRenderError] = useState(false);
   const [dyWindowOpened, setDyWindowOpened] = useState(false);
-
-  // Bilibili state
   const [biliQrKey, setBiliQrKey] = useState<string | null>(null);
   const [biliQrImg, setBiliQrImg] = useState<string | null>(null);
-  const [biliStatus, setBiliStatus] = useState<'loading' | 'pending' | 'scanned' | 'success' | 'expired' | 'failed'>('loading');
+  const [biliStatus, setBiliStatus] = useState<BilibiliStatus>('loading');
   const [biliMessage, setBiliMessage] = useState('');
-  const [biliUser, setBiliUser] = useState<{ nickname?: string; avatar_url?: string } | null>(null);
-  const [qrRenderError, setQrRenderError] = useState(false);
+  const [zhihuStatus, setZhihuStatus] = useState<ZhihuStatus>('idle');
+  const [zhihuPollingReady, setZhihuPollingReady] = useState(false);
+  const [zhihuMessage, setZhihuMessage] = useState('');
+  const [zhihuQrImg, setZhihuQrImg] = useState<string | null>(null);
 
-  const biliPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const dyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const biliPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const zhihuPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(false);
+  const platformRef = useRef<api.PlatformKind>(initialPlatform);
+  const generationRef = useRef(0);
+  const tRef = useRef(t);
+  const onSuccessRef = useRef(onSuccess);
+  tRef.current = t;
+  onSuccessRef.current = onSuccess;
 
-  // ---- Bilibili Flow ----
-  const loadBilibiliQr = useCallback(async () => {
-    if (biliPollRef.current) {
-      clearInterval(biliPollRef.current);
-      biliPollRef.current = null;
-    }
-    setBiliStatus('loading');
-    setBiliMessage(t('loggingIn'));
-    setBiliQrImg(null);
-    setBiliQrKey(null);
-    setQrRenderError(false);
+  const clearPoll = (ref: React.MutableRefObject<ReturnType<typeof setInterval> | null>) => {
+    if (ref.current) clearInterval(ref.current);
+    ref.current = null;
+  };
 
-    try {
-      const res = await api.bilibiliGenerateQr();
-      if (res.success && res.data) {
-        setBiliQrKey(res.data.qrcode_key);
-        setBiliQrImg(res.data.qrcode_image_base64);
-        setBiliStatus('pending');
-        setBiliMessage(t('scanWithBiliApp'));
-      } else {
-        // The UI always shows a stable, localized string here regardless of
-        // what the backend said — mixing in a raw backend/vendor message
-        // would break i18n and can leak internal detail. The specific
-        // reason still goes to the console for anyone actually debugging.
-        console.error('Bilibili QR generation failed:', res);
-        setBiliStatus('failed');
-        setBiliMessage(t('loginFailed'));
-      }
-    } catch (e) {
-      console.error('Bilibili QR generation failed:', e);
-      setBiliStatus('failed');
-      setBiliMessage(t('networkError'));
-    }
-  }, [t]);
+  const clearCompletionTimer = () => {
+    if (completionTimerRef.current) clearTimeout(completionTimerRef.current);
+    completionTimerRef.current = null;
+  };
 
-  // Bilibili polling
-  useEffect(() => {
-    if (platform !== 'bilibili' || !biliQrKey || biliStatus === 'success' || biliStatus === 'expired' || biliStatus === 'failed') {
-      return;
-    }
+  const invalidateLogin = useCallback(() => {
+    generationRef.current += 1;
+    clearPoll(dyPollRef);
+    clearPoll(biliPollRef);
+    clearPoll(zhihuPollRef);
+    clearCompletionTimer();
+  }, []);
 
-    biliPollRef.current = setInterval(async () => {
-      try {
-        const res = await api.bilibiliPollQr(biliQrKey);
-        if (res.success) {
-          // Backend's provider-neutral QR contract uses `confirmed`; retain
-          // `success` for old servers during rolling upgrades.
-          if (res.status === 'success' || res.status === 'confirmed') {
-            setBiliStatus('success');
-            setBiliMessage(t('bilibiliLoginSuccess'));
-            if (res.nickname || res.avatar_url) {
-              setBiliUser({ nickname: res.nickname, avatar_url: res.avatar_url });
-            }
-            if (biliPollRef.current) clearInterval(biliPollRef.current);
-            setTimeout(onSuccess, 900);
-          } else if (res.status === 'scanned') {
-            setBiliStatus('scanned');
-            setBiliMessage(t('bilibiliQrScanned'));
-          } else if (res.status === 'expired') {
-            setBiliStatus('expired');
-            setBiliMessage(t('qrExpiredClickRefresh'));
-            if (biliPollRef.current) clearInterval(biliPollRef.current);
-          } else if (res.status === 'pending') {
-            setBiliStatus('pending');
-            setBiliMessage(t('bilibiliQrWaitingScan'));
-          }
-        }
-      } catch (e) {
-        // Transient network blips during polling are expected and retried
-        // automatically every 1.5s — logging keeps them visible without
-        // interrupting the flow with a UI message on every tick.
-        console.warn('Bilibili QR poll failed, will retry:', e);
-      }
-    }, 1500);
+  const isCurrentLogin = useCallback((generation: number, expectedPlatform: api.PlatformKind) => (
+    mountedRef.current
+    && generationRef.current === generation
+    && platformRef.current === expectedPlatform
+  ), []);
 
-    return () => {
-      if (biliPollRef.current) {
-        clearInterval(biliPollRef.current);
-        biliPollRef.current = null;
-      }
-    };
-  }, [platform, biliQrKey, biliStatus, onSuccess, t]);
+  const scheduleSuccess = useCallback((generation: number, expectedPlatform: api.PlatformKind) => {
+    clearCompletionTimer();
+    completionTimerRef.current = setTimeout(() => {
+      if (isCurrentLogin(generation, expectedPlatform)) onSuccessRef.current();
+    }, 900);
+  }, [isCurrentLogin]);
 
-  // ---- Douyin Flow ----
-  const loadDouyinQr = useCallback(async () => {
-    if (dyPollRef.current) {
-      clearInterval(dyPollRef.current);
-      dyPollRef.current = null;
-    }
+  const loadDouyin = useCallback(async (generation: number) => {
+    if (!isCurrentLogin(generation, 'douyin')) return;
     setDyStatus('loading');
-    setDyMessage(t('loggingIn'));
-    setDyQrImg(null);
-    setDyRenderError(false);
-    setDyWindowOpened(false);
-
+    setDyMessage(tRef.current('loggingIn'));
     try {
-      const res = await api.douyinGenerateQr();
-      if (res.success && res.data?.qrcode_image_base64) {
-        setDyQrImg(res.data.qrcode_image_base64);
-        setDyStatus('pending');
-        setDyMessage(t('scanWithDouyinApp'));
-      } else {
-        setDyStatus('pending');
-        setDyMessage(t('scanWithDouyinApp'));
+      const result = await api.douyinGenerateQr();
+      if (!result.success || !result.data?.qrcode_image_base64) {
+        throw new Error('QR generation failed');
       }
-    } catch (e) {
-      console.error('Douyin QR generation failed:', e);
+      if (!isCurrentLogin(generation, 'douyin')) return;
+      setDyQrImg(result.data.qrcode_image_base64);
+      setDyStatus('pending');
+      setDyMessage(tRef.current('scanWithDouyinApp'));
+    } catch (error) {
+      if (!isCurrentLogin(generation, 'douyin')) return;
+      console.warn('Douyin QR generation failed:', error);
       setDyStatus('failed');
-      setDyMessage(t('networkError'));
+      setDyMessage(tRef.current('networkError'));
     }
-  }, [t]);
+  }, [isCurrentLogin]);
 
-  const refreshDouyinQr = async () => {
-    setDyStatus('loading');
-    setDyMessage(t('loggingIn'));
+  const loadBilibili = useCallback(async (generation: number) => {
+    if (!isCurrentLogin(generation, 'bilibili')) return;
+    setBiliStatus('loading');
+    setBiliMessage(tRef.current('loggingIn'));
     try {
-      const res = await api.douyinRefreshQr();
-      if (res.success && res.data?.qrcode_image_base64) {
-        setDyQrImg(res.data.qrcode_image_base64);
-        setDyStatus('pending');
-        setDyMessage(t('scanWithDouyinApp'));
-      } else {
-        console.warn('Douyin QR refresh returned no image, falling back to a fresh QR:', res);
-        await loadDouyinQr();
+      const result = await api.bilibiliGenerateQr();
+      if (!result.success || !result.data) throw new Error('QR generation failed');
+      if (!isCurrentLogin(generation, 'bilibili')) return;
+      setBiliQrKey(result.data.qrcode_key);
+      setBiliQrImg(result.data.qrcode_image_base64);
+      setBiliStatus('pending');
+      setBiliMessage(tRef.current('scanWithBiliApp'));
+    } catch (error) {
+      if (!isCurrentLogin(generation, 'bilibili')) return;
+      console.warn('Bilibili QR generation failed:', error);
+      setBiliStatus('failed');
+      setBiliMessage(tRef.current('networkError'));
+    }
+  }, [isCurrentLogin]);
+
+  const loadZhihu = useCallback(async (generation: number) => {
+    if (!isCurrentLogin(generation, 'zhihu')) return;
+    setZhihuStatus('pending');
+    setZhihuPollingReady(false);
+    setZhihuQrImg(null);
+    setZhihuMessage(tRef.current('zhihuLoginOpening'));
+    try {
+      const result = await api.zhihuLoginStart();
+      if (!isCurrentLogin(generation, 'zhihu')) return;
+      if (result.status === 'logged_in') {
+        setZhihuStatus('logged_in');
+        setZhihuMessage(result.message || tRef.current('zhihuLoginSuccess'));
+        scheduleSuccess(generation, 'zhihu');
+        return;
       }
-    } catch (e) {
-      console.warn('Douyin QR refresh failed, falling back to a fresh QR:', e);
-      await loadDouyinQr();
+      setZhihuQrImg(result.qrcode_image_base64 || null);
+      setZhihuMessage(result.message || tRef.current('zhihuLoginWaiting'));
+      setZhihuPollingReady(true);
+    } catch (error) {
+      if (!isCurrentLogin(generation, 'zhihu')) return;
+      console.warn('Zhihu login start failed:', error);
+      setZhihuStatus('failed');
+      setZhihuPollingReady(false);
+      setZhihuMessage(tRef.current('networkError'));
     }
-  };
+  }, [isCurrentLogin, scheduleSuccess]);
 
-  const handleShowDouyinWindow = async () => {
-    try {
-      await api.douyinShowWindow();
-      setDyWindowOpened(true);
-      setDyMessage(t('windowOpened'));
-    } catch (e: any) {
-      console.warn('Show window failed:', e);
-    }
-  };
-
-  // Douyin polling
   useEffect(() => {
-    if (platform !== 'douyin' || dyStatus === 'success' || dyStatus === 'failed') return;
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      invalidateLogin();
+    };
+  }, [invalidateLogin]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void api.listPlatforms()
+      .then((result) => {
+        if (cancelled || !mountedRef.current) return;
+        const loggedIn = new Set<api.PlatformKind>(
+          (result.platforms || []).filter((item) => item.is_logged_in).map((item) => item.platform),
+        );
+        setLoggedInPlatforms(loggedIn);
+        setPlatform((current) => loggedIn.has(current)
+          ? PLATFORM_ORDER.find((candidate) => !loggedIn.has(candidate)) || current
+          : current);
+      })
+      .catch((error) => {
+        // A transient status-read failure must not falsely disable a login option.
+        console.warn('Platform login status load failed:', error);
+      })
+      .finally(() => {
+        if (!cancelled && mountedRef.current) setPlatformsReady(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    platformRef.current = platform;
+    if (!platformsReady || loggedInPlatforms.has(platform)) return;
+    const generation = generationRef.current + 1;
+    generationRef.current = generation;
+    if (platform === 'douyin') void loadDouyin(generation);
+    else if (platform === 'bilibili') void loadBilibili(generation);
+    else void loadZhihu(generation);
+    return () => {
+      if (generationRef.current === generation) invalidateLogin();
+    };
+  }, [platform, platformsReady, loggedInPlatforms, invalidateLogin, loadBilibili, loadDouyin, loadZhihu]);
+
+  useEffect(() => {
+    if (!platformsReady || platform !== 'douyin' || (dyStatus !== 'pending' && dyStatus !== 'syncing')) return;
+    const generation = generationRef.current;
+    let inFlight = false;
     dyPollRef.current = setInterval(async () => {
+      if (inFlight || !isCurrentLogin(generation, 'douyin')) return;
+      inFlight = true;
       try {
-        const s = await api.loginStatus();
-        if (s.qrcode_image_base64) {
-          setDyQrImg(s.qrcode_image_base64);
-        }
-        if (s.status === 'syncing') {
+        const result = await api.loginStatus();
+        if (!isCurrentLogin(generation, 'douyin')) return;
+        if (result.qrcode_image_base64) setDyQrImg(result.qrcode_image_base64);
+        if (result.status === 'syncing') {
           setDyStatus('syncing');
-          setDyMessage(t('loginSyncing'));
-        } else if (s.status === 'logged_in') {
+          setDyMessage(tRef.current('loginSyncing'));
+        } else if (result.status === 'logged_in') {
+          clearPoll(dyPollRef);
           setDyStatus('success');
-          setDyMessage(t('loginSuccessDone'));
-          if (dyPollRef.current) clearInterval(dyPollRef.current);
-          setTimeout(onSuccess, 900);
-        } else if (s.status === 'failed') {
+          setDyMessage(tRef.current('loginSuccessDone'));
+          scheduleSuccess(generation, 'douyin');
+        } else if (result.status === 'failed') {
+          clearPoll(dyPollRef);
           setDyStatus('failed');
-          setDyMessage(t('loginFailed'));
-          if (dyPollRef.current) clearInterval(dyPollRef.current);
+          setDyMessage(tRef.current('loginFailed'));
+        } else if (result.status === 'expired') {
+          clearPoll(dyPollRef);
+          setDyStatus('expired');
+          setDyMessage(tRef.current('qrExpiredClickRefresh'));
         }
-      } catch (e) {
-        console.warn('Douyin login-status poll failed, will retry:', e);
+      } catch (error) {
+        console.warn('Douyin login status poll failed:', error);
+      } finally {
+        inFlight = false;
       }
     }, 1500);
+    return () => clearPoll(dyPollRef);
+  }, [dyStatus, isCurrentLogin, platform, platformsReady, scheduleSuccess]);
 
-    return () => {
-      if (dyPollRef.current) {
-        clearInterval(dyPollRef.current);
-        dyPollRef.current = null;
-      }
-    };
-  }, [platform, dyStatus, onSuccess, t]);
-
-  // Initial load when platform changes
   useEffect(() => {
-    if (platform === 'bilibili') {
-      loadBilibiliQr();
-    } else if (platform === 'douyin') {
-      loadDouyinQr();
+    if (!platformsReady || platform !== 'bilibili' || !biliQrKey || biliStatus === 'success' || biliStatus === 'expired' || biliStatus === 'failed') return;
+    const generation = generationRef.current;
+    let inFlight = false;
+    biliPollRef.current = setInterval(async () => {
+      if (inFlight || !isCurrentLogin(generation, 'bilibili')) return;
+      inFlight = true;
+      try {
+        const result = await api.bilibiliPollQr(biliQrKey);
+        if (!isCurrentLogin(generation, 'bilibili')) return;
+        if (result.status === 'confirmed' || result.status === 'success') {
+          clearPoll(biliPollRef);
+          setBiliStatus('success');
+          setBiliMessage(tRef.current('bilibiliLoginSuccess'));
+          scheduleSuccess(generation, 'bilibili');
+        } else if (result.status === 'scanned') {
+          setBiliStatus('scanned');
+          setBiliMessage(tRef.current('bilibiliQrScanned'));
+        } else if (result.status === 'expired') {
+          clearPoll(biliPollRef);
+          setBiliStatus('expired');
+          setBiliMessage(tRef.current('qrExpiredClickRefresh'));
+        }
+      } catch (error) {
+        console.warn('Bilibili login status poll failed:', error);
+      } finally {
+        inFlight = false;
+      }
+    }, 1500);
+    return () => clearPoll(biliPollRef);
+  }, [biliQrKey, biliStatus, isCurrentLogin, platform, platformsReady, scheduleSuccess]);
+
+  useEffect(() => {
+    if (!platformsReady || platform !== 'zhihu' || !zhihuPollingReady || zhihuStatus !== 'pending') return;
+    const generation = generationRef.current;
+    let inFlight = false;
+    zhihuPollRef.current = setInterval(async () => {
+      if (inFlight || !isCurrentLogin(generation, 'zhihu')) return;
+      inFlight = true;
+      try {
+        const result = await api.zhihuLoginStatus();
+        if (!isCurrentLogin(generation, 'zhihu')) return;
+        if (result.qrcode_image_base64) setZhihuQrImg(result.qrcode_image_base64);
+        setZhihuMessage(result.message || tRef.current('zhihuLoginWaiting'));
+        if (result.status === 'logged_in') {
+          clearPoll(zhihuPollRef);
+          setZhihuStatus('logged_in');
+          setZhihuPollingReady(false);
+          scheduleSuccess(generation, 'zhihu');
+        } else if (result.status === 'expired' || result.status === 'failed') {
+          clearPoll(zhihuPollRef);
+          setZhihuStatus(result.status);
+          setZhihuPollingReady(false);
+        }
+      } catch (error) {
+        console.warn('Zhihu login status poll failed:', error);
+      } finally {
+        inFlight = false;
+      }
+    }, 1500);
+    return () => clearPoll(zhihuPollRef);
+  }, [isCurrentLogin, platform, platformsReady, scheduleSuccess, zhihuPollingReady, zhihuStatus]);
+
+  const switchPlatform = async (next: api.PlatformKind) => {
+    if (!platformsReady || next === platform || loggedInPlatforms.has(next)) return;
+    const previousPlatform = platformRef.current;
+    const previousDouyinStatus = dyStatus;
+    const previousZhihuStatus = zhihuStatus;
+    invalidateLogin();
+    if (previousPlatform === 'douyin' && (previousDouyinStatus === 'pending' || previousDouyinStatus === 'loading')) {
+      try { await api.loginCancel(); } catch (error) { console.warn('Douyin login cancel failed:', error); }
     }
-  }, [platform, loadBilibiliQr, loadDouyinQr]);
+    if (previousPlatform === 'zhihu' && previousZhihuStatus === 'pending') {
+      try { await api.zhihuLoginCancel(); } catch (error) { console.warn('Zhihu login cancel failed:', error); }
+    }
+    platformRef.current = next;
+    setPlatform(next);
+  };
 
   const handleClose = async () => {
-    if (biliPollRef.current) {
-      clearInterval(biliPollRef.current);
-      biliPollRef.current = null;
+    const currentPlatform = platformRef.current;
+    const completed = dyStatus === 'syncing' || dyStatus === 'success' || biliStatus === 'success' || zhihuStatus === 'logged_in';
+    invalidateLogin();
+    if (currentPlatform === 'douyin' && (dyStatus === 'pending' || dyStatus === 'loading')) {
+      try { await api.loginCancel(); } catch (error) { console.warn('Douyin login cancel failed:', error); }
     }
-    if (dyPollRef.current) {
-      clearInterval(dyPollRef.current);
-      dyPollRef.current = null;
+    if (currentPlatform === 'zhihu' && zhihuStatus === 'pending') {
+      try { await api.zhihuLoginCancel(); } catch (error) { console.warn('Zhihu login cancel failed:', error); }
     }
-    // 仅在尚未扫码成功的等待状态下主动关闭，才取消未完成的登录；若已扫码进入同步则绝不取消
-    if (platform === 'douyin' && (dyStatus === 'pending' || dyStatus === 'loading')) {
-      try {
-        await api.loginCancel();
-      } catch (e) {
-        console.warn('Douyin login-cancel on close failed (best-effort):', e);
-      }
-    }
-    // 若扫码已确认并进入同步或已完成，通知父页面立即更新平台状态
-    if (dyStatus === 'syncing' || dyStatus === 'success' || biliStatus === 'success') {
-      onSuccess();
-    }
+    if (completed) onSuccessRef.current();
     onClose();
   };
 
-  const switchPlatform = async (target: 'douyin' | 'bilibili') => {
-    if (target === platform) return;
-    if (platform === 'douyin' && (dyStatus === 'pending' || dyStatus === 'loading')) {
-      try { await api.loginCancel(); } catch (e) {
-        console.warn('Douyin login-cancel on platform switch failed (best-effort):', e);
-      }
-    }
-    if (biliPollRef.current) {
-      clearInterval(biliPollRef.current);
-      biliPollRef.current = null;
-    }
-    if (dyPollRef.current) {
-      clearInterval(dyPollRef.current);
-      dyPollRef.current = null;
-    }
-    setPlatform(target);
-  };
+  const platformTabs: Array<{ id: api.PlatformKind; label: string; icon: string }> = [
+    { id: 'douyin', label: t('platformDouyin'), icon: '/platform-icons/douyin.svg' },
+    { id: 'bilibili', label: t('platformBilibili'), icon: '/platform-icons/bilibili.svg' },
+    { id: 'zhihu', label: t('platformZhihu'), icon: '/platform-icons/zhihu.svg' },
+  ];
+  const allPlatformsLoggedIn = platformsReady && PLATFORM_ORDER.every((item) => loggedInPlatforms.has(item));
+  const title = allPlatformsLoggedIn
+    ? t('allPlatformsLoggedIn')
+    : platform === 'douyin'
+      ? dyStatus === 'success' ? t('loginSuccessDone') : dyStatus === 'syncing' ? t('loginSyncing') : t('loginDouyin')
+      : platform === 'bilibili'
+        ? biliStatus === 'success' ? t('bilibiliLoginSuccess') : t('loginBilibili')
+        : zhihuStatus === 'logged_in' ? t('zhihuLoginSuccess') : t('loginZhihu');
+  const instructions = platform === 'douyin'
+    ? [t('scanWithDouyinApp'), t('douyinStep2'), t('douyinStep3')]
+    : platform === 'bilibili'
+      ? [t('scanWithBiliApp'), t('biliStep2'), t('biliStep3')]
+      : [t('zhihuStep1'), t('zhihuStep2'), t('zhihuStep3')];
 
   return (
-    <Dialog
-      onClose={handleClose}
-      labelledBy={titleId}
-      className="bg-[var(--color-panel)] rounded-2xl p-7 w-full max-w-[420px] flex flex-col items-center gap-4 shadow-2xl border border-[var(--color-border)] animate-scale-up"
-    >
-        {/* Platform Switcher Tabs */}
-        <div className="w-full flex items-center bg-black/5 p-1 rounded-xl">
-          <button
-            type="button"
-            onClick={() => switchPlatform('douyin')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              platform === 'douyin'
-                ? 'bg-white text-accent shadow-xs'
-                : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]'
-            }`}
-          >
-            <img
-              src="/platform-icons/douyin.svg"
-              alt=""
-              aria-hidden="true"
-              className="w-4 h-4 object-contain"
-            />
-            <span>{t('platformDouyin')}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => switchPlatform('bilibili')}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              platform === 'bilibili'
-                ? 'bg-white text-pink-600 shadow-xs'
-                : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]'
-            }`}
-          >
-            <img
-              src="/platform-icons/bilibili.svg"
-              alt=""
-              aria-hidden="true"
-              className="w-4 h-4 object-contain"
-            />
-            <span>{t('platformBilibili')}</span>
-          </button>
+    <Dialog onClose={handleClose} labelledBy={titleId} className="bg-[var(--color-panel)] rounded-2xl p-7 w-full max-w-[420px] flex flex-col items-center gap-4 shadow-2xl border border-[var(--color-border)] animate-scale-up">
+      <div className="w-full flex items-center bg-black/5 p-1 rounded-xl">
+        {platformTabs.map((tab) => {
+          const disabled = !platformsReady || loggedInPlatforms.has(tab.id);
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              disabled={disabled}
+              aria-disabled={disabled}
+              title={loggedInPlatforms.has(tab.id) ? t('loggedIn') : undefined}
+              onClick={() => void switchPlatform(tab.id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${disabled ? 'text-[var(--color-ink-muted)] opacity-50 cursor-not-allowed' : platform === tab.id ? 'bg-white text-accent shadow-xs cursor-pointer' : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] cursor-pointer'}`}
+            >
+              <img src={tab.icon} alt="" aria-hidden="true" className="w-4 h-4 object-contain shrink-0" />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <h2 id={titleId} className="font-title text-lg font-bold text-[var(--color-ink)] text-center">{title}</h2>
+      {allPlatformsLoggedIn ? (
+        <div className="w-52 h-52 rounded-2xl bg-black/[0.03] flex flex-col items-center justify-center gap-3 border border-black/5 text-center p-5">
+          <span className="text-4xl" aria-hidden="true">✓</span>
         </div>
-
-        {/* Modal Title */}
-        <h2 id={titleId} className="font-display text-lg font-bold text-[var(--color-ink)] text-center">
-          {platform === 'douyin' ? (
-            dyStatus === 'success'
-              ? t('loginSuccessDone')
-              : dyStatus === 'syncing'
-              ? t('loginSyncing')
-              : dyStatus === 'failed'
-              ? t('loginFailed')
-              : t('loginDouyin')
-          ) : (
-            biliStatus === 'success'
-              ? (biliUser?.nickname ? t('welcomeBilibiliUser', { nickname: biliUser.nickname }) : t('bilibiliLoginSuccess'))
-              : biliStatus === 'scanned'
-              ? t('bilibiliQrScanned')
-              : biliStatus === 'expired'
-              ? t('qrExpiredClickRefresh')
-              : t('loginBilibili')
-          )}
-        </h2>
-
-        {/* QR Code / Illustration Box */}
-        <div className="w-52 h-52 rounded-2xl bg-black/[0.03] flex items-center justify-center relative border border-black/5 overflow-hidden p-2">
-          {platform === 'douyin' ? (
-            <>
-              {dyStatus === 'loading' && (
-                <div className="flex flex-col items-center gap-2 text-xs text-[var(--color-ink-muted)]">
-                  <span className="w-8 h-8 rounded-full border-3 border-accent/20 border-t-accent animate-spin" />
-                  <span>{t('loggingIn')}</span>
-                </div>
-              )}
-              {dyStatus === 'failed' && (
-                <div className="flex flex-col items-center gap-2 text-xs text-red-500 text-center p-3">
-                  <span className="text-3xl">❌</span>
-                  <span>{dyMessage || t('loginFailed')}</span>
-                  <button
-                    onClick={loadDouyinQr}
-                    className="mt-1 px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-semibold cursor-pointer hover:bg-red-100 transition-colors"
-                  >
-                    {t('retry')}
-                  </button>
-                </div>
-              )}
-              {dyStatus === 'syncing' && (
-                <div className="flex flex-col items-center justify-center gap-3.5 text-center p-3 animate-fade-in w-full h-full">
-                  <div className="relative w-16 h-16 flex items-center justify-center">
-                    {/* Subtle pulse halo */}
-                    <div className="absolute inset-0 rounded-full bg-accent/20 animate-ping opacity-60 pointer-events-none" />
-                    {/* Smooth SVG rotating ring */}
-                    <svg className="w-16 h-16 animate-spin text-accent" viewBox="0 0 50 50">
-                      <circle
-                        className="text-accent/20"
-                        cx="25"
-                        cy="25"
-                        r="20"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        fill="none"
-                      />
-                      <circle
-                        className="text-accent"
-                        cx="25"
-                        cy="25"
-                        r="20"
-                        stroke="currentColor"
-                        strokeWidth="3"
-                        strokeDasharray="80"
-                        strokeDashoffset="60"
-                        strokeLinecap="round"
-                        fill="none"
-                      />
-                    </svg>
-                    {/* Centered stationary Douyin logo - does NOT spin */}
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="w-8 h-8 rounded-lg bg-white shadow-xs border border-black/5 flex items-center justify-center p-1">
-                        <img src="/platform-icons/douyin.svg" alt="Douyin" className="w-full h-full object-contain" />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-center gap-1">
-                    <span className="text-xs font-bold text-accent">{t('loginSyncing')}</span>
-                    <span className="text-[11px] text-[var(--color-ink-muted)]">{t('syncingFavoritesAndVideos')}</span>
-                  </div>
-                </div>
-              )}
-              {dyStatus === 'success' && (
-                <div className="flex flex-col items-center gap-2 animate-scale-up">
-                  <span className="text-5xl">✅</span>
-                  <span className="text-xs font-bold text-emerald-600">{t('loginSuccessDone')}</span>
-                </div>
-              )}
-              {(dyStatus === 'pending' || dyStatus === 'expired') && dyQrImg && (
-                <div className="relative w-full h-full flex items-center justify-center">
-                  {dyRenderError ? (
-                    <div className="flex flex-col items-center gap-2 text-xs text-red-500 text-center p-3">
-                      <span className="text-3xl">⚠️</span>
-                      <span>{t('imageLoadFailed')}</span>
-                      <button
-                        onClick={loadDouyinQr}
-                        className="mt-1 px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-semibold cursor-pointer hover:bg-red-100 transition-colors"
-                      >
-                        {t('retry')}
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <img
-                        src={dyQrImg.trim().startsWith('data:') ? dyQrImg.trim() : `data:image/png;base64,${dyQrImg.trim()}`}
-                        alt="Douyin QR Code"
-                        className={`w-44 h-44 object-contain rounded-xl ${dyStatus === 'expired' ? 'blur-xs opacity-30' : ''}`}
-                        onError={() => setDyRenderError(true)}
-                      />
-                      {dyStatus === 'expired' && (
-                        <button
-                          onClick={refreshDouyinQr}
-                          className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-xl text-white gap-1 cursor-pointer hover:bg-black/50 transition-colors p-2 text-center"
-                        >
-                          <span className="text-2xl">🔄</span>
-                          <span className="text-xs font-semibold">{t('qrExpiredClickRefresh')}</span>
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-              {dyStatus === 'pending' && !dyQrImg && (
-                <div className="flex flex-col items-center gap-3 text-center">
-                  <span className="w-8 h-8 rounded-full border-3 border-accent/20 border-t-accent animate-spin" />
-                  <span className="text-xs font-medium text-[var(--color-ink-soft)]">{t('generatingLoginQr')}</span>
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              {biliStatus === 'loading' && (
-                <div className="flex flex-col items-center gap-2 text-xs text-[var(--color-ink-muted)]">
-                  <span className="text-3xl animate-spin">⏳</span>
-                  <span>{t('loggingIn')}</span>
-                </div>
-              )}
-              {biliStatus === 'failed' && (
-                <div className="flex flex-col items-center gap-2 text-xs text-red-500 text-center p-3">
-                  <span className="text-3xl">❌</span>
-                  <span>{biliMessage || t('loginFailed')}</span>
-                  <button
-                    onClick={loadBilibiliQr}
-                    className="mt-1 px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-semibold cursor-pointer"
-                  >
-                    {t('retry')}
-                  </button>
-                </div>
-              )}
-              {biliStatus === 'success' && (
-                <div className="flex flex-col items-center gap-2">
-                  {biliUser?.avatar_url && !qrRenderError ? (
-                    <img
-                      src={biliUser.avatar_url}
-                      alt=""
-                      referrerPolicy="no-referrer"
-                      onError={() => setQrRenderError(true)}
-                      className="w-16 h-16 rounded-full border-2 border-pink-400 shadow-md"
-                    />
-                  ) : (
-                    <span className="text-5xl">✅</span>
-                  )}
-                  <span className="text-xs font-bold text-pink-600">{biliUser?.nickname || t('bilibiliLoginSuccess')}</span>
-                </div>
-              )}
-              {(biliStatus === 'pending' || biliStatus === 'scanned' || biliStatus === 'expired') && biliQrImg && (
-                <div className="relative w-full h-full flex items-center justify-center">
-                  {qrRenderError ? (
-                    <div className="flex flex-col items-center gap-2 text-xs text-red-500 text-center p-3">
-                      <span className="text-3xl">⚠️</span>
-                      <span>{t('imageLoadFailed')}</span>
-                      <button
-                        onClick={loadBilibiliQr}
-                        className="mt-1 px-3 py-1 bg-red-50 text-red-600 rounded-lg text-xs font-semibold cursor-pointer hover:bg-red-100 transition-colors"
-                      >
-                        {t('retry')}
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <img
-                        src={biliQrImg.trim().startsWith('data:') ? biliQrImg.trim() : `data:image/png;base64,${biliQrImg.trim()}`}
-                        alt="Bilibili QR Code"
-                        className={`w-44 h-44 object-contain rounded-xl ${biliStatus === 'expired' ? 'blur-xs opacity-30' : ''}`}
-                        onError={() => setQrRenderError(true)}
-                      />
-                      {biliStatus === 'scanned' && (
-                        <div className="absolute inset-0 bg-pink-500/80 rounded-xl flex flex-col items-center justify-center text-white gap-1 p-2 text-center animate-fade-in">
-                          <span className="text-3xl">📱</span>
-                          <span className="text-xs font-bold">{t('bilibiliQrScanned')}</span>
-                        </div>
-                      )}
-                      {biliStatus === 'expired' && (
-                        <button
-                          onClick={loadBilibiliQr}
-                          className="absolute inset-0 flex flex-col items-center justify-center bg-black/40 rounded-xl text-white gap-1 cursor-pointer hover:bg-black/50 transition-colors p-2 text-center"
-                        >
-                          <span className="text-2xl">🔄</span>
-                          <span className="text-xs font-semibold">{t('qrExpiredClickRefresh')}</span>
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Message / Status Description */}
-        <p className="text-xs text-[var(--color-ink-soft)] text-center font-medium max-w-xs">
-          {platform === 'douyin' ? (dyMessage || t('scanWithDouyinApp')) : biliMessage}
-        </p>
-
-        {/* Instructions */}
-        {platform === 'douyin' ? (
-          dyStatus === 'syncing' ? (
-            <div className="w-full flex items-center justify-center gap-2 text-xs text-accent bg-accent-light/50 p-3 rounded-xl border border-accent/20">
-              <span className="w-2 h-2 rounded-full bg-accent animate-ping" />
-              <span>{t('loginSyncMayClose')}</span>
-            </div>
-          ) : (
-            <div className="w-full flex flex-col gap-1.5 text-xs text-[var(--color-ink-soft)] bg-black/[0.02] p-3 rounded-xl border border-black/5">
-              <div className="flex gap-2"><span className="text-accent font-bold">1.</span>{t('scanWithDouyinApp')}</div>
-              <div className="flex gap-2"><span className="text-accent font-bold">2.</span>{t('douyinStep2')}</div>
-              <div className="flex gap-2"><span className="text-accent font-bold">3.</span>{t('douyinStep3')}</div>
-            </div>
-          )
-        ) : (
-          <div className="w-full flex flex-col gap-1.5 text-xs text-[var(--color-ink-soft)] bg-black/[0.02] p-3 rounded-xl border border-black/5">
-            <div className="flex gap-2"><span className="text-pink-600 font-bold">1.</span>{t('scanWithBiliApp')}</div>
-            <div className="flex gap-2"><span className="text-pink-600 font-bold">2.</span>{t('biliStep2')}</div>
-            <div className="flex gap-2"><span className="text-pink-600 font-bold">3.</span>{t('biliStep3')}</div>
+      ) : (
+        <>
+          <div className="w-52 h-52 rounded-2xl bg-black/[0.03] flex items-center justify-center relative border border-black/5 overflow-hidden p-2">
+            {platform === 'douyin' && (
+              <div className="flex flex-col items-center gap-3 text-center">
+                {dyQrImg && <img src={dyQrImg.trim().startsWith('data:') ? dyQrImg.trim() : `data:image/png;base64,${dyQrImg.trim()}`} alt="Douyin QR Code" className={`w-44 h-44 object-contain rounded-xl ${dyStatus === 'expired' ? 'blur-xs opacity-30' : ''}`} />}
+                {!dyQrImg && dyStatus !== 'failed' && dyStatus !== 'expired' && <Spinner />}
+                {dyStatus === 'syncing' && <span className="text-xs font-bold text-accent">{t('loginSyncing')}</span>}
+                {dyStatus === 'failed' && <><span className="text-3xl">❌</span><span className="text-xs text-red-500">{dyMessage || t('loginFailed')}</span><button type="button" onClick={() => void loadDouyin(generationRef.current)} className="text-xs text-red-600 underline cursor-pointer">{t('retry')}</button></>}
+                {dyStatus === 'expired' && <button type="button" onClick={() => void loadDouyin(generationRef.current)} className="text-xs text-accent underline cursor-pointer">{t('qrExpiredClickRefresh')}</button>}
+              </div>
+            )}
+            {platform === 'bilibili' && (
+              <div className="relative flex items-center justify-center w-full h-full">
+                {biliQrImg ? <img src={biliQrImg.trim().startsWith('data:') ? biliQrImg.trim() : `data:image/png;base64,${biliQrImg.trim()}`} alt="Bilibili QR Code" className="w-44 h-44 object-contain rounded-xl" /> : <Spinner color="pink" />}
+                {biliStatus === 'success' && <span className="absolute text-4xl">✅</span>}
+                {(biliStatus === 'failed' || biliStatus === 'expired') && <button type="button" onClick={() => void loadBilibili(generationRef.current)} className="absolute bottom-2 text-xs text-red-600 underline cursor-pointer">{t('retry')}</button>}
+              </div>
+            )}
+            {platform === 'zhihu' && (
+              <div className="flex flex-col items-center justify-center gap-3 text-center p-3 w-full h-full">
+                {zhihuQrImg ? (
+                  <img src={zhihuQrImg.trim().startsWith('data:') ? zhihuQrImg.trim() : `data:image/png;base64,${zhihuQrImg.trim()}`} alt="Zhihu QR Code" className="w-44 h-44 object-contain bg-white p-1" />
+                ) : (
+                  <>
+                    <img src="/platform-icons/zhihu.svg" alt="" aria-hidden="true" className="w-14 h-14 object-contain" />
+                    {zhihuStatus === 'pending' && <Spinner color="blue" />}
+                  </>
+                )}
+                <span className="text-xs font-semibold text-blue-700">{zhihuStatus === 'logged_in' ? t('zhihuLoginSuccess') : zhihuStatus === 'failed' ? t('loginFailed') : t('zhihuLoginWaiting')}</span>
+                {zhihuStatus === 'expired' && <button type="button" onClick={() => void loadZhihu(generationRef.current)} className="text-xs text-blue-700 underline cursor-pointer">{t('retry')}</button>}
+              </div>
+            )}
           </div>
-        )}
-
-        {/* Escape hatch for Douyin window display */}
-        {platform === 'douyin' && (dyStatus === 'pending' || dyStatus === 'loading') && (
-          <button
-            type="button"
-            onClick={handleShowDouyinWindow}
-            className="text-[11px] text-[var(--color-ink-muted)] hover:text-accent transition-colors underline cursor-pointer -mt-1"
-          >
-            {dyWindowOpened ? t('windowOpened') : t('needCaptchaOpenWindow')}
-          </button>
-        )}
-
-        <button
-          onClick={handleClose}
-          className="text-xs text-[var(--color-ink-muted)] hover:text-red-500 transition-colors px-4 py-1.5 rounded-lg hover:bg-black/5 cursor-pointer mt-1"
-        >
-          {(platform === 'douyin' ? (dyStatus === 'success' || dyStatus === 'syncing') : biliStatus === 'success') ? t('close') : t('cancelLogin')}
-        </button>
+          <p className="text-xs text-[var(--color-ink-soft)] text-center font-medium max-w-xs">{platform === 'douyin' ? (dyMessage || t('scanWithDouyinApp')) : platform === 'bilibili' ? biliMessage : zhihuMessage}</p>
+          <div className="w-full flex flex-col gap-1.5 text-xs text-[var(--color-ink-soft)] bg-black/[0.02] p-3 rounded-xl border border-black/5">
+            {instructions.map((text, index) => <div key={text} className="flex gap-2"><span className="text-accent font-bold">{index + 1}.</span>{text}</div>)}
+          </div>
+          {platform === 'douyin' && (dyStatus === 'pending' || dyStatus === 'loading') && <button type="button" onClick={async () => { try { await api.douyinShowWindow(); setDyWindowOpened(true); } catch (error) { console.warn('Show browser failed:', error); } }} className="text-[11px] text-[var(--color-ink-muted)] hover:text-accent transition-colors underline cursor-pointer -mt-1">{dyWindowOpened ? t('windowOpened') : t('needCaptchaOpenWindow')}</button>}
+        </>
+      )}
+      <button type="button" onClick={() => void handleClose()} className="text-xs text-[var(--color-ink-muted)] hover:text-red-500 transition-colors px-4 py-1.5 rounded-lg hover:bg-black/5 cursor-pointer mt-1">{allPlatformsLoggedIn || dyStatus === 'success' || dyStatus === 'syncing' || biliStatus === 'success' || zhihuStatus === 'logged_in' ? t('close') : t('cancelLogin')}</button>
     </Dialog>
   );
 }

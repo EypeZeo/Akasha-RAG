@@ -23,6 +23,7 @@ from app.services.collection_scope import AmbiguousCollectionError
 from app.services.rag_service import rag_service
 from app.models.entities import ChatMessage, ChatSession
 from app.services.chat_history import MAX_EXPORT_BYTES, MAX_EXPORT_MESSAGES
+from app.services.platform_registry import PlatformFilter
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ class AskRequest(BaseModel):
     query: str = Field(min_length=1, max_length=50000)
     session_id: int | None = None
     collection_id: str | None = Field(default=None, max_length=64)
-    platform: Literal["all", "douyin", "bilibili"] | None = None
+    platform: PlatformFilter | None = None
     client_keys: ClientMessageKeys | None = None
 
 

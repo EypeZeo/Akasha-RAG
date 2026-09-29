@@ -49,7 +49,7 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [accountRefreshKey, setAccountRefreshKey] = useState(0);
-  const [loginModalPlatform, setLoginModalPlatform] = useState<'douyin' | 'bilibili'>('douyin');
+  const [loginModalPlatform, setLoginModalPlatform] = useState<api.PlatformKind>('douyin');
   const [logLevel, setLogLevel] = useState('INFO');
   const [availableLevels, setAvailableLevels] = useState<string[]>(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'NONE']);
   const [collectionsPerPage, setCollectionsPerPage] = useLocalStorageSetting<number>(
@@ -81,8 +81,7 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
         const pRes = await api.listPlatforms();
         if (pRes.success && pRes.platforms) {
           const dy = pRes.platforms.find(p => p.platform === 'douyin');
-          const bili = pRes.platforms.find(p => p.platform === 'bilibili');
-          setLoggedPlatforms([dy, bili].filter((item): item is api.PlatformInfo => Boolean(item?.is_logged_in)));
+          setLoggedPlatforms(pRes.platforms.filter(item => item.is_logged_in));
 
           if (dy?.status === 'logged_in' && lastStatus === 'syncing') {
             setStatsRefreshKey(k => k + 1);
@@ -182,7 +181,7 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-display text-base font-bold text-[var(--color-ink)]">{t('appTitle')}</h1>
+              <h1 className="font-title text-base font-bold text-[var(--color-ink)]">{t('appTitle')}</h1>
               <span className="px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-accent-light text-accent border border-accent/20">v{__APP_VERSION__}</span>
             </div>
             <span className="text-[10px] text-[var(--color-ink-muted)] tracking-wider">{t('appSubtitle')}</span>
@@ -223,11 +222,15 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
               <span>{t('notLoggedIn')}</span>
             ) : (
               <>
-                <span>{t('loggedInPlatforms', { count: loggedPlatforms.length, total: 2 })}</span>
+               <span>{t('loggedInPlatforms', { count: loggedPlatforms.length, total: 3 })}</span>
                 {loggedPlatforms.map(platform => (
                   <img
                     key={platform.platform}
-                    src={platform.platform === 'bilibili' ? '/platform-icons/bilibili.svg' : '/platform-icons/douyin.svg'}
+                    src={platform.platform === 'bilibili'
+                      ? '/platform-icons/bilibili.svg'
+                      : platform.platform === 'zhihu'
+                      ? '/platform-icons/zhihu.svg'
+                      : '/platform-icons/douyin.svg'}
                     alt={platform.name}
                     className="w-3.5 h-3.5 object-contain"
                   />

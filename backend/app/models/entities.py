@@ -254,10 +254,14 @@ class IngestionItem(Base):
         content_item_id: Optional[int] = None,
         platform_item_id: Optional[str] = None,
         title: Optional[str] = None,
+        platform: Optional[str] = None,
         **kwargs,
     ):
         self._temp_platform_item_id = platform_item_id
         self._temp_title = title
+        # 只有"按远端 ID 自动补建 ContentItem"这一条兼容路径需要它，见
+        # _resolve_ingestion_content_item_id：没有平台事实时拒绝伪造记录。
+        self._temp_platform = platform
         if content_item_id is not None:
             kwargs["content_item_id"] = content_item_id
         super().__init__(*args, **kwargs)
@@ -304,33 +308,90 @@ class IngestionItem(Base):
 
 @event.listens_for(IngestionItem, "before_insert")
 def _resolve_ingestion_content_item_id(mapper, connection, target):
-    """自动补全 content_item_id，若不存在则原子关联或创建存量 ContentItem"""
-    if not getattr(target, "content_item_id", None):
-        temp_remote_id = getattr(target, "_temp_platform_item_id", None)
-        if temp_remote_id:
-            row = connection.execute(
-                select(ContentItem.id).where(ContentItem.remote_item_id == temp_remote_id)
-            ).fetchone()
-            if row:
-                target.content_item_id = row[0]
-            else:
-                res = connection.execute(
-                    ContentItem.__table__.insert().values(
-                        platform="douyin",
-                        remote_item_id=temp_remote_id,
-                        canonical_url=f"https://www.douyin.com/video/{temp_remote_id}",
-                        title=getattr(target, "_temp_title", "") or temp_remote_id,
-                        author="",
-                        duration=0,
-                        cover_url="",
-                        video_url="",
-                        content_kind="video",
-                        source_fingerprint="",
-                        part_count=1,
-                        is_active=True,
-                    )
-                )
-                target.content_item_id = res.inserted_primary_key[0]
+    """自动补全 content_item_id：先关联已存在的 ContentItem，否则按平台事实创建。
+
+    平台事实必须由调用方通过 ``IngestionItem(platform=...)`` 显式给出。本钩子在
+    flush 阶段运行，只能看到 IngestionItem 携带的临时提示，``ingestion_items``
+    表没有任何列可以反推平台——所以**没有平台提示时拒绝创建**，而不是像历史实现
+    那样伪造 ``platform="douyin"`` + ``https://www.douyin.com/video/{id}``：那会把
+    任意平台的条目静默写成抖音，并把用户指向一个不存在的抖音作品。
+
+    懒 import 的理由：``app.models`` 是数据层、``app.services`` 是服务层，依赖
+    方向只能是 services -> models；模块级 import 会造成分层倒置。钩子在 flush
+    时才运行，此时服务层一定已经可以导入。
+    """
+    if getattr(target, "content_item_id", None):
+        return
+    temp_remote_id = getattr(target, "_temp_platform_item_id", None)
+    if not temp_remote_id:
+        return
+
+    from app.services.content_kind import content_kind_for
+    from app.services.platform_registry import build_canonical_url, try_get_platform
+
+    temp_platform = getattr(target, "_temp_platform", None)
+    facts = try_get_platform(temp_platform)
+
+    lookup = select(ContentItem.id).where(ContentItem.remote_item_id == temp_remote_id)
+    if facts is not None:
+        # 同一 remote_item_id 允许跨平台重复（uq_content_platform_remote），
+        # 所以有平台事实时必须连平台一起限定，否则可能关联到另一个平台的同号作品。
+        lookup = lookup.where(ContentItem.platform == facts.platform)
+    rows = connection.execute(lookup).fetchall()
+    if rows:
+        if facts is None and len(rows) > 1:
+            # Legacy callers may omit platform when there is exactly one
+            # matching row. Once the same remote id exists on two platforms,
+            # choosing the first row would cross-link to the wrong provider.
+            raise ValueError(
+                f"remote_item_id={temp_remote_id!r} 在多个平台存在，"
+                "无法在缺少 platform 时自动关联；请显式传入 platform 或 content_item_id"
+            )
+        target.content_item_id = rows[0][0]
+        return
+
+    if facts is None:
+        raise ValueError(
+            f"无法为 remote_item_id={temp_remote_id!r} 自动创建 ContentItem："
+            f"IngestionItem 未携带已登记的平台（platform={temp_platform!r}），"
+            "拒绝伪造一条抖音记录。请显式传入 content_item_id，"
+            "或传入受支持的 platform=... 让平台事实注册表决定链接与形态。"
+        )
+
+    duration = 0
+    res = connection.execute(
+        ContentItem.__table__.insert().values(
+            platform=facts.platform,
+            remote_item_id=temp_remote_id,
+            canonical_url=build_canonical_url(facts.platform, temp_remote_id),
+            title=getattr(target, "_temp_title", "") or temp_remote_id,
+            author="",
+            duration=duration,
+            cover_url="",
+            video_url="",
+            # 形态判据只有一处（content_kind）；duration=0 在全局口径下是图文，
+            # 历史上这里写死 "video"，是这个判据的第四份定义。
+            content_kind=content_kind_for(facts.platform, duration),
+            source_fingerprint="",
+            part_count=1,
+            is_active=True,
+        )
+    )
+    target.content_item_id = res.inserted_primary_key[0]
+
+
+#: ``content_parts.transcript_source``："计划"与"正文"的区别。
+#: 创建 ContentPart 只是登记了分 P 计划，此时还没有任何正文。历史上该列在创建时
+#: 就写死 ``"whisper_asr"``，于是 B 站字幕来源的正文被**永久**标记为 ASR
+#: （而且 ASR 引擎实际是 DashScope paraformer，"whisper" 本身就是错的）。
+#: 现在：正文未产生 = :data:`TRANSCRIPT_SOURCE_UNSET`，绝不在正文存在之前声称来源。
+TRANSCRIPT_SOURCE_UNSET = ""
+#: 正文已产生，但生产者没有暴露它来自哪条路径。当前 B 站抓取器就是这样：
+#: ``fetch_transcript()`` 把"字幕"和"音频 ASR"两条路径的结果都以 ``str`` 返回，
+#: 调用方无法区分（见 knowledge_service 中分 P 归因处的说明）。
+TRANSCRIPT_SOURCE_UNKNOWN = "unknown"
+#: 正文直接来自平台文章/回答 API，不需要音频下载或 ASR。
+TRANSCRIPT_SOURCE_ARTICLE_TEXT = "article_text"
 
 
 class ContentPart(Base):
@@ -349,7 +410,21 @@ class ContentPart(Base):
     part_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     part_title: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     duration: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    transcript_source: Mapped[str] = mapped_column(String(32), nullable=False, default="whisper_asr")
+    # 为什么保留 NOT NULL + 空串哨兵，而不是改成 nullable 的 NULL：
+    # 1) ``db/migration.py`` 建表时给了列级 ``DEFAULT 'whisper_asr'``，而这个
+    #    server default 已经烙在**存量数据库**里。若 ORM 改成不提供值（NULL），
+    #    SQLite 会回落到那个陈旧的 server default，谎言会在真实安装上静默复活
+    #    ——而且只在真实安装上，全新的测试库（create_all 不带 server_default）
+    #    永远不会暴露它。Python 侧 ``default=TRANSCRIPT_SOURCE_UNSET`` 一定会被
+    #    写进 INSERT，因此在所有库上都压得住那个陈旧默认值。
+    # 2) NOT NULL -> NULL 需要 SQLite 12 步表重建，而本仓库的版本化迁移引擎
+    #    (``db/migration.py``) 是一次性的 legacy->v0.7 重建（已应用的库直接
+    #    ``skipped``），为它另开一条迁移路径＝发明第二套机制。
+    # 3) 空串与仓库既有"未产生"约定一致（canonical_url / title / source_fingerprint
+    #    等 6 列的 default 都是 ""）。
+    transcript_source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=TRANSCRIPT_SOURCE_UNSET
+    )
     transcript_version: Mapped[str] = mapped_column(String(32), nullable=False, default="1")
     time_range: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, server_default=func.now())

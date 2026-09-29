@@ -13,7 +13,7 @@ export default function LandingPage({ onStartLogin, onLoginIntent, busy }: Props
           <div className="w-10 h-10 rounded-xl flex items-center justify-center p-1 bg-white/70 border border-black/5 shadow-sm overflow-hidden">
             <img src="/akasha-mark.svg" alt="Akasha-RAG" className="w-full h-full object-contain" />
           </div>
-          <span className="font-display text-lg font-bold text-[var(--color-ink)]">{t('appTitle')}</span>
+          <span className="font-title text-lg font-bold text-[var(--color-ink)]">{t('appTitle')}</span>
         </div>
         <button
           onClick={onStartLogin}
@@ -28,7 +28,7 @@ export default function LandingPage({ onStartLogin, onLoginIntent, busy }: Props
 
       {/* Hero */}
       <main className="flex-1 flex flex-col items-center justify-center text-center px-6 gap-10">
-        <h1 className="font-display text-5xl leading-tight text-[var(--color-ink)] max-w-lg whitespace-pre-line">
+        <h1 className="font-title text-5xl leading-tight text-[var(--color-ink)] max-w-lg whitespace-pre-line">
           {t('landingHeroTitle')}
         </h1>
 

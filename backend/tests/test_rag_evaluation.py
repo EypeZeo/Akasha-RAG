@@ -336,6 +336,7 @@ def test_local_index_preflight_reports_ready_metadata_without_provider_calls():
     assert manifest["chroma_collections"] == [
         {"name": "akasha_douyin", "platform": "douyin"},
         {"name": "akasha_bilibili", "platform": "bilibili"},
+        {"name": "akasha_zhihu", "platform": "zhihu"},
     ]
 
 

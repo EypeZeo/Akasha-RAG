@@ -96,6 +96,9 @@ class FavoriteScrapedVideo:
     # the enrichment TTL hadn't expired. Only the former should advance
     # ContentItem.last_enriched_at when persisted.
     freshly_enriched: bool = False
+    # Pre-extracted article/answer text. Video platforms leave this empty and
+    # use the normal download/ASR pipeline instead.
+    text_content: str = ""
 
 
 @dataclass

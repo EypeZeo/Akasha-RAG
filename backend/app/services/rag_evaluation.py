@@ -3,6 +3,10 @@
 This module has no dependency on Chroma, the database, or an LLM. It is the
 pure-data layer for the local R0 evaluator so schema and metric behavior can be
 tested without accessing real knowledge-base content or paid providers.
+
+Platform ids and Chroma collection names come from ``platform_registry`` (a
+pure-data module: no I/O, no network), so the evaluator's accepted platform set
+can never drift from what the application actually supports.
 """
 from __future__ import annotations
 
@@ -18,11 +22,15 @@ import tempfile
 import time
 from typing import Mapping, Sequence
 
+from app.services.platform_registry import get_platform, supported_platforms
+
 EVALUATION_SCHEMA_VERSION = 1
 REPORT_SCHEMA_VERSION = 1
 LOCAL_INDEX_MANIFEST_SCHEMA_VERSION = 1
 DEFAULT_CUTOFFS = (1, 3, 5, 8)
-SUPPORTED_PLATFORMS = frozenset(("all", "douyin", "bilibili"))
+#: 评测允许的平台范围由平台事实注册表推导（'all' 是评测专用的通配值，不是平台）。
+SUPPORTED_PLATFORMS = frozenset(("all", *supported_platforms()))
+_PLATFORM_NAMES = " or ".join(supported_platforms())
 SUPPORTED_CATEGORIES = frozenset(
     (
         "exact_fact",
@@ -240,7 +248,7 @@ def _parse_scoped_item(value: object, path: str) -> ScopedItem:
     _strict_keys(item, path, {"platform", "platform_item_id"})
     platform = _string(item["platform"], f"{path}.platform", max_length=16)
     if platform not in SUPPORTED_PLATFORMS - {"all"}:
-        raise _error(f"{path}.platform", "must be douyin or bilibili")
+        raise _error(f"{path}.platform", f"must be {_PLATFORM_NAMES}")
     platform_item_id = _string(item["platform_item_id"], f"{path}.platform_item_id", max_length=256)
     return ScopedItem(platform, platform_item_id)
 
@@ -449,7 +457,7 @@ def load_index_manifest(path: str | Path) -> EvaluationIndexManifest:
         name = _string(collection["name"], f"{path}.name", max_length=128)
         platform = _string(collection["platform"], f"{path}.platform", max_length=16)
         if platform not in SUPPORTED_PLATFORMS - {"all"}:
-            raise _error(f"{path}.platform", "must be douyin or bilibili")
+            raise _error(f"{path}.platform", f"must be {_PLATFORM_NAMES}")
         if name in seen_names or platform in seen_platforms:
             raise _error(path, "collection name and platform must be unique")
         seen_names.add(name)
@@ -538,7 +546,7 @@ def local_index_preflight(*, session_factory_override=None, chroma_service_overr
 
     collection_counts: dict[str, int | None] = {}
     vector_content_item_ids: set[int] = set()
-    for platform in ("douyin", "bilibili"):
+    for platform in supported_platforms():
         try:
             collection = chroma._collection_for(platform)
             collection_counts[platform] = int(collection.count())
@@ -608,8 +616,8 @@ def build_local_index_manifest(
         "pipeline_version": pipeline_versions[0],
         "source_fingerprints": preflight["index"]["source_fingerprints"],
         "chroma_collections": [
-            {"name": f"akasha_{platform}", "platform": platform}
-            for platform in ("douyin", "bilibili")
+            {"name": get_platform(platform).collection_name, "platform": platform}
+            for platform in supported_platforms()
         ],
     }
 
@@ -620,7 +628,7 @@ def _parse_candidate(value: object, path: str) -> RetrievalCandidate:
     chunk_id = _string(candidate["chunk_id"], f"{path}.chunk_id", max_length=512)
     platform = _string(candidate["platform"], f"{path}.platform", max_length=16)
     if platform not in SUPPORTED_PLATFORMS - {"all"}:
-        raise _error(f"{path}.platform", "must be douyin or bilibili")
+        raise _error(f"{path}.platform", f"must be {_PLATFORM_NAMES}")
     platform_item_id = _string(candidate["platform_item_id"], f"{path}.platform_item_id", max_length=256)
     score = _number(candidate["score"], f"{path}.score")
     content_item_id = candidate.get("content_item_id")
@@ -1291,7 +1299,9 @@ def collect_live_retrieval(
                     raise EvaluationError(f"{case.case_id}: live retrieval result has no chunk_id")
                 candidates.append(RetrievalCandidate(
                     chunk_id=str(chunk_id),
-                    platform=str(hit.get("platform", "douyin")),
+                    # 缺失平台时留空，让下面的 RetrievalCandidate 校验报错，而不是把
+                    # 一个来源不明的命中静默标成抖音。
+                    platform=str(hit.get("platform") or ""),
                     platform_item_id=str(hit["platform_item_id"]),
                     score=float(hit.get("score", 0.0)),
                     content_item_id=hit.get("content_item_id"),

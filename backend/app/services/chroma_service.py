@@ -9,11 +9,10 @@ from pathlib import Path
 from typing import Iterable
 
 from app.core.config import settings
+from app.services.platform_registry import build_canonical_url, get_platform, supported_platforms
 
 logger = logging.getLogger(__name__)
 
-COLLECTION_PREFIX = "akasha"
-SUPPORTED_PLATFORMS = ("douyin", "bilibili")
 DISTANCE_METRIC = "cosine"
 
 _write_lock = threading.RLock()
@@ -38,13 +37,13 @@ class ChromaService:
         import chromadb
         self._client = chromadb.PersistentClient(path=_resolve_persist_dir(settings.chroma_persist_dir))
         with _write_lock:
-            self._collections = {platform: self._create_collection(platform) for platform in SUPPORTED_PLATFORMS}
+            self._collections = {platform: self._create_collection(platform) for platform in supported_platforms()}
         logger.info("ChromaDB 初始化完成: %s (%s)", settings.chroma_persist_dir,
                     ", ".join(f"{p}={c.count()}" for p, c in self._collections.items()))
 
     @staticmethod
     def _collection_name(platform: str) -> str:
-        return f"{COLLECTION_PREFIX}_{platform}"
+        return get_platform(platform).collection_name
 
 
     def _create_collection(self, platform: str):
@@ -53,26 +52,45 @@ class ChromaService:
         )
 
     def _collection_for(self, platform: str):
-        if platform not in SUPPORTED_PLATFORMS:
-            raise ValueError(f"不支持的平台: {platform}")
+        # 平台白名单只有一份：platform_registry（未登记平台抛 UnsupportedPlatformError，
+        # 它是 ValueError 的子类，旧调用方的异常处理不变）。
+        # 用 get_platform 返回的 canonical id 去索引，而不是原始字符串：
+        # get_platform 会做 strip().lower()，若仍拿 'DoUyIn' 去查 _collections
+        # 就会漏成裸 KeyError；历史实现对非规范拼写一律抛 ValueError。
+        facts = get_platform(platform)
         # Preserve old lightweight unit-test doubles. Production always has partitions.
         if not hasattr(self, "_collections"):
             return self._collection
-        return self._collections[platform]
+        return self._collections[facts.platform]
 
     def _target_platforms(self, platform: str | None) -> tuple[str, ...]:
         if platform is None:
-            return SUPPORTED_PLATFORMS if hasattr(self, "_collections") else ("douyin",)
-        self._collection_for(platform)
-        return (platform,)
+            if not hasattr(self, "_collections"):
+                return (supported_platforms()[0],)
+            # Production initializes every registered partition. Lightweight
+            # test doubles and older callers may expose only a subset; skip
+            # absent partitions instead of turning a cross-platform read into
+            # a KeyError.
+            return tuple(item for item in supported_platforms() if item in self._collections)
+        # 返回 canonical id，保证后续按平台过滤的元数据比较用的是规范拼写。
+        return (get_platform(platform).platform,)
 
     def upsert_video_chunks(self, platform_item_id: str, title: str, chunks: list[str], embeddings: list[list[float]],
-                            platform: str = "douyin", content_item_id: int | None = None, canonical_url: str = "",
+                            platform: str, content_item_id: int | None = None, canonical_url: str = "",
                             part_id: int = 0, part_index: int = 0) -> list[str]:
+        # ``platform`` 是必填的位置参数（无默认值）。历史实现是
+        # ``platform: str = "douyin"``，任何漏传的调用点都会把正文静默写进抖音分区；
+        # 那种污染既不报错也无法事后区分。去掉默认值后，漏传会在调用点直接
+        # TypeError，而不是在向量库里留下一批来源错误的 chunk。
         if not chunks:
             return []
         if len(chunks) != len(embeddings):
             raise ValueError("正文块与向量数量不匹配")
+        # 平台 id 必须在**写入前**就规范化：集合查找已经用 canonical id，但
+        # chunk_id / metadata["platform"] / 日志此前仍写原始字符串。两者不一致时
+        # （例如 'DoUyIn'）向量会落进 akasha_douyin，而 search() 按 metadata
+        # platform 过滤时把它们全部丢掉 —— 入库显示 done，检索却永远 0 命中。
+        platform = get_platform(platform).platform
         collection = self._collection_for(platform)
         with _write_lock:
             clauses = [{"platform_item_id": platform_item_id}]
@@ -83,7 +101,7 @@ class ChromaService:
                 chunk_ids = [f"{platform_item_id}:{idx}" for idx in range(len(chunks))]
             else:
                 chunk_ids = [f"{platform}:{platform_item_id}:{part_id}:{idx}" for idx in range(len(chunks))]
-            resolved_url = canonical_url or (f"https://www.bilibili.com/video/{platform_item_id}" if platform == "bilibili" else f"https://www.douyin.com/video/{platform_item_id}")
+            resolved_url = build_canonical_url(platform, platform_item_id) or canonical_url
             now_ts = int(time.time())
             collection.upsert(ids=chunk_ids, embeddings=embeddings, metadatas=[{
                 "chunk_id": chunk_ids[idx], "platform": platform, "platform_item_id": platform_item_id,
@@ -143,7 +161,7 @@ class ChromaService:
                 source_platform = str(metadata.get("platform", target))
                 if source_platform != target or (scope_ids is not None and (source_platform, item_id) not in scope_ids):
                     continue
-                url = metadata.get("canonical_url") or (f"https://www.bilibili.com/video/{item_id}" if source_platform == "bilibili" else f"https://www.douyin.com/video/{item_id}")
+                url = metadata.get("canonical_url") or build_canonical_url(source_platform, item_id)
                 candidates.append({"chunk_id": str(chunk_id), "platform": source_platform,
                     "platform_item_id": str(item_id), "remote_item_id": str(item_id),
                     "content_item_id": metadata.get("content_item_id"), "canonical_url": url,
@@ -203,7 +221,7 @@ class ChromaService:
 
     def clear_all(self) -> None:
         with _write_lock:
-            for platform in SUPPORTED_PLATFORMS:
+            for platform in supported_platforms():
                 self._delete_collection_or_raise(platform)
                 self._collections[platform] = self._create_collection(platform)
 
@@ -214,7 +232,10 @@ class ChromaService:
         after the caller's follow-up SQL step failed) just re-creates an
         already-empty collection, no error.
         """
-        self._collection_for(platform)  # raises for an unsupported platform before touching anything
+        # 与 _collection_for 一致地用 canonical id：否则 'DoUyIn' 会按原文
+        # 创建集合（akasha_DoUyIn）、并以原文为键写进 _collections，
+        # 留下一个永不使用的垃圾分区 + 过期的 canonical 句柄。
+        platform = get_platform(platform).platform
         with _write_lock:
             self._delete_collection_or_raise(platform)
             self._collections[platform] = self._create_collection(platform)

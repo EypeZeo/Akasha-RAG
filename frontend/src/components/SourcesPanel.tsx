@@ -443,7 +443,7 @@ export default function SourcesPanel({
         const failedPlatforms = getFailedPlatforms(r);
         if (failedPlatforms.length > 0) {
           const platformNames = failedPlatforms
-            .map((p) => (p === 'bilibili' ? t('platformBilibili') : t('platformDouyin')))
+            .map((p) => p === 'bilibili' ? t('platformBilibili') : p === 'zhihu' ? t('platformZhihu') : t('platformDouyin'))
             .join('、');
           notify(`${successMsg}${t('syncPartialFailureSuffix', { platforms: platformNames })}`);
         } else {
@@ -541,7 +541,7 @@ export default function SourcesPanel({
     }
   };
 
-  const handlePlatformChange = (newPlatform: 'all' | 'douyin' | 'bilibili') => {
+  const handlePlatformChange = (newPlatform: 'all' | 'douyin' | 'bilibili' | 'zhihu') => {
     if (newPlatform === currentPlatform()) {
       // 点当前平台 = 显式刷新（AC2 的第三个复位来源）：store 值没变、平台 effect 不会触发，所以这里自己刷，
       // 并回到第 1 页。
@@ -933,6 +933,18 @@ export default function SourcesPanel({
             <img src="/platform-icons/bilibili.svg" alt="" className="w-3.5 h-3.5 object-contain shrink-0" />
             <span>{t('platformBilibili')}</span>
           </button>
+          <button
+            type="button"
+            onClick={() => handlePlatformChange('zhihu')}
+            className={`flex-1 py-1 px-1.5 rounded-lg font-semibold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
+              platformFilter === 'zhihu'
+                ? 'bg-white shadow-2xs text-blue-700'
+                : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]'
+            }`}
+          >
+            <img src="/platform-icons/zhihu.svg" alt="" className="w-3.5 h-3.5 object-contain shrink-0" />
+            <span>{t('platformZhihu')}</span>
+          </button>
         </div>
 
         {/* Collections */}
@@ -977,11 +989,16 @@ export default function SourcesPanel({
                              {t('platformBilibili')}
                            </span>
                          )}
-                         {col.platform === 'douyin' && (
+                          {col.platform === 'douyin' && (
                            <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-black/5 text-[var(--color-ink-soft)] border border-black/10 flex-shrink-0">
                              {t('platformDouyin')}
                            </span>
-                         )}
+                          )}
+                          {col.platform === 'zhihu' && (
+                            <span className="text-[9px] px-1.5 py-0.2 rounded font-semibold bg-blue-50 text-blue-700 border border-blue-200/60 flex-shrink-0">
+                              {t('platformZhihu')}
+                            </span>
+                          )}
                          <span className="text-sm font-semibold text-[var(--color-ink)] truncate">{displayTitle}</span>
                        </div>
                        {collectionExpandMode === 'anywhere' && (
@@ -1114,10 +1131,12 @@ export default function SourcesPanel({
                                 className={`text-[9px] px-1.5 py-0.2 rounded font-semibold flex-shrink-0 select-none ${
                                   v.platform === 'bilibili'
                                     ? 'bg-pink-50 text-pink-600 border border-pink-200/60'
-                                    : 'bg-black/5 text-[var(--color-ink-soft)] border border-black/10'
+                                   : v.platform === 'zhihu'
+                                   ? 'bg-blue-50 text-blue-700 border border-blue-200/60'
+                                   : 'bg-black/5 text-[var(--color-ink-soft)] border border-black/10'
                                 }`}
                               >
-                                {v.platform === 'bilibili' ? t('platformBilibili') : t('platformDouyin')}
+                                 {v.platform === 'bilibili' ? t('platformBilibili') : v.platform === 'zhihu' ? t('platformZhihu') : t('platformDouyin')}
                               </span>
 
                               {/* 视频/图文微标 */}
@@ -1133,11 +1152,11 @@ export default function SourcesPanel({
                               </span>
 
                               <a
-                                href={v.url || (v.platform === 'bilibili' ? `https://www.bilibili.com/video/${v.platform_item_id}` : `https://www.douyin.com/video/${v.platform_item_id}`)}
+                                 href={v.url || (v.platform === 'bilibili' ? `https://www.bilibili.com/video/${v.platform_item_id}` : v.platform === 'zhihu' ? `https://www.zhihu.com/search?q=${encodeURIComponent(v.platform_item_id)}` : `https://www.douyin.com/video/${v.platform_item_id}`)}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-[var(--color-ink)] hover:text-accent truncate flex-1 font-normal hover:underline transition-colors flex items-center gap-1 group/title"
-                                title={`${v.platform === 'bilibili' ? t('openInBilibili') : t('openInDouyin')}: ${v.title}`}
+                                 title={`${v.platform === 'bilibili' ? t('openInBilibili') : v.platform === 'zhihu' ? t('openInZhihu') : t('openInDouyin')}: ${v.title}`}
                               >
                                 <span className="truncate">{v.title}</span>
                                 <span className="opacity-0 group-hover/title:opacity-60 text-[10px] flex-shrink-0 transition-opacity">↗</span>

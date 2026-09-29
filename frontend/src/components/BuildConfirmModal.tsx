@@ -228,7 +228,7 @@ export default function BuildConfirmModal({
         {/* Header */}
         <div className="px-6 pt-5 pb-3">
           <div className="flex items-center justify-between">
-            <h2 id={titleId} className="font-display text-lg font-bold text-[var(--color-ink)] flex items-center gap-2">
+            <h2 id={titleId} className="font-title text-lg font-bold text-[var(--color-ink)] flex items-center gap-2">
               <span>🚀</span> {t('confirmBuild')}
               {collectionTitle && (
                 <span className="text-xs font-normal px-2 py-0.5 rounded-full bg-accent/10 text-accent border border-accent/20">
@@ -365,10 +365,12 @@ export default function BuildConfirmModal({
                       className={`text-[9px] px-1.5 py-0.2 rounded font-semibold flex-shrink-0 select-none ${
                         v.platform === 'bilibili'
                           ? 'bg-pink-50 text-pink-600 border border-pink-200/60'
+                          : v.platform === 'zhihu'
+                          ? 'bg-blue-50 text-blue-700 border border-blue-200/60'
                           : 'bg-black/5 text-[var(--color-ink-soft)] border border-black/10'
                       }`}
                     >
-                      {v.platform === 'bilibili' ? t('platformBilibili') : t('platformDouyin')}
+                      {v.platform === 'bilibili' ? t('platformBilibili') : v.platform === 'zhihu' ? t('platformZhihu') : t('platformDouyin')}
                     </span>
                     <span
                       className={`text-[9px] px-1.5 py-0.2 rounded font-medium flex-shrink-0 select-none ${

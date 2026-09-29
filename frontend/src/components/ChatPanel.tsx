@@ -602,7 +602,8 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
   // 两者只在「选中了收藏夹、筛选却是全部」时不同，所以收藏夹标签要把这个平台写出来。
   const searchPlatform = platform ?? scopePlatform;
   const searchPlatformLabel = searchPlatform === 'douyin' ? t('platformDouyin')
-    : searchPlatform === 'bilibili' ? t('platformBilibili') : t('scopeAll');
+    : searchPlatform === 'bilibili' ? t('platformBilibili')
+    : searchPlatform === 'zhihu' ? t('platformZhihu') : t('scopeAll');
   const promptChips = [
     t('promptSummary'),
     t('promptActionSteps'),
@@ -633,7 +634,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
 
           {/* Retrieval scope switcher */}
           <div className="flex items-center gap-1 p-0.5 rounded-full bg-black/[0.04] text-[11px]">
-            {(['all', 'douyin', 'bilibili'] as Platform[]).map(p => (
+            {(['all', 'douyin', 'bilibili', 'zhihu'] as Platform[]).map(p => (
               <button
                 key={p}
                 type="button"
@@ -645,7 +646,7 @@ export default function ChatPanel({ collectionId, platform, statsRefreshKey, act
                     : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]'
                 }`}
               >
-                {p === 'all' ? `🌐 ${t('scopeAll')}` : p === 'douyin' ? t('platformDouyin') : t('platformBilibili')}
+                {p === 'all' ? `🌐 ${t('scopeAll')}` : p === 'douyin' ? t('platformDouyin') : p === 'bilibili' ? t('platformBilibili') : t('platformZhihu')}
               </button>
             ))}
           </div>

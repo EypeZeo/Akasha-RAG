@@ -126,7 +126,7 @@ export default function ActivityBar({
         <button
           type="button"
           onClick={onOpenSettings}
-          title={loggedPlatforms.length ? `${t('loggedIn')} ${loggedPlatforms.length}/2` : t('notLoggedIn')}
+           title={loggedPlatforms.length ? `${t('loggedIn')} ${loggedPlatforms.length}/3` : t('notLoggedIn')}
           className="w-9 h-9 rounded-xl flex items-center justify-center hover:bg-black/5 transition-all cursor-pointer relative"
         >
           <span

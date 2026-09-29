@@ -37,7 +37,7 @@ export default {
       },
       fontFamily: {
         body: ['"Inter"', 'system-ui', '-apple-system', '"Segoe UI"', 'Roboto', '"Noto Sans SC"', '"PingFang SC"', '"Microsoft YaHei"', '"Segoe UI Emoji"', '"Apple Color Emoji"', 'sans-serif'],
-        display: ['"ZCOOL XiaoWei"', '"Songti SC"', 'serif'],
+        title: ['"Noto Sans SC"', '"PingFang SC"', '"Microsoft YaHei"', 'sans-serif'],
       },
     },
   },

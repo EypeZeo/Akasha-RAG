@@ -30,8 +30,19 @@ from app.models.entities import (
 from app.services.chroma_service import get_chroma_service
 from app.services.collection_scope import ContentScope, resolve_collection
 from app.services.llm_service import embedding_client, llm_client
+from app.services.platform_registry import build_canonical_url
 
 logger = logging.getLogger(__name__)
+
+
+def _hit_platform(hit: dict) -> str:
+    """检索命中的来源平台；缺失时返回空串。
+
+    历史实现是 ``hit.get("platform", "douyin")``：一个没有平台字段的命中项会被
+    贴上抖音标签并生成抖音链接——用户点开的是一个不存在的作品地址。链接必须来自
+    平台事实（``build_canonical_url``），缺失就诚实地留空。
+    """
+    return str(hit.get("platform") or "")
 
 # ==================================================================
 # 静态工具函数
@@ -236,7 +247,7 @@ class RagService:
 
         # 按收藏夹范围过滤（同样必须用 is not None，理由同上）
         if scope_ids is not None:
-            hits = [h for h in hits if (h.get("platform", "douyin"), h["platform_item_id"]) in scope_ids]
+            hits = [h for h in hits if (_hit_platform(h), h["platform_item_id"]) in scope_ids]
         return hits[:k]
 
     def _resolve_collection_scope(
@@ -721,17 +732,11 @@ class RagService:
         seen: set[str] = set()
         for h in hits:
             vid = h["platform_item_id"]
-            source_key = f"{h.get('platform', 'douyin')}:{vid}"
+            source_key = f"{_hit_platform(h)}:{vid}"
             if source_key not in seen:
                 seen.add(source_key)
-                item_plat = h.get("platform", "douyin")
-                resolved_url = h.get("canonical_url")
-                if not resolved_url:
-                    resolved_url = (
-                        f"https://www.bilibili.com/video/{vid}"
-                        if item_plat == "bilibili"
-                        else f"https://www.douyin.com/video/{vid}"
-                    )
+                item_plat = _hit_platform(h)
+                resolved_url = h.get("canonical_url") or build_canonical_url(item_plat, vid)
                 sources.append({
                     "platform": item_plat,
                     "platform_item_id": vid,
@@ -756,7 +761,7 @@ class RagService:
             db.flush()
 
         retrieved_ids = [{
-            "platform": h.get("platform", "douyin"),
+            "platform": _hit_platform(h),
             "platform_item_id": h["platform_item_id"],
             "content_item_id": h.get("content_item_id"),
             "title": h.get("title", ""),
@@ -890,17 +895,11 @@ class RagService:
         sources = []
         for h in hits:
             vid = h["platform_item_id"]
-            source_key = f"{h.get('platform', 'douyin')}:{vid}"
+            source_key = f"{_hit_platform(h)}:{vid}"
             if source_key not in seen:
                 seen.add(source_key)
-                item_plat = h.get("platform", "douyin")
-                resolved_url = h.get("canonical_url")
-                if not resolved_url:
-                    resolved_url = (
-                        f"https://www.bilibili.com/video/{vid}"
-                        if item_plat == "bilibili"
-                        else f"https://www.douyin.com/video/{vid}"
-                    )
+                item_plat = _hit_platform(h)
+                resolved_url = h.get("canonical_url") or build_canonical_url(item_plat, vid)
                 sources.append({
                     "platform": item_plat,
                     "platform_item_id": vid,
@@ -944,7 +943,7 @@ class RagService:
                 db.flush()
 
             retrieved_ids = [{
-                "platform": h.get("platform", "douyin"),
+                "platform": _hit_platform(h),
                 "platform_item_id": h["platform_item_id"],
                 "content_item_id": h.get("content_item_id"),
                 "title": h.get("title", ""),
@@ -1152,7 +1151,7 @@ class RagService:
                     if isinstance(vids, list):
                         for vid in vids:
                             if isinstance(vid, dict):
-                                platform = str(vid.get("platform") or "douyin")
+                                platform = str(vid.get("platform") or "")
                                 remote_id = str(vid.get("platform_item_id") or "")
                                 key = (platform, remote_id)
                                 if remote_id and key not in seen_sources:
@@ -1162,25 +1161,23 @@ class RagService:
                                         "platform": platform,
                                         "platform_item_id": remote_id,
                                         "title": str(vid.get("title") or remote_id),
-                                        "url": str(vid.get("url") or (
-                                            f"https://www.bilibili.com/video/{remote_id}" if platform == "bilibili"
-                                            else f"https://www.douyin.com/video/{remote_id}"
-                                        )),
+                                        "url": str(vid.get("url") or build_canonical_url(platform, remote_id)),
                                         **({"score": score} if isinstance(score, (int, float)) and math.isfinite(score) else {}),
                                     })
                                 continue
                             c = cache_map.get(str(vid))
                             if c:
                                 item = c.content_item
-                                key = (item.platform if item else "douyin", str(vid))
+                                item_platform = item.platform if item else ""
+                                key = (item_platform, str(vid))
                                 if key in seen_sources:
                                     continue
                                 seen_sources.add(key)
                                 msg_sources.append({
                                     "platform_item_id": str(vid),
                                     "title": c.title,
-                                    "platform": item.platform if item else "douyin",
-                                    "url": item.canonical_url if item and item.canonical_url else f"https://www.douyin.com/video/{vid}",
+                                    "platform": item_platform,
+                                    "url": (item.canonical_url if item else "") or build_canonical_url(item_platform, str(vid)),
                                 })
                 except Exception:
                     pass

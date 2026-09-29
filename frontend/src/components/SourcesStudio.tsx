@@ -93,7 +93,7 @@ export default function SourcesStudio({
           <div className="w-14 h-14 rounded-2xl bg-white/70 border border-black/5 shadow-md shadow-accent/15 flex items-center justify-center p-2">
             <img src="/akasha-mark.svg" alt="" className="w-full h-full object-contain" />
           </div>
-          <h2 className="font-display text-xl font-bold text-[var(--color-ink)]">{t('studioBoardTitle')}</h2>
+          <h2 className="font-title text-xl font-bold text-[var(--color-ink)]">{t('studioBoardTitle')}</h2>
           <p className="text-sm text-[var(--color-ink-muted)] leading-6">{t('studioBoardDesc')}</p>
           <button
             type="button"
