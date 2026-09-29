@@ -27,8 +27,10 @@ def test_auth_platforms_endpoint(client):
     platforms = {p["platform"]: p for p in data["platforms"]}
     assert "douyin" in platforms
     assert "bilibili" in platforms
+    assert "zhihu" in platforms
     assert platforms["douyin"]["name"] == "抖音"
     assert platforms["bilibili"]["name"] == "哔哩哔哩"
+    assert platforms["zhihu"]["name"] == "知乎"
 
 
 @pytest.mark.asyncio
@@ -120,6 +122,24 @@ def test_favorites_sync_rejects_unknown_platform(client):
     resp = client.post("/api/favorites/sync?platform=unknown")
     assert resp.status_code == 200
     assert resp.json()["success"] is False
+
+
+def test_favorites_sync_routes_zhihu_to_its_collector(client):
+    from app.services.worker import worker
+
+    worker.unblock_platform("zhihu")
+    result = {
+        "platform": "zhihu",
+        "videos_total": 2,
+        "notes_count": 2,
+        "invalid_count": 0,
+    }
+    with patch("app.services.favorites_service.favorites_service.sync_from_zhihu", AsyncMock(return_value=result)) as sync:
+        response = client.post("/api/favorites/sync?platform=zhihu")
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert "知乎平台 2 个文章/回答" in response.json()["summary_message"]
+    sync.assert_awaited_once()
 
 
 def test_knowledge_pending_platform_filter(client):
@@ -265,6 +285,5 @@ def test_sync_favorites_summary_message(client):
         assert "来自哔哩哔哩平台 50 个视频" in data["summary_message"]
         assert "已失效视频 3 个无法同步" in data["summary_message"]
         assert "同步已完成" in data["summary_message"]
-
 
 

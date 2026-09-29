@@ -187,6 +187,9 @@ class Settings(BaseSettings):
     bilibili_state_path: str = "app/storage/bilibili_state.json"
     """Bilibili 凭证状态存储路径"""
 
+    zhihu_state_path: str = "app/storage/zhihu_state.json"
+    """知乎登录态存储路径（内容使用本机 DPAPI 保护）"""
+
     bilibili_max_concurrency: int = Field(default=3, ge=1, le=10)
     """Bilibili API 客户端最大并发限制（按事件循环存储的信号量，限定单次
     sync_from_bilibili() 调用自己的并发，不是跨进程的全局上限）"""

@@ -197,8 +197,9 @@ function CitationBadge({ index, title, sources, allSources = [], messageKey }: C
                   const sAllIdx = allSources.findIndex(x => x.platform_item_id === s.platform_item_id);
                   const sourceIndex = sAllIdx >= 0 ? sAllIdx + 1 : index;
                   const isBili = s.platform === 'bilibili' || s.platform_item_id?.startsWith('BV') || s.url?.includes('bilibili.com');
-                  const realUrl = safeHref(s.url || (isBili ? `https://www.bilibili.com/video/${s.platform_item_id}` : `https://www.douyin.com/video/${s.platform_item_id}`));
-                  const openLabel = isBili ? t('openInBilibili') : t('openInDouyin');
+                  const isZhihu = s.platform === 'zhihu' || s.url?.includes('zhihu.com');
+                  const realUrl = safeHref(s.url || (isBili ? `https://www.bilibili.com/video/${s.platform_item_id}` : isZhihu ? `https://www.zhihu.com/search?q=${encodeURIComponent(s.platform_item_id)}` : `https://www.douyin.com/video/${s.platform_item_id}`));
+                  const openLabel = isBili ? t('openInBilibili') : isZhihu ? t('openInZhihu') : t('openInDouyin');
 
                   return (
                     <div
@@ -408,6 +409,10 @@ function CollapsibleSources({ sources, messageKey }: { sources: api.SourceItem[]
                   {(s.platform === 'bilibili' || s.url?.includes('bilibili.com')) ? (
                     <span className="text-[9px] px-1 py-0.2 rounded font-semibold bg-pink-50 text-pink-600 border border-pink-200/60 flex-shrink-0">
                       {t('platformBilibili')}
+                    </span>
+                  ) : s.platform === 'zhihu' || s.url?.includes('zhihu.com') ? (
+                    <span className="text-[9px] px-1 py-0.2 rounded font-semibold bg-blue-50 text-blue-700 border border-blue-200/60 flex-shrink-0">
+                      {t('platformZhihu')}
                     </span>
                   ) : (
                     <span className="text-[9px] px-1 py-0.2 rounded font-semibold bg-black/5 text-[var(--color-ink-soft)] border border-black/10 flex-shrink-0">

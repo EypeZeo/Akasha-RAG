@@ -26,7 +26,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 
 // ---- Auth ----
 
-export type PlatformKind = 'douyin' | 'bilibili';
+export type PlatformKind = 'douyin' | 'bilibili' | 'zhihu';
 
 export interface PlatformInfo {
   platform: PlatformKind;
@@ -130,6 +130,33 @@ export async function bilibiliStatus(): Promise<{
 
 export async function bilibiliLogout(): Promise<{ success: boolean; message: string }> {
   return request('/auth/bilibili/logout', { method: 'POST' });
+}
+
+export async function zhihuLoginStart(): Promise<{
+  success: boolean;
+  message: string;
+  status: string;
+  qrcode_image_base64?: string;
+}> {
+  return request('/auth/zhihu/login/start', { method: 'POST' });
+}
+
+export async function zhihuLoginStatus(): Promise<{
+  status: string;
+  message: string;
+  nickname?: string;
+  avatar_url?: string;
+  qrcode_image_base64?: string;
+}> {
+  return request('/auth/zhihu/login/status');
+}
+
+export async function zhihuLoginCancel(): Promise<{ success: boolean; message: string; status: string }> {
+  return request('/auth/zhihu/login/cancel', { method: 'POST' });
+}
+
+export async function zhihuLogout(): Promise<{ success: boolean; message: string }> {
+  return request('/auth/zhihu/logout', { method: 'POST' });
 }
 
 export async function logoutAll(): Promise<{ success: boolean; platforms: Record<string, { success: boolean; message: string }> }> {

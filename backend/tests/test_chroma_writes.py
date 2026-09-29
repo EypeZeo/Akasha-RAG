@@ -30,7 +30,7 @@ service._collection = SimpleNamespace(
     upsert=lambda **kw: calls.append("upsert"),
     delete=lambda **kw: calls.append(["delete", kw.get("ids")]),
 )
-assert service.upsert_video_chunks("123", "title", ["body"], [[1.0, 0.0]]) == ["123:0"]
+assert service.upsert_video_chunks("123", "title", ["body"], [[1.0, 0.0]], platform="douyin") == ["123:0"]
 print(json.dumps(calls))
 '''
     import os
@@ -53,7 +53,7 @@ def test_failed_upsert_preserves_previous_index():
         delete=Mock(),
     )
     with pytest.raises(RuntimeError, match="disk failure"):
-        service(collection).upsert_video_chunks("123", "title", ["body"], [[1.0, 0.0]])
+        service(collection).upsert_video_chunks("123", "title", ["body"], [[1.0, 0.0]], platform="douyin")
     collection.delete.assert_not_called()
 
 

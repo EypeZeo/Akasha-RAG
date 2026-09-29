@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
 
 from app._version import get_version
@@ -93,6 +93,38 @@ def test_count_videos_by_kind_uses_duration_not_platform(db):
 
     v_bili, n_bili = favorites_service.count_videos_by_kind(db, ALL_COLLECTION_ID, platform="bilibili")
     assert (v_bili, n_bili) == (1, 1)  # B站也可能有 note，绝不恒为 0
+
+
+def test_sync_updates_denormalized_content_kind_when_duration_changes(db):
+    """A provider metadata correction must update both duration and kind."""
+    collection = FavoriteCollection(
+        platform="douyin", platform_collection_id="kind-scope", title="测试"
+    )
+    db.add(collection)
+    db.flush()
+    item = ContentItem(
+        platform="douyin", remote_item_id="kind-item", title="旧图文", duration=0,
+        content_kind="note", is_active=True,
+    )
+    db.add(item)
+    db.flush()
+    db.add(CollectionItemRelation(collection_id=collection.id, content_item_id=item.id))
+    db.commit()
+
+    snapshot = SimpleNamespace(
+        platform="douyin", is_complete=True, invalid_count=0,
+        collections=[SimpleNamespace(
+            platform_collection_id="kind-scope", title="测试", video_count=1,
+        )],
+        videos=[SimpleNamespace(
+            platform_item_id="kind-item", url="", title="新视频", author="",
+            duration=60, collection_ids={"kind-scope"}, parts=[], freshly_enriched=False,
+        )],
+    )
+    favorites_service.save_snapshot_to_db(db, snapshot)
+    db.refresh(item)
+    assert item.duration == 60
+    assert item.content_kind == "video"
 
 
 def test_count_videos_by_kind_issues_a_single_query(db):
@@ -220,6 +252,85 @@ def test_save_snapshot_differentiates_videos_and_notes(db):
     assert res2["removed_notes"] == 0
     assert res2["added_total"] == 1
     assert res2["removed_total"] == 1
+
+
+def test_zhihu_text_is_saved_as_a_durable_ingestion_checkpoint(db):
+    """Provider-native article text reaches the shared ingestion row unchanged."""
+    from app.services.douyin_collector import (
+        FavoriteScrapedCollection,
+        FavoriteScrapedVideo,
+        FavoriteScrapeSnapshot,
+    )
+
+    collection = FavoriteScrapedCollection(
+        platform_collection_id="zhihu-c1", title="知乎收藏", video_count=1
+    )
+    first = FavoriteScrapedVideo(
+        platform_item_id="zhihu:answer:1",
+        url="https://www.zhihu.com/question/1/answer/1",
+        title="回答标题",
+        author="作者",
+        duration=0,
+        collection_ids={"zhihu-c1"},
+        text_content="这是知乎回答的完整正文，足够通过实质性正文门禁。",
+    )
+    favorites_service.save_snapshot_to_db(
+        db,
+        FavoriteScrapeSnapshot(
+            collections=[collection], videos=[first], platform="zhihu", is_complete=True
+        ),
+    )
+
+    item = db.scalar(select(ContentItem).where(ContentItem.platform == "zhihu"))
+    ingestion = db.scalar(select(IngestionItem).where(IngestionItem.content_item_id == item.id))
+    assert ingestion.transcript_text == first.text_content
+    assert ingestion.status == "pending"
+
+
+def test_incomplete_zhihu_snapshot_keeps_existing_memberships_active(db):
+    """A bounded/partial provider response must never deactivate old rows."""
+    from app.services.douyin_collector import (
+        FavoriteScrapedCollection,
+        FavoriteScrapedVideo,
+        FavoriteScrapeSnapshot,
+    )
+
+    collection = FavoriteScrapedCollection(
+        platform_collection_id="zhihu-c2", title="知乎收藏", video_count=1
+    )
+    video = FavoriteScrapedVideo(
+        platform_item_id="zhihu:article:2",
+        url="https://zhuanlan.zhihu.com/p/2",
+        title="文章标题",
+        author="作者",
+        duration=0,
+        collection_ids={"zhihu-c2"},
+        text_content="这是知乎文章的完整正文，足够通过实质性正文门禁。",
+    )
+    favorites_service.save_snapshot_to_db(
+        db,
+        FavoriteScrapeSnapshot(
+            collections=[collection], videos=[video], platform="zhihu", is_complete=True
+        ),
+    )
+    favorites_service.save_snapshot_to_db(
+        db,
+        FavoriteScrapeSnapshot(collections=[], videos=[], platform="zhihu", is_complete=False),
+    )
+
+    stored_collection = db.scalar(
+        select(FavoriteCollection).where(FavoriteCollection.platform == "zhihu")
+    )
+    stored_item = db.scalar(select(ContentItem).where(ContentItem.platform == "zhihu"))
+    relation = db.scalar(
+        select(CollectionItemRelation).where(
+            CollectionItemRelation.collection_id == stored_collection.id,
+            CollectionItemRelation.content_item_id == stored_item.id,
+        )
+    )
+    assert stored_collection.is_active is True
+    assert stored_item.is_active is True
+    assert relation.is_active is True
 
 
 @pytest.mark.asyncio

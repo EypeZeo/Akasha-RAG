@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.services.collection_scope import AmbiguousCollectionError
 from app.services.favorites_service import favorites_service
+from app.services.platform_registry import PlatformFilter, supported_platforms
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +21,14 @@ router = APIRouter(prefix="/favorites", tags=["收藏夹"])
 
 @router.post("/sync")
 async def sync_favorites(
-    platform: str = Query("douyin", description="同步平台: douyin | bilibili | all"),
+    platform: str = Query(
+        "douyin",
+        description=f"同步平台: {' | '.join((*supported_platforms(), 'all'))}",
+    ),
     db: Session = Depends(get_db),
 ):
     """
-    同步收藏夹数据 (支持抖音与 B 站)
+    同步收藏夹数据 (支持抖音、B 站与知乎)
 
     拉取最新收藏夹和内容列表，与本地数据库差异对齐。
     新增的内容会自动创建 IngestionItem pending 记录，供知识库入库使用。
@@ -33,7 +37,7 @@ async def sync_favorites(
     :param db: 数据库会话
     :return: 同步结果统计
     """
-    if platform not in {"douyin", "bilibili", "all"}:
+    if platform != "all" and platform not in supported_platforms():
         return {"success": False, "message": "不支持的平台"}
     from app.services.worker import worker
     if platform != "all" and worker.is_platform_blocked(platform):
@@ -49,6 +53,16 @@ async def sync_favorites(
                 summary_msg = f"已同步 {total} 个视频，其中来自哔哩哔哩平台 {total} 个视频，同步已完成。"
             result["summary_message"] = summary_msg
             return {"success": True, **result}
+        elif platform == "zhihu":
+            result = await favorites_service.sync_from_zhihu(db)
+            total = result.get("videos_total", 0)
+            article_count = result.get("notes_count", 0)
+            invalid_count = result.get("invalid_count", 0)
+            summary_msg = f"已同步 {total} 个内容，其中来自知乎平台 {article_count} 个文章/回答"
+            if invalid_count > 0:
+                summary_msg += f"，已跳过 {invalid_count} 个无效条目"
+            result["summary_message"] = summary_msg + "，同步已完成。"
+            return {"success": True, **result}
         elif platform == "douyin":
             result = await favorites_service.sync_from_douyin(db)
             total = result.get("videos_total", 0)
@@ -63,7 +77,7 @@ async def sync_favorites(
             return {"success": True, **result}
         else:
             results = []
-            r1, r2 = None, None
+            r1, r2, r3 = None, None, None
             platform_results: dict[str, dict] = {}
             try:
                 r1 = await favorites_service.sync_from_douyin(db)
@@ -85,6 +99,14 @@ async def sync_favorites(
                 db.rollback()
                 logger.warning("全部同步时B站失败: %s", e)
                 platform_results["bilibili"] = {"success": False, "message": str(e)}
+            try:
+                r3 = await favorites_service.sync_from_zhihu(db)
+                results.append(r3)
+                platform_results["zhihu"] = {"success": True}
+            except Exception as e:
+                db.rollback()
+                logger.warning("全部同步时知乎失败: %s", e)
+                platform_results["zhihu"] = {"success": False, "message": str(e)}
 
             parts = []
             total_synced = 0
@@ -115,6 +137,18 @@ async def sync_favorites(
                 added_videos += r2.get("added_videos", 0)
                 removed_videos += r2.get("removed_videos", 0)
                 parts.append(f"来自哔哩哔哩平台 {bili_total} 个视频")
+
+            if r3:
+                zhihu_total = r3.get("videos_total", 0)
+                zhihu_articles = r3.get("notes_count", 0)
+                zhihu_invalid = r3.get("invalid_count", 0)
+                total_synced += zhihu_total
+                total_invalid += zhihu_invalid
+                added_videos += r3.get("added_videos", 0)
+                removed_videos += r3.get("removed_videos", 0)
+                added_notes += r3.get("added_notes", 0)
+                removed_notes += r3.get("removed_notes", 0)
+                parts.append(f"来自知乎平台 {zhihu_articles} 个文章/回答")
 
             prefix = f"已同步 {total_synced} 个内容"
             mid = ("，其中" + "，".join(parts)) if parts else ""
@@ -162,7 +196,7 @@ async def sync_favorites(
 
 @router.get("/collections")
 async def list_collections(
-    platform: Literal["all", "douyin", "bilibili"] | None = Query(None, description="平台过滤: douyin | bilibili | all"),
+    platform: PlatformFilter | None = Query(None, description=f"平台过滤: {' | '.join((*supported_platforms(), 'all'))}"),
     db: Session = Depends(get_db),
 ):
     """
@@ -185,7 +219,7 @@ async def list_collections(
 @router.get("/collections/{collection_id}/videos")
 async def list_collection_videos(
     collection_id: str = Path(max_length=64),
-    platform: Literal["all", "douyin", "bilibili"] | None = Query(None, description="平台过滤: douyin | bilibili | all"),
+    platform: PlatformFilter | None = Query(None, description=f"平台过滤: {' | '.join((*supported_platforms(), 'all'))}"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=2000),
     cursor: str | None = Query(None, description="基于不可变本地 ID 的不透明游标"),

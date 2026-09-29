@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import case, desc, func, or_, select, update
+from sqlalchemy import case, desc, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -24,16 +24,34 @@ from app.models.entities import (
     ContentItem,
     ContentPart,
     IngestionItem,
+    TRANSCRIPT_SOURCE_ARTICLE_TEXT,
+    TRANSCRIPT_SOURCE_UNKNOWN,
 )
 from app.services.asr_service import asr_service
 from app.services.chroma_service import get_chroma_service
 from app.services.collection_scope import resolve_collection
+from app.services.content_kind import content_kind_for, note_predicate, video_predicate
 from app.services.llm_service import embedding_client
 from app.services.media_service import download_audio
+from app.services.platform_registry import (
+    CAPABILITY_AUDIO_ASR,
+    CAPABILITY_ARTICLE_TEXT,
+    build_canonical_url,
+    extraction_capabilities,
+    needs_note_extraction,
+    platform_capability_precheck,
+    platform_supports,
+)
+from app.services import substantive
 from app.services.text_processing import build_fixed_chunks, clean_title_for_index
 from app.services.worker import worker
 
 logger = logging.getLogger(__name__)
+
+#: 入库失败原因写入 ``ingestion_items.error_code`` 的取值：平台不受支持。
+#: 该列此前从未在实时流水线里被写过（只有抓取诊断写它），平台能力拒绝是第一个
+#: 需要机器可读原因的失败类型。
+ERROR_CODE_UNSUPPORTED_PLATFORM = "unsupported_platform"
 
 
 class KnowledgeService:
@@ -137,11 +155,9 @@ class KnowledgeService:
                     }
 
             if content_type == "video":
-                query = query.where(ContentItem.duration > 0)
+                query = query.where(video_predicate(ContentItem.duration))
             elif content_type == "note":
-                query = query.where(
-                    (ContentItem.duration == 0) | (ContentItem.duration.is_(None))
-                )
+                query = query.where(note_predicate(ContentItem.duration))
             query = query.distinct()
 
         if not pending_ids:
@@ -229,6 +245,25 @@ class KnowledgeService:
                 else:  # compatibility for pre-v0.7 queued in-memory tasks
                     cid = db.scalar(select(ContentItem.id).where(ContentItem.remote_item_id == str(content_ref)))
                 if cid:
+                    # has_substantive_content 的唯一写入点，取值规则只有一条
+                    # （substantive.has_indexable_text），True/False 两个状态都写：
+                    # - 写正文时：按这次提交的正文算；
+                    # - 写"完成"时：按库里当前正文重算——续传路径（checkpoint 已存在
+                    #   时直接向量化）不会再写一次正文，而遗留迁移按 >= 50 口径回填
+                    #   的 10..49 字符行会带着陈旧的 False 进入完成态。不重算就会
+                    #   再次出现"正文在向量库里、标志却是 False"的谎言。
+                    if "transcript_text" in values:
+                        values["has_substantive_content"] = substantive.has_indexable_text(
+                            values["transcript_text"]
+                        )
+                    elif values.get("status") == "done":
+                        values["has_substantive_content"] = substantive.has_indexable_text(
+                            db.scalar(
+                                select(IngestionItem.transcript_text).where(
+                                    IngestionItem.content_item_id == cid
+                                )
+                            )
+                        )
                     db.execute(
                         update(IngestionItem)
                         .where(IngestionItem.content_item_id == cid)
@@ -257,6 +292,7 @@ class KnowledgeService:
             from app.services.bilibili.content_fetcher import TranscriptionCancelled
 
             claimed = False
+            unsupported_reason = ""
             try:
                 if bail_if_cancelled(content_ref, False):
                     return
@@ -284,15 +320,43 @@ class KnowledgeService:
                     if item is None:
                         logger.warning("ContentItem / IngestionItem 记录不存在: %s", content_ref)
                         return
-                    item_platform = item.platform or "douyin"
+                    # 不把缺失平台"洗"成抖音：`ContentItem.platform` 是 NOT NULL 但
+                    # 没有 CHECK 约束，脏数据里的 "" 会让预检看到一个已登记平台，
+                    # 于是整条付费流水线照跑，并伪造出一个抖音链接。原样交给预检，
+                    # 让 "" 按"未登记平台"被拒绝。
+                    item_platform = item.platform
                     platform_item_id = item.remote_item_id
                     title = item.title or ""
                     author = item.author or ""
                     cover_url = item.cover_url
                     canonical_url = item.canonical_url or ""
-                    is_note = item_platform == "douyin" and item.duration in (0, None)
+                    # 形态判据唯一入口（content_kind.py）；图文抽取分支目前只有抖音
+                    # 实现，所以这里同时要求平台具备抽取能力 —— 与旧行为逐位一致，
+                    # 但判据不再手写在流水线里。分支结构本身不属于本次改动。
+                    is_note = needs_note_extraction(item_platform, item.duration)
+                    is_article_text = platform_supports(item_platform, CAPABILITY_ARTICLE_TEXT)
                     transcript_text = item.transcript_text or ""
-                    has_checkpoint = len(transcript_text.strip()) >= 10
+                    has_checkpoint = substantive.has_indexable_text(transcript_text)
+                    # 平台能力预检必须在这里——下载音频（付费带宽）、DashScope ASR
+                    # （付费转写）、Embedding（付费调用）之前。历史行为是等到
+                    # chroma.upsert_video_chunks 才因平台不受支持抛错：每条内容
+                    # 烧掉一整轮付费配额，最后只拿到一句裸 ValueError。
+                    # 这里不认领（不写 downloading/transcribing），直接把该行标成
+                    # failed 并写入机器可读的 error_code，失败原因在列表页可见。
+                    capability_error = platform_capability_precheck(item_platform)
+                    if capability_error:
+                        db.execute(
+                            update(IngestionItem)
+                            .where(IngestionItem.id == item.ingestion_id)
+                            .values(
+                                status="failed",
+                                error_code=ERROR_CODE_UNSUPPORTED_PLATFORM,
+                                error_message=capability_error,
+                            )
+                        )
+                        db.commit()
+                        self.invalidate_stats_cache()
+                        unsupported_reason = capability_error
                     # 比较并更新必须处于同一条 SQL，旧队列跳过已处理/被占用项。
                     result = db.execute(
                         update(IngestionItem)
@@ -309,13 +373,37 @@ class KnowledgeService:
                     claimed = result.rowcount == 1
                     if claimed:
                         self.invalidate_stats_cache()
+                if unsupported_reason:
+                    logger.warning(
+                        "平台能力预检拒绝入库（未消耗下载/ASR/Embedding）: %s %s",
+                        item_platform, platform_item_id,
+                    )
+                    with progress_lock:
+                        failed_count += 1
+                    return
                 if not claimed:
                     return
 
-                type_tag = "图文" if is_note else ("B站视频" if item_platform == "bilibili" else "视频")
+                type_tag = (
+                    "图文" if is_note
+                    else "知乎正文" if is_article_text
+                    else "B站视频" if item_platform == "bilibili"
+                    else "视频"
+                )
                 part_transcripts: list[tuple[ContentPart, str]] = []
                 if bail_if_cancelled(content_ref, claimed, item_platform):
                     return
+                if is_article_text and has_checkpoint:
+                    with session_factory() as article_db:
+                        article_db.execute(
+                            update(ContentPart)
+                            .where(
+                                ContentPart.content_item_id == item.content_item_id,
+                                ContentPart.remote_part_id == "default",
+                            )
+                            .values(transcript_source=TRANSCRIPT_SOURCE_ARTICLE_TEXT)
+                        )
+                        article_db.commit()
                 if has_checkpoint:
                     report(f"继续向量化 ({type_tag}): {title[:22]}...")
                 elif is_note:
@@ -326,12 +414,29 @@ class KnowledgeService:
                         report(f"🖼️ Qwen-VL解析({len(img_urls)}图): {title[:18]}...")
                         extracted_text = vision_service.extract_text_from_images(img_urls, title)
                     clean_title = clean_title_for_index(title)
-                    if extracted_text and len(extracted_text.strip()) >= 10:
+                    if extracted_text and substantive.has_indexable_text(extracted_text):
                         transcript_text = f"【图文笔记全文】标题与文案：{clean_title}\n\n{extracted_text}"
-                    elif len(clean_title) >= 20:
+                    elif substantive.title_fallback_is_usable(clean_title):
                         transcript_text = f"【图文笔记全文】标题与正文：\n{clean_title}"
                     else:
                         transcript_text = ""
+                elif is_article_text:
+                    # Zhihu's collector has already fetched and sanitized the
+                    # article/answer body into the durable ingestion checkpoint.
+                    # Never route this platform through audio ASR just because
+                    # its duration is zero.
+                    if not substantive.has_indexable_text(transcript_text):
+                        raise RuntimeError("知乎正文不足以入库（已拒绝仅标题入库）")
+                    with session_factory() as article_db:
+                        article_db.execute(
+                            update(ContentPart)
+                            .where(
+                                ContentPart.content_item_id == item.content_item_id,
+                                ContentPart.remote_part_id == "default",
+                            )
+                            .values(transcript_source=TRANSCRIPT_SOURCE_ARTICLE_TEXT)
+                        )
+                        article_db.commit()
                 elif item_platform == "bilibili":
                     report(f"📺 提取 B站正文 (字幕/语音): {title[:22]}...")
                     save_state(content_ref, status="downloading")
@@ -383,13 +488,51 @@ class KnowledgeService:
                     transcript_text = "\n\n".join(text for _, text in part_transcripts)
                     if bail_if_cancelled(content_ref, claimed, item_platform):
                         return
+                    if fetched_parts:
+                        # 分 P 正文的来源归因——正文在这里第一次被真正提交。
+                        # 诚实说明：fetch_transcript() 只返回一个 str，把"官方/AI
+                        # 字幕"和"DASH 音频 ASR"两条路径的结果合并了，调用方无法
+                        # 区分走的是哪条（它只在正文前缀里留了【视频字幕】/
+                        # 【视频语音转写】，而本仓库明确不靠匹配文本判断语义，
+                        # 见下面 ASR 取消的处理）。所以这里写 UNKNOWN 而不是猜一个
+                        # 来源；要写真实来源，需要 content_fetcher 暴露带来源的
+                        # 返回值——那是本次改动写入范围之外的文件，已在报告中列出。
+                        with session_factory() as part_db:
+                            part_db.execute(
+                                update(ContentPart)
+                                .where(ContentPart.id.in_([p.id for p, _ in fetched_parts]))
+                                .values(transcript_source=TRANSCRIPT_SOURCE_UNKNOWN)
+                            )
+                            part_db.commit()
                     save_state(content_ref, transcript_text=transcript_text, status="transcribing")
                 else:
+                    # 这是抖音视频的「下载音频 → ASR」路径。它必须是**显式**的提取
+                    # 策略，而不是"剩下的都归这里"的兜底：
+                    # 历史实现直接手写 https://www.douyin.com/video/{id}，于是任何新
+                    # 登记平台的条目都会在这里拿一个伪造的抖音地址去下音频。
+                    # 用注册表的提取策略门禁，新平台若没声明 audio_asr 就立刻大声失败。
+                    if not platform_supports(item_platform, CAPABILITY_AUDIO_ASR):
+                        raise RuntimeError(
+                            f"平台 '{item_platform}' 未声明音频 ASR 提取能力"
+                            f"（当前能力: {sorted(extraction_capabilities(item_platform)) or '无'}）；"
+                            "拒绝回退到抖音地址"
+                        )
                     # 视频封面不能替代音频正文；下载异常直接保留原始原因。
                     report(f"📹 下载音频: {title[:22]}...")
+                    # Prefer the registry-owned URL over a mutable/stale database
+                    # value. The stored URL is only a compatibility fallback for
+                    # platforms whose item-specific URL cannot be reconstructed
+                    # from the registry.
+                    audio_url = build_canonical_url(item_platform, platform_item_id) or canonical_url
+                    if not audio_url:
+                        # 已登记平台却没有规范链接模板 = 注册表漏了字段，
+                        # 不能靠拼抖音地址掩盖。
+                        raise RuntimeError(
+                            f"平台 '{item_platform}' 缺少 canonical_url_template，无法构造音频来源地址"
+                        )
                     with audio_cache_lease(platform_item_id):
                         audio_path = download_audio(
-                            f"https://www.douyin.com/video/{platform_item_id}",
+                            audio_url,
                             platform_item_id,
                         )
                         if not audio_path or not audio_path.is_file():
@@ -414,7 +557,7 @@ class KnowledgeService:
                             if _cancel_check():
                                 raise TranscriptionCancelled(str(exc)) from exc
                             raise
-                        if not transcript_text or len(transcript_text.strip()) < 10:
+                        if not substantive.has_indexable_text(transcript_text):
                             raise RuntimeError("ASR 未能提取到实质音频正文（已拒绝仅标题入库）")
                         # 在收费 ASR 完成后先提交检查点，Embedding 失败可以直接续传。
                         save_state(content_ref, transcript_text=transcript_text)
@@ -423,7 +566,7 @@ class KnowledgeService:
                         except OSError as exc:
                             logger.warning("已保存转写，音频缓存暂未清理 [%s]: %s", platform_item_id, exc)
 
-                if not transcript_text or len(transcript_text.strip()) < 10:
+                if not substantive.has_indexable_text(transcript_text):
                     raise RuntimeError(f"未能提取到{type_tag}正文内容（已拒绝仅标题入库）")
                 if is_note and not has_checkpoint:
                     save_state(content_ref, transcript_text=transcript_text)
@@ -634,13 +777,13 @@ class KnowledgeService:
         # 细分统计视频与图文数量
         total_video = db.scalar(
             select(func.count(ContentItem.id)).where(
-                ContentItem.is_active.is_(True), ContentItem.duration > 0
+                ContentItem.is_active.is_(True), video_predicate(ContentItem.duration)
             )
         ) or 0
         total_note = db.scalar(
             select(func.count(ContentItem.id)).where(
                 ContentItem.is_active.is_(True),
-                (ContentItem.duration == 0) | (ContentItem.duration.is_(None)),
+                note_predicate(ContentItem.duration),
             )
         ) or 0
 
@@ -648,17 +791,17 @@ class KnowledgeService:
         v_pending = db.scalar(
             select(func.count(IngestionItem.id))
             .join(ContentItem, ContentItem.id == IngestionItem.content_item_id)
-            .where(ContentItem.is_active.is_(True), IngestionItem.status == "pending", ContentItem.duration > 0)
+            .where(ContentItem.is_active.is_(True), IngestionItem.status == "pending", video_predicate(ContentItem.duration))
         ) or 0
         v_done = db.scalar(
             select(func.count(IngestionItem.id))
             .join(ContentItem, ContentItem.id == IngestionItem.content_item_id)
-            .where(ContentItem.is_active.is_(True), IngestionItem.status == "done", ContentItem.duration > 0)
+            .where(ContentItem.is_active.is_(True), IngestionItem.status == "done", video_predicate(ContentItem.duration))
         ) or 0
         v_failed = db.scalar(
             select(func.count(IngestionItem.id))
             .join(ContentItem, ContentItem.id == IngestionItem.content_item_id)
-            .where(ContentItem.is_active.is_(True), IngestionItem.status == "failed", ContentItem.duration > 0)
+            .where(ContentItem.is_active.is_(True), IngestionItem.status == "failed", video_predicate(ContentItem.duration))
         ) or 0
 
         n_pending = db.scalar(
@@ -667,7 +810,7 @@ class KnowledgeService:
             .where(
                 ContentItem.is_active.is_(True),
                 IngestionItem.status == "pending",
-                (ContentItem.duration == 0) | (ContentItem.duration.is_(None)),
+                note_predicate(ContentItem.duration),
             )
         ) or 0
         n_done = db.scalar(
@@ -676,7 +819,7 @@ class KnowledgeService:
             .where(
                 ContentItem.is_active.is_(True),
                 IngestionItem.status == "done",
-                (ContentItem.duration == 0) | (ContentItem.duration.is_(None)),
+                note_predicate(ContentItem.duration),
             )
         ) or 0
         n_failed = db.scalar(
@@ -685,7 +828,7 @@ class KnowledgeService:
             .where(
                 ContentItem.is_active.is_(True),
                 IngestionItem.status == "failed",
-                (ContentItem.duration == 0) | (ContentItem.duration.is_(None)),
+                note_predicate(ContentItem.duration),
             )
         ) or 0
 
@@ -821,8 +964,8 @@ class KnowledgeService:
         count_stats = db.execute(
             select(
                 func.count().label("total"),
-                func.sum(case((subq.c.duration > 0, 1), else_=0)).label("video_count"),
-                func.sum(case((or_(subq.c.duration == 0, subq.c.duration.is_(None)), 1), else_=0)).label("note_count"),
+                func.sum(case((video_predicate(subq.c.duration), 1), else_=0)).label("video_count"),
+                func.sum(case((note_predicate(subq.c.duration), 1), else_=0)).label("note_count"),
             )
         ).one()
 
@@ -833,12 +976,10 @@ class KnowledgeService:
         # 根据 content_type 确定当前列表的分页总数与过滤
         items_query = select(subq)
         if content_type == "video":
-            items_query = items_query.where(subq.c.duration > 0)
+            items_query = items_query.where(video_predicate(subq.c.duration))
             current_total = total_video
         elif content_type == "note":
-            items_query = items_query.where(
-                (subq.c.duration == 0) | (subq.c.duration.is_(None))
-            )
+            items_query = items_query.where(note_predicate(subq.c.duration))
             current_total = total_note
         else:
             current_total = total_all
@@ -856,15 +997,15 @@ class KnowledgeService:
 
         items = []
         for r in rows:
-            is_note = (r.duration == 0 or r.duration is None)
+            item_platform = getattr(r, "platform", "douyin")
             items.append({
                 "id": r.content_item_id,
                 "platform_item_id": r.platform_item_id,
-                "platform": getattr(r, "platform", "douyin"),
+                "platform": item_platform,
                 "title": r.title,
                 "author": r.author,
                 "duration": r.duration or 0,
-                "item_type": "note" if is_note else "video",
+                "item_type": content_kind_for(item_platform, r.duration),
                 "cover_url": r.cover_url or "",
                 "status": r.status or "pending",
             })
@@ -923,6 +1064,7 @@ class KnowledgeService:
         ingestion.index_manifest = ""
         ingestion.error_code = None
         ingestion.error_message = ""
+        # 重置：正文同时被清空，与 substantive.has_indexable_text("") 一致。
         ingestion.has_substantive_content = False
         ingestion.processed_at = None
         ingestion.next_retry_at = None

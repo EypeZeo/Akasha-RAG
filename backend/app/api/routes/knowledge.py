@@ -19,6 +19,7 @@ from app.services.batch_export_service import batch_export_service
 from app.services.collection_scope import AmbiguousCollectionError, CollectionNotFoundError, resolve_collection
 from app.services.knowledge_service import knowledge_service
 from app.services.markdown_export import export_ai_organized, export_original
+from app.services.platform_registry import PlatformFilter
 from app.services.worker import worker
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ class SyncRequest(BaseModel):
     collection_id: str | None = Field(default=None, max_length=64)
     content_type: Literal["all", "video", "note"] = "all"
     selected_ids: list[RemoteId] = Field(default_factory=list, max_length=10000)
-    platform: Literal["all", "douyin", "bilibili"] = "all"
+    platform: PlatformFilter = "all"
 
 @router.post("/sync")
 async def sync_knowledge(body: SyncRequest, db: Session = Depends(get_db)):
@@ -95,7 +96,7 @@ async def cancel_sync(task_id: str):
 async def list_pending_items(
     collection_id: str | None = Query(None, max_length=64),
     content_type: str = Query("all", pattern="^(all|video|note)$"),
-    platform: Literal["all", "douyin", "bilibili"] | None = Query(None, description="平台过滤: douyin | bilibili | all"),
+    platform: PlatformFilter | None = Query(None, description="平台过滤: all 或已登记平台"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -245,7 +246,7 @@ async def export_video_markdown(
 
 class BatchExportRequest(BaseModel):
     collection_id: str | None = Field(default=None, max_length=64)
-    platform: Literal["all", "douyin", "bilibili"] = "all"
+    platform: PlatformFilter = "all"
     selected_ids: list[RemoteId] | None = Field(default=None, max_length=10000)
     content_type: Literal["original", "ai", "both"] = "both"
     format: Literal["markdown", "word", "excel", "ppt", "pdf"] = "markdown"
@@ -322,7 +323,7 @@ async def download_export_artifact(task_id: str):
 
 class ClearAllRequest(BaseModel):
     collection_id: str | None = Field(default=None, max_length=64)
-    platform: Literal["all", "douyin", "bilibili"] | None = None
+    platform: PlatformFilter | None = None
 
 
 @router.post("/clear-all")

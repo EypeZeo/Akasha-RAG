@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -31,12 +32,15 @@ from app.models.entities import (
 )
 from app.services.chroma_service import get_chroma_service
 from app.services.collection_scope import resolve_collection
+from app.services.content_kind import content_kind_for, is_note, note_predicate, video_predicate
 from app.services.douyin_collector import (
     FavoriteScrapedCollection,
     FavoriteScrapedVideo,
     FavoriteScrapeSnapshot,
     collector,
 )
+from app.services.platform_registry import build_canonical_url
+from app.services.zhihu_collector import zhihu_collector
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +120,7 @@ class FavoritesService:
                 select(func.count(ContentItem.id)).where(
                     ContentItem.platform == platform,
                     ContentItem.is_active.is_(True),
-                    ContentItem.duration > 0,
+                    video_predicate(ContentItem.duration),
                 )
             )
             or 0
@@ -126,7 +130,7 @@ class FavoritesService:
                 select(func.count(ContentItem.id)).where(
                     ContentItem.platform == platform,
                     ContentItem.is_active.is_(True),
-                    (ContentItem.duration == 0) | (ContentItem.duration.is_(None)),
+                    note_predicate(ContentItem.duration),
                 )
             )
             or 0
@@ -351,6 +355,11 @@ class FavoritesService:
         )
         return self.save_snapshot_to_db(db, snapshot)
 
+    async def sync_from_zhihu(self, db: Session) -> dict:
+        """Read the single local Zhihu session and persist its article snapshot."""
+        snapshot = await asyncio.to_thread(zhihu_collector.sync_favorites_sync)
+        return self.save_snapshot_to_db(db, snapshot)
+
     def _sync_collections(
         self,
         db: Session,
@@ -425,6 +434,7 @@ class FavoritesService:
                 "duration": video.duration,
                 "parts": video.parts,
                 "freshly_enriched": getattr(video, "freshly_enriched", False),
+                "text_content": getattr(video, "text_content", "") or "",
             }
             desired_video_payload[remote_id] = payload
 
@@ -455,31 +465,27 @@ class FavoritesService:
 
         added_videos = sum(
             1 for vid in added_ids
-            if (desired_video_payload[vid].get("duration") or 0) > 0
+            if not is_note(platform, desired_video_payload[vid].get("duration") or 0)
         )
         added_notes = sum(
             1 for vid in added_ids
-            if (desired_video_payload[vid].get("duration") or 0) <= 0
+            if is_note(platform, desired_video_payload[vid].get("duration") or 0)
         )
         removed_videos = sum(
             1 for vid in removed_ids_unique
-            if existing_item_durations.get(vid, 0) > 0
+            if not is_note(platform, existing_item_durations.get(vid, 0))
         )
         removed_notes = sum(
             1 for vid in removed_ids_unique
-            if existing_item_durations.get(vid, 0) <= 0
+            if is_note(platform, existing_item_durations.get(vid, 0))
         )
 
         # 2. 新增或更新 ContentItem
         for remote_id, payload in desired_video_payload.items():
             item = existing_item_map.get(remote_id)
             duration_val = payload["duration"] or 0
-            kind = "note" if duration_val <= 0 else "video"
-            canonical = (
-                f"https://www.bilibili.com/video/{remote_id}"
-                if platform == "bilibili"
-                else f"https://www.douyin.com/video/{remote_id}"
-            )
+            kind = content_kind_for(platform, duration_val)
+            canonical = build_canonical_url(platform, remote_id, fallback_url=payload["url"])
             if item is None:
                 item = ContentItem(
                     platform=platform,
@@ -500,6 +506,11 @@ class FavoritesService:
                 item.author = payload["author"]
                 item.duration = duration_val
                 item.video_url = payload["url"]
+                item.canonical_url = canonical
+                # Keep the denormalized kind in lockstep with duration. A
+                # provider can correct metadata between syncs; leaving the old
+                # value here creates two classifications for one row.
+                item.content_kind = kind
                 item.part_count = max(1, len(payload.get("parts") or []))
                 item.is_active = True
 
@@ -544,8 +555,11 @@ class FavoritesService:
             if not real_parts:
                 default_row = next((p for p in existing_for_item if p.remote_part_id == "default"), None)
                 if default_row is None:
+                    # 创建 ContentPart 是"计划"，不是"正文"：此处不写
+                    # transcript_source（列默认 TRANSCRIPT_SOURCE_UNSET），
+                    # 正文来源只在正文真的产生处写入。
                     db.add(ContentPart(content_item_id=item.id, remote_part_id="default", part_index=1,
-                        part_title=item.title, duration=item.duration, transcript_source="whisper_asr",
+                        part_title=item.title, duration=item.duration,
                         transcript_version="1", time_range=f"0-{item.duration}"))
                 else:
                     default_row.part_title = item.title
@@ -595,6 +609,9 @@ class FavoritesService:
                         index_manifest="",
                         error_code=None,
                         error_message="",
+                        # 重置：正文同时被清空，与 substantive.has_indexable_text("")
+                        # 一致。该标志的取值定义在 app/services/substantive.py，
+                        # 流水线写入点在 KnowledgeService.save_state。
                         has_substantive_content=False,
                         processed_at=None,
                         next_retry_at=None,
@@ -607,9 +624,10 @@ class FavoritesService:
             # parts, no vectors to clear and no IngestionItem yet to revert.
 
             for part in real_parts:
+                # 同上：分 P 行是计划；真实来源见 knowledge_service 的分 P 归因。
                 db.add(ContentPart(content_item_id=item.id, remote_part_id=str(part["remote_part_id"]),
                     part_index=int(part["part_index"]), part_title=str(part["part_title"]),
-                    duration=int(part["duration"]), transcript_source="whisper_asr", transcript_version="1",
+                    duration=int(part["duration"]), transcript_version="1",
                     time_range=f"0-{int(part['duration'])}"))
             if payload.get("freshly_enriched"):
                 item.last_enriched_at = _utcnow()
@@ -694,13 +712,43 @@ class FavoritesService:
         for remote_id in desired_video_ids:
             item = existing_item_map.get(remote_id)
             if item and item.id not in ingestion_map:
-                db.add(
-                    IngestionItem(
-                        content_item_id=item.id,
-                        pipeline_version="v0.7.0",
-                        status="pending",
-                    )
+                ingestion = IngestionItem(
+                    content_item_id=item.id,
+                    pipeline_version="v0.7.0",
+                    status="pending",
+                    transcript_text=desired_video_payload[remote_id].get("text_content", ""),
                 )
+                db.add(ingestion)
+                continue
+
+            ingestion = ingestion_map.get(item.id) if item else None
+            text_content = desired_video_payload[remote_id].get("text_content", "")
+            if ingestion is None or not text_content or text_content == ingestion.transcript_text:
+                continue
+
+            # Provider-native article text is a durable checkpoint. When it
+            # changes after indexing, remove stale vectors before exposing the
+            # new text to the worker; an embedding must never describe an older
+            # version of the same answer/article.
+            if ingestion.status == "done" or ingestion.has_substantive_content:
+                get_chroma_service().delete_by_video(
+                    remote_id,
+                    platform=platform,
+                    content_item_id=item.id,
+                )
+            ingestion.status = "pending"
+            ingestion.attempt_count = 0
+            ingestion.transcript_text = text_content
+            ingestion.summary = ""
+            ingestion.transcript_checkpoint = ""
+            ingestion.index_manifest = ""
+            ingestion.error_code = None
+            ingestion.error_message = ""
+            ingestion.has_substantive_content = False
+            ingestion.processed_at = None
+            ingestion.next_retry_at = None
+            ingestion.lease_owner = None
+            ingestion.lease_expires_at = None
 
         db.flush()
         return added_videos, removed_videos, added_notes, removed_notes
@@ -922,7 +970,8 @@ class FavoritesService:
         """
         统计某收藏夹范围内的 视频 / 图文 数量（整栏口径，不受分页影响）。
 
-        判据与全代码库一致：duration > 0 为视频，duration == 0 / NULL 为图文。
+        判据只有一处：``app/services/content_kind.py``（duration > 0 为视频，
+        duration <= 0 / NULL 为图文，与平台无关——零时长的 B 站条目同样计入图文）。
         返回 (video_count, note_count)。
         """
         if collection_id == ALL_COLLECTION_ID:
@@ -958,11 +1007,11 @@ class FavoritesService:
         # One conditional-aggregate query instead of two separate COUNTs
         # over the same base filter (same pattern as list_pending_items).
         subq = base.subquery()
-        is_note = (subq.c.duration == 0) | (subq.c.duration.is_(None))
+        is_note_expr = note_predicate(subq.c.duration)
         row = db.execute(
             select(
-                func.sum(case((is_note, 1), else_=0)),
-                func.sum(case((~is_note, 1), else_=0)),
+                func.sum(case((is_note_expr, 1), else_=0)),
+                func.sum(case((~is_note_expr, 1), else_=0)),
             )
         ).one()
         note_count = int(row[0] or 0)
@@ -1019,7 +1068,7 @@ class FavoritesService:
             "author": item.author,
             "duration": item.duration,
             "part_count": item.part_count,
-            "item_type": "note" if (item.duration == 0 or item.duration is None) else "video",
+            "item_type": content_kind_for(item.platform, item.duration),
             "status": status,
             "error_message": error_message,
         }

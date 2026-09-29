@@ -319,7 +319,10 @@ def migrate(db_path: Optional[Path] = None, skip_backup: bool = False) -> dict[s
                 part_index INTEGER NOT NULL DEFAULT 1,
                 part_title VARCHAR(256) NOT NULL DEFAULT '',
                 duration INTEGER NOT NULL DEFAULT 0,
-                transcript_source VARCHAR(32) NOT NULL DEFAULT 'whisper_asr',
+                -- 空串 = 正文尚未产生（历史默认值是 'whisper_asr'，让每一行在
+                -- 任何正文存在之前就声称来源，见 app/models/entities.py 的
+                -- TRANSCRIPT_SOURCE_UNSET 注释）。
+                transcript_source VARCHAR(32) NOT NULL DEFAULT '',
                 transcript_version VARCHAR(32) NOT NULL DEFAULT '1',
                 time_range VARCHAR(64) NOT NULL DEFAULT '',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -359,11 +362,16 @@ def migrate(db_path: Optional[Path] = None, skip_backup: bool = False) -> dict[s
 
             cur.execute("""
                 INSERT INTO _new_content_parts (content_item_id, remote_part_id, part_index, part_title, duration, transcript_source, transcript_version, time_range, created_at, updated_at)
-                SELECT id, 'default', 1, COALESCE(title, ''), COALESCE(duration, 0), 'whisper_asr', '1', '0-' || COALESCE(duration, 0), created_at, updated_at
+                SELECT id, 'default', 1, COALESCE(title, ''), COALESCE(duration, 0), '', '1', '0-' || COALESCE(duration, 0), created_at, updated_at
                 FROM favorite_videos
             """)
 
         if has_old_cache:
+            # has_substantive_content 的遗留回填口径是 >= 50（B 站长正文口径）。
+            # 这是针对 v0.6 video_cache 的一次性数据回填，**不是**活口径：实时
+            # 流水线的口径是 substantive.has_indexable_text（>= 10，见
+            # app/services/substantive.py）。两者刻意不合并——合并必然要改掉
+            # 其中一个阈值数值，而阈值是入库门禁，不允许在本轮被动。
             cur.execute("""
                 INSERT INTO _new_ingestion_items (content_item_id, pipeline_version, source_fingerprint, status, transcript_text, summary, transcript_checkpoint, index_manifest, error_code, error_message, has_substantive_content, processed_at, created_at, updated_at)
                 SELECT c.id, 'v0.7.0', '', vc.status, vc.transcript_text, vc.summary, '', '', NULL, vc.error_message, CASE WHEN length(trim(vc.transcript_text)) >= 50 THEN 1 ELSE 0 END, vc.processed_at, vc.created_at, vc.updated_at

@@ -1,7 +1,7 @@
 """
 认证路由模块
 
-提供多平台 (Douyin, Bilibili) 扫码登录、登录状态查询、退出登录等认证接口。
+提供多平台 (Douyin, Bilibili, Zhihu) 登录、登录状态查询、退出登录等认证接口。
 """
 import logging
 
@@ -13,6 +13,7 @@ from app.db.session import get_db
 from app.services.account_state import record_account_state
 from app.services.bilibili.client import bilibili_client
 from app.services.douyin_collector import collector
+from app.services.zhihu_collector import zhihu_collector
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,20 @@ async def list_platforms_status(db: Session = Depends(get_db)):
     bili_nickname, bili_avatar = _display_profile(
         "bilibili", bili_account, bili_status.nickname, bili_status.avatar_url
     )
+    zhihu_status = zhihu_collector.get_status()
+    is_zhihu_logged = zhihu_status["status"] in ("logged_in", "syncing")
+    if is_zhihu_logged:
+        from app.services.worker import worker
+        worker.unblock_platform("zhihu")
+    zhihu_account = record_account_state(
+        db, "zhihu", active=is_zhihu_logged,
+        auth_state_ref="zhihu_state.json",
+        nickname=zhihu_status.get("nickname", ""),
+        avatar_url=zhihu_status.get("avatar_url", ""),
+    )
+    zhihu_nickname, zhihu_avatar = _display_profile(
+        "zhihu", zhihu_account, zhihu_status.get("nickname", ""), zhihu_status.get("avatar_url", "")
+    )
 
     return {
         "success": True,
@@ -84,6 +99,15 @@ async def list_platforms_status(db: Session = Depends(get_db)):
                 "nickname": bili_nickname,
                 "avatar_url": bili_avatar,
                 "message": bili_status.error_message,
+            },
+            {
+                "platform": "zhihu",
+                "name": "知乎",
+                "is_logged_in": is_zhihu_logged,
+                "status": zhihu_status.get("status", "idle"),
+                "nickname": zhihu_nickname,
+                "avatar_url": zhihu_avatar,
+                "message": zhihu_status.get("message", ""),
             },
         ],
     }
@@ -273,6 +297,46 @@ async def bilibili_logout(db: Session = Depends(get_db)):
         return {"success": False, "message": str(exc)}
 
 
+# ==================================================================
+# 知乎相关接口 (/api/auth/zhihu/*)
+# ==================================================================
+
+@router.post("/zhihu/login/start")
+async def zhihu_login_start():
+    """在无头知乎登录页中获取二维码，用户扫码后保存本机登录态。"""
+    success, message = zhihu_collector.start_login()
+    status = zhihu_collector.get_status()
+    return {
+        "success": success,
+        "message": message,
+        "status": status["status"],
+        "qrcode_image_base64": status.get("qrcode_image_base64", ""),
+    }
+
+
+@router.get("/zhihu/login/status")
+async def zhihu_login_status():
+    """查询知乎登录流程状态。"""
+    return zhihu_collector.get_status()
+
+
+@router.post("/zhihu/login/cancel")
+async def zhihu_login_cancel():
+    """取消正在等待的知乎登录。"""
+    success, message = zhihu_collector.cancel_login()
+    return {"success": success, "message": message, "status": zhihu_collector.status}
+
+
+@router.post("/zhihu/logout")
+async def zhihu_logout(db: Session = Depends(get_db)):
+    """停止知乎相关入库任务并清除本机登录态。"""
+    from app.services.worker import worker
+    worker.block_platform("zhihu")
+    success, message = zhihu_collector.logout()
+    record_account_state(db, "zhihu", active=False, auth_state_ref="")
+    return {"success": success, "message": message, "status": zhihu_collector.status}
+
+
 @router.post("/logout-all")
 async def logout_all(db: Session = Depends(get_db)):
     """Clear every supported local session after the explicit UI confirmation."""
@@ -280,18 +344,25 @@ async def logout_all(db: Session = Depends(get_db)):
 
     worker.block_platform("douyin")
     worker.block_platform("bilibili")
+    worker.block_platform("zhihu")
     dy_ok, dy_message = collector.logout()
     try:
         bilibili_client.clear_state()
         bili_ok, bili_message = True, "已退出 B站 登录"
     except Exception as exc:
         bili_ok, bili_message = False, str(exc)
+    try:
+        zhihu_ok, zhihu_message = zhihu_collector.logout()
+    except Exception as exc:
+        zhihu_ok, zhihu_message = False, str(exc)
     record_account_state(db, "douyin", active=False, auth_state_ref="")
     record_account_state(db, "bilibili", active=False, auth_state_ref="")
+    record_account_state(db, "zhihu", active=False, auth_state_ref="")
     return {
-        "success": dy_ok and bili_ok,
+        "success": dy_ok and bili_ok and zhihu_ok,
         "platforms": {
             "douyin": {"success": dy_ok, "message": dy_message},
             "bilibili": {"success": bili_ok, "message": bili_message},
+            "zhihu": {"success": zhihu_ok, "message": zhihu_message},
         },
     }

@@ -9,7 +9,7 @@ import { create } from 'zustand';
  * transcript / draft / streaming refs here so a tab switch never loses them.
  */
 export type WorkspaceTab = 'sources' | 'chat' | 'developer';
-export type Platform = 'all' | 'douyin' | 'bilibili';
+export type Platform = 'all' | 'douyin' | 'bilibili' | 'zhihu';
 
 interface WorkspaceState {
   activeTab: WorkspaceTab;

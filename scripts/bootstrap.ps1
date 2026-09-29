@@ -110,6 +110,37 @@ function Assert-LastExitCode {
     }
 }
 
+# Native tools such as uv and npm commonly write normal progress output to
+# stderr. Windows PowerShell turns native stderr into an ErrorRecord, and with
+# $ErrorActionPreference = 'Stop' that can abort a successful command. Merge the
+# streams explicitly and use the process exit code as the success signal.
+function Invoke-NativeCommand {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(Mandatory = $true)][string]$Operation,
+        [Parameter()][string[]]$Arguments = @(),
+        [switch]$AllowFailure,
+        [switch]$Quiet
+    )
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        [object[]]$output = @(& $FilePath @Arguments 2>&1)
+        [int]$exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if (-not $Quiet) {
+        foreach ($line in $output) {
+            Write-Host ([string]$line)
+        }
+    }
+    if (-not $AllowFailure -and $exitCode -ne 0) {
+        throw "$Operation failed with exit code $exitCode."
+    }
+    return $exitCode
+}
+
 function Get-Sha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
     $stream = [System.IO.File]::OpenRead($Path)
@@ -429,11 +460,18 @@ function Sync-Backend {
     
     # Verify the lock before allowing uv to touch an existing environment.
     # If the lock is stale, automatically update it.
-    & $uv lock --check --project $BackendDirectory 2>$null
-    if ($LASTEXITCODE -ne 0) {
+    [int]$lockCheckExitCode = Invoke-NativeCommand `
+        -FilePath $uv `
+        -Operation 'Backend lockfile check' `
+        -Arguments @('lock', '--check', '--project', $BackendDirectory) `
+        -AllowFailure `
+        -Quiet
+    if ($lockCheckExitCode -ne 0) {
         Write-Host '[BOOTSTRAP] 检测到依赖变更，正在更新 uv.lock...' -ForegroundColor Yellow
-        & $uv lock --project $BackendDirectory
-        Assert-LastExitCode -Operation 'Backend lockfile update'
+        [void](Invoke-NativeCommand `
+            -FilePath $uv `
+            -Operation 'Backend lockfile update' `
+            -Arguments @('lock', '--project', $BackendDirectory))
     }
     
     [string]$lockHash = Get-Sha256 -Path $lockPath
@@ -452,11 +490,15 @@ function Sync-Backend {
     New-Item -ItemType Directory -Path $pythonDirectory -Force | Out-Null
     $env:UV_PYTHON_INSTALL_DIR = $pythonDirectory
     Write-Stage (Get-Text 'installPython')
-    & $uv python install 3.12 --install-dir $pythonDirectory --no-registry
-    Assert-LastExitCode -Operation 'Python 3.12 installation'
+    [void](Invoke-NativeCommand `
+        -FilePath $uv `
+        -Operation 'Python 3.12 installation' `
+        -Arguments @('python', 'install', '3.12', '--install-dir', $pythonDirectory, '--no-registry'))
     Write-Stage (Get-Text 'syncBackend')
-    & $uv sync --locked --project $BackendDirectory --python 3.12 --managed-python
-    Assert-LastExitCode -Operation 'Backend dependency synchronization'
+    [void](Invoke-NativeCommand `
+        -FilePath $uv `
+        -Operation 'Backend dependency synchronization' `
+        -Arguments @('sync', '--locked', '--project', $BackendDirectory, '--python', '3.12', '--managed-python'))
     if (-not (Test-Path -LiteralPath $BackendPython -PathType Leaf)) {
         throw "Backend virtual environment was not created: $BackendPython"
     }
@@ -477,15 +519,22 @@ function Sync-Frontend {
         $needsInstall = $true
     }
     if (-not $needsInstall) {
-        & $NodeTools.Npm --prefix $FrontendDirectory ls --depth=0 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
+        [int]$npmCheckExitCode = Invoke-NativeCommand `
+            -FilePath $NodeTools.Npm `
+            -Operation 'Frontend dependency check' `
+            -Arguments @('--prefix', $FrontendDirectory, 'ls', '--depth=0') `
+            -AllowFailure `
+            -Quiet
+        if ($npmCheckExitCode -ne 0) {
             $needsInstall = $true
         }
     }
     if ($needsInstall) {
         Write-Stage (Get-Text 'installNode')
-        & $NodeTools.Npm --prefix $FrontendDirectory ci --no-audit --no-fund
-        Assert-LastExitCode -Operation 'Frontend dependency installation'
+        [void](Invoke-NativeCommand `
+            -FilePath $NodeTools.Npm `
+            -Operation 'Frontend dependency installation' `
+            -Arguments @('--prefix', $FrontendDirectory, 'ci', '--no-audit', '--no-fund'))
         Set-Content -LiteralPath $stampPath -Value $lockHash -Encoding utf8
     } else {
         Write-Stage (Get-Text 'frontendReady')
@@ -543,8 +592,10 @@ try {
     if ($null -eq $chromium) {
         $env:PLAYWRIGHT_BROWSERS_PATH = $browserDirectory
         Write-Stage (Get-Text 'installBrowser')
-        & $BackendPython -m playwright install chromium
-        Assert-LastExitCode -Operation 'Playwright Chromium installation'
+        [void](Invoke-NativeCommand `
+            -FilePath $BackendPython `
+            -Operation 'Playwright Chromium installation' `
+            -Arguments @('-m', 'playwright', 'install', 'chromium'))
     } else {
         Write-Stage (Get-Text 'chromiumReady')
     }

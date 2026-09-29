@@ -35,7 +35,7 @@ interface SettingsModalProps {
   cacheCleaning: boolean;
   onCleanCache: () => Promise<void>;
   onOpenLogs: () => Promise<void>;
-  onOpenLoginModal?: (platform: 'douyin' | 'bilibili') => void;
+  onOpenLoginModal?: (platform: api.PlatformKind) => void;
   onAccountsChanged?: () => void;
 }
 
@@ -78,6 +78,8 @@ function PlatformAvatar({ platform, avatarUrl }: { platform: api.PlatformKind; a
   useEffect(() => setFailed(false), [avatarUrl]);
   const fallback = platform === 'bilibili'
     ? '/platform-icons/bilibili.svg'
+    : platform === 'zhihu'
+    ? '/platform-icons/zhihu.svg'
     : '/platform-icons/douyin.svg';
   return (
     <img
@@ -122,6 +124,7 @@ export default function SettingsModal({
   const [loadingPlatforms, setLoadingPlatforms] = useState(false);
   const [loggingOutPlatform, setLoggingOutPlatform] = useState<api.PlatformKind | null>(null);
   const [justRefreshed, setJustRefreshed] = useState(false);
+  const [accountPage, setAccountPage] = useState(false);
   const refreshTimerRef = useRef<any>(null);
 
   // ---- API Keys: DashScope ----
@@ -240,6 +243,7 @@ export default function SettingsModal({
 
   useEffect(() => {
     if (isOpen) {
+      setAccountPage(false);
       fetchPlatforms();
       fetchApiSettings();
     }
@@ -279,6 +283,23 @@ export default function SettingsModal({
     }
   };
 
+  const handleZhihuLogout = async () => {
+    setLoggingOutPlatform('zhihu');
+    try {
+      const result = await api.zhihuLogout();
+      if (!result.success) throw new Error('logout failed');
+      setPlatforms(prev => prev.map(item => item.platform === 'zhihu'
+        ? { ...item, is_logged_in: false, status: 'idle', nickname: '', avatar_url: '' }
+        : item));
+      onAccountsChanged?.();
+    } catch (e: any) {
+      console.error(e);
+      alert(t('operationFailed'));
+    } finally {
+      setLoggingOutPlatform(null);
+    }
+  };
+
   if (!isOpen) return null;
 
   const handleOpenLogsDir = async () => {
@@ -307,25 +328,33 @@ export default function SettingsModal({
               </svg>
             </div>
             <div>
-              <h2 id={titleId} className="text-base font-bold text-[var(--color-ink)]">{t('settingsTitle')}</h2>
+              <h2 id={titleId} className="text-base font-bold text-[var(--color-ink)]">{accountPage ? t('accountsTitle') : t('settingsTitle')}</h2>
               <span className="text-[11px] text-[var(--color-ink-muted)]">Akasha-RAG</span>
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={accountPage ? () => setAccountPage(false) : onClose}
             className="w-8 h-8 rounded-lg hover:bg-black/5 text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] flex items-center justify-center transition-colors cursor-pointer"
-            title={t('close')}
+            title={accountPage ? t('settingsTitle') : t('close')}
+            aria-label={accountPage ? t('settingsTitle') : t('close')}
           >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
+            {accountPage ? (
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5" /><path d="m12 19-7-7 7-7" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            )}
           </button>
         </div>
 
         {/* Body */}
         <div className="p-6 overflow-y-auto space-y-6 subtle-scrollbar">
-          {/* Section 0: Platform Accounts */}
+          {accountPage && (
+          /* Section 0: Platform Accounts */
           <div className="rounded-xl border border-[var(--color-border)] p-4 bg-white/60 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -393,7 +422,7 @@ export default function SettingsModal({
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
               {/* Douyin Account */}
               {(() => {
                 const dy = platforms.find(p => p.platform === 'douyin');
@@ -513,9 +542,71 @@ export default function SettingsModal({
                   </div>
                 );
               })()}
+
+              {/* Zhihu Account */}
+              {(() => {
+                const zhihu = platforms.find(p => p.platform === 'zhihu');
+                const isLogged = zhihu?.is_logged_in ?? false;
+                return (
+                  <div className="flex flex-col justify-between p-3 rounded-xl border border-[var(--color-border)] bg-white shadow-2xs gap-3">
+                    <div className="flex items-center gap-2">
+                      <PlatformAvatar platform="zhihu" avatarUrl={zhihu?.avatar_url} />
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-[var(--color-ink)] truncate">{zhihu?.nickname || t('zhihuAccount')}</div>
+                        <span className={`inline-flex items-center gap-1 text-[10px] font-medium ${isLogged ? 'text-blue-700' : 'text-gray-400'}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${isLogged ? 'bg-blue-600' : 'bg-gray-300'}`} />
+                          {isLogged ? t('loggedIn') : t('notLoggedIn')}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end">
+                      {isLogged ? (
+                        <button
+                          type="button"
+                          onClick={handleZhihuLogout}
+                          disabled={loggingOutPlatform !== null}
+                          className="px-3 py-1 text-xs text-red-600 font-medium rounded-lg border border-red-200 hover:bg-red-50 cursor-pointer disabled:opacity-50"
+                        >
+                          {loggingOutPlatform === 'zhihu' ? t('loggingOut') : t('logout')}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => { onClose(); onOpenLoginModal?.('zhihu'); }}
+                          className="px-3 py-1 text-xs text-blue-700 font-semibold bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 cursor-pointer"
+                        >
+                          {t('loginZhihu')}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
+          )}
 
+          {!accountPage && (
+            <button
+              type="button"
+              onClick={() => setAccountPage(true)}
+              className="w-full flex items-center justify-between gap-3 rounded-xl border border-[var(--color-border)] p-4 bg-white/60 hover:bg-white transition-colors cursor-pointer text-left"
+            >
+              <span className="flex items-center gap-3 min-w-0">
+                <span className="text-xl" aria-hidden="true">📱</span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold text-[var(--color-ink)]">{t('accountsTitle')}</span>
+                  <span className="block text-xs text-[var(--color-ink-muted)] truncate">{t('accountsDesc')}</span>
+                </span>
+              </span>
+              <svg className="w-4 h-4 shrink-0 text-[var(--color-ink-muted)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </button>
+          )}
+
+          {!accountPage && (
+          <div className="space-y-6">
           {/* Section: API Keys (DashScope) */}
           <div className="rounded-xl border border-[var(--color-border)] p-4 bg-white/60 space-y-3">
             <div className="flex items-center gap-2">
@@ -876,6 +967,8 @@ export default function SettingsModal({
               </button>
             </div>
           </Disclosure>
+          </div>
+          )}
         </div>
 
         {/* Footer */}
