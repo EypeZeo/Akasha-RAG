@@ -13,6 +13,7 @@ from app.db.session import get_db
 from app.services.collection_scope import AmbiguousCollectionError
 from app.services.favorites_service import favorites_service
 from app.services.platform_registry import PlatformFilter, supported_platforms
+from app.services.zhihu_collector import zhihu_collector
 
 logger = logging.getLogger(__name__)
 
@@ -99,14 +100,21 @@ async def sync_favorites(
                 db.rollback()
                 logger.warning("全部同步时B站失败: %s", e)
                 platform_results["bilibili"] = {"success": False, "message": str(e)}
-            try:
-                r3 = await favorites_service.sync_from_zhihu(db)
-                results.append(r3)
-                platform_results["zhihu"] = {"success": True}
-            except Exception as e:
-                db.rollback()
-                logger.warning("全部同步时知乎失败: %s", e)
-                platform_results["zhihu"] = {"success": False, "message": str(e)}
+            zhihu_status = zhihu_collector.get_status()
+            if zhihu_status.get("status") not in {"logged_in", "syncing"}:
+                # Do not turn an intentionally unconfigured platform into a
+                # collector exception on every "sync all" click.  The caller
+                # receives a precise per-platform result and can open login.
+                platform_results["zhihu"] = {"success": False, "message": "知乎未登录，请先完成登录"}
+            else:
+                try:
+                    r3 = await favorites_service.sync_from_zhihu(db)
+                    results.append(r3)
+                    platform_results["zhihu"] = {"success": True}
+                except Exception as e:
+                    db.rollback()
+                    logger.warning("全部同步时知乎失败: %s", e)
+                    platform_results["zhihu"] = {"success": False, "message": str(e)}
 
             parts = []
             total_synced = 0
