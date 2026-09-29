@@ -24,6 +24,9 @@ export const DEFAULT_ACTIVITY_BAR_POSITION: ActivityBarPosition = 'left';
 export const DEFAULT_COLLECTION_EXPAND_MODE: CollectionExpandMode = 'anywhere';
 export const STATUS_FILTER_ENABLED = [0, 1] as const;
 export const DEFAULT_STATUS_FILTER_ENABLED = 1;
+export const MIN_SOURCES_PANEL_WIDTH = 260;
+export const MAX_SOURCES_PANEL_WIDTH = 560;
+export const DEFAULT_SOURCES_PANEL_WIDTH = 340;
 
 export const THEME_OPTIONS = ['dawn', 'midnight', 'ocean', 'forest'] as const;
 export type ThemeId = (typeof THEME_OPTIONS)[number];
@@ -80,6 +83,23 @@ export function writeSetting<T extends string | number>(key: string, value: T): 
   } catch {
     /* ignore */
   }
+}
+
+/** Read the draggable Sources panel width without accepting malformed storage. */
+export function readSourcesPanelWidth(): number {
+  try {
+    const value = Number(localStorage.getItem(PREFIX + 'ui.sourcesPanelWidth'));
+    return Number.isFinite(value) && value >= MIN_SOURCES_PANEL_WIDTH && value <= MAX_SOURCES_PANEL_WIDTH
+      ? Math.round(value)
+      : DEFAULT_SOURCES_PANEL_WIDTH;
+  } catch {
+    return DEFAULT_SOURCES_PANEL_WIDTH;
+  }
+}
+
+export function writeSourcesPanelWidth(width: number): void {
+  if (!Number.isFinite(width)) return;
+  writeSetting('ui.sourcesPanelWidth', Math.round(Math.max(MIN_SOURCES_PANEL_WIDTH, Math.min(MAX_SOURCES_PANEL_WIDTH, width))));
 }
 
 /**

@@ -138,8 +138,11 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
         scheduleSuccess(generation, 'zhihu');
         return;
       }
-      setZhihuQrImg(result.qrcode_image_base64 || null);
-      setZhihuMessage(result.message || tRef.current('zhihuLoginWaiting'));
+      const qrImage = result.qrcode_image_base64 || null;
+      setZhihuQrImg(qrImage);
+      // The worker starts before Zhihu has rendered a complete QR canvas.
+      // Never instruct users to scan until a real image is available.
+      setZhihuMessage(qrImage ? (result.message || tRef.current('zhihuLoginWaiting')) : tRef.current('zhihuLoginOpening'));
       setZhihuPollingReady(true);
     } catch (error) {
       if (!isCurrentLogin(generation, 'zhihu')) return;
@@ -273,8 +276,9 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
       try {
         const result = await api.zhihuLoginStatus();
         if (!isCurrentLogin(generation, 'zhihu')) return;
-        if (result.qrcode_image_base64) setZhihuQrImg(result.qrcode_image_base64);
-        setZhihuMessage(result.message || tRef.current('zhihuLoginWaiting'));
+        const qrImage = result.qrcode_image_base64 || null;
+        if (qrImage) setZhihuQrImg(qrImage);
+        setZhihuMessage(qrImage ? (result.message || tRef.current('zhihuLoginWaiting')) : tRef.current('zhihuLoginOpening'));
         if (result.status === 'logged_in') {
           clearPoll(zhihuPollRef);
           setZhihuStatus('logged_in');
@@ -341,7 +345,9 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
     ? [t('scanWithDouyinApp'), t('douyinStep2'), t('douyinStep3')]
     : platform === 'bilibili'
       ? [t('scanWithBiliApp'), t('biliStep2'), t('biliStep3')]
-      : [t('zhihuStep1'), t('zhihuStep2'), t('zhihuStep3')];
+      : zhihuStatus === 'pending' && !zhihuQrImg
+        ? [t('zhihuLoginOpening')]
+        : [t('zhihuStep1'), t('zhihuStep2'), t('zhihuStep3')];
 
   return (
     <Dialog onClose={handleClose} labelledBy={titleId} className="bg-[var(--color-panel)] rounded-2xl p-7 w-full max-w-[420px] flex flex-col items-center gap-4 shadow-2xl border border-[var(--color-border)] animate-scale-up">
@@ -398,8 +404,16 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
                     {zhihuStatus === 'pending' && <Spinner color="blue" />}
                   </>
                 )}
-                <span className="text-xs font-semibold text-blue-700">{zhihuStatus === 'logged_in' ? t('zhihuLoginSuccess') : zhihuStatus === 'failed' ? t('loginFailed') : t('zhihuLoginWaiting')}</span>
-                {zhihuStatus === 'expired' && <button type="button" onClick={() => void loadZhihu(generationRef.current)} className="text-xs text-blue-700 underline cursor-pointer">{t('retry')}</button>}
+                <span className="text-xs font-semibold text-blue-700">
+                  {zhihuStatus === 'logged_in'
+                    ? t('zhihuLoginSuccess')
+                    : zhihuStatus === 'failed'
+                      ? (zhihuMessage || t('loginFailed'))
+                      : zhihuQrImg
+                        ? t('zhihuLoginWaiting')
+                        : t('zhihuLoginOpening')}
+                </span>
+                {(zhihuStatus === 'expired' || zhihuStatus === 'failed') && <button type="button" onClick={() => void loadZhihu(generationRef.current)} className="text-xs text-blue-700 underline cursor-pointer">{t('retry')}</button>}
               </div>
             )}
           </div>

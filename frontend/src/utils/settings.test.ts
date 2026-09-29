@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { act, render } from '@testing-library/react';
 import { createElement } from 'react';
-import { readSetting, useThemeSetting, writeSetting } from './settings';
+import {
+  DEFAULT_SOURCES_PANEL_WIDTH,
+  readSetting,
+  readSourcesPanelWidth,
+  useThemeSetting,
+  writeSetting,
+  writeSourcesPanelWidth,
+} from './settings';
 
 const OPTS = [5, 10, 20, 0] as const;
 
@@ -62,5 +69,20 @@ describe('useThemeSetting', () => {
     act(() => chooseTheme?.('midnight'));
     expect(document.documentElement.dataset.theme).toBe('midnight');
     expect(localStorage.getItem('akasha:ui.theme')).toBe('midnight');
+  });
+});
+
+describe('Sources panel width setting', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('persists a valid dragged width and rejects malformed or out-of-range values', () => {
+    writeSourcesPanelWidth(417.4);
+    expect(readSourcesPanelWidth()).toBe(417);
+
+    localStorage.setItem('akasha:ui.sourcesPanelWidth', '999');
+    expect(readSourcesPanelWidth()).toBe(DEFAULT_SOURCES_PANEL_WIDTH);
+
+    localStorage.setItem('akasha:ui.sourcesPanelWidth', 'not-a-number');
+    expect(readSourcesPanelWidth()).toBe(DEFAULT_SOURCES_PANEL_WIDTH);
   });
 });

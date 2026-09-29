@@ -258,3 +258,23 @@ def test_start_login_keeps_an_existing_valid_session_without_worker():
     assert '凭证有效' in message
     assert collector.status == 'logged_in'
     assert collector._qrcode_image_base64 is None
+
+
+def test_expired_session_invalidation_removes_local_credentials(monkeypatch, tmp_path):
+    collector = _collector_without_browser()
+    collector._lock = __import__('threading').RLock()
+    collector._state_path = tmp_path / 'zhihu_state.json'
+    collector._profile_path = tmp_path / 'zhihu_profile.json'
+    collector._profile = {'nickname': 'test'}
+    collector._qrcode_image_base64 = 'old-qr'
+    collector.status = 'logged_in'
+    collector.message = '已登录（凭证有效）'
+    deleted = []
+    monkeypatch.setattr('app.services.zhihu_collector.delete_json', lambda path: deleted.append(path))
+
+    collector._invalidate_saved_login('知乎登录态已失效，请重新登录')
+
+    assert deleted == [collector._state_path, collector._profile_path]
+    assert collector.status == 'idle'
+    assert collector._profile == {}
+    assert collector._qrcode_image_base64 is None
