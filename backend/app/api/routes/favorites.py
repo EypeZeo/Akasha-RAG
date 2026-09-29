@@ -268,3 +268,26 @@ async def list_collection_videos(
         "has_more": has_more,
         "status_counts": status_counts,
     }
+
+
+@router.get("/collections/{collection_id}/status-counts")
+async def get_collection_status_counts(
+    collection_id: str = Path(max_length=64),
+    platform: PlatformFilter | None = Query(None, description=f"平台过滤: {' | '.join((*supported_platforms(), 'all'))}"),
+    db: Session = Depends(get_db),
+):
+    """Return ingestion-state totals for one explicit collection/platform scope.
+
+    The synthetic ``all`` collection still needs its selected platform.  Keeping
+    this as a count-only endpoint prevents UI action labels from accidentally
+    falling back to unrelated global statistics.
+    """
+    try:
+        _items, _total, _next_cursor, _has_more, status_counts = favorites_service.list_collection_videos(
+            db, collection_id, page=1, size=1, platform=platform, include_status_counts=True,
+        )
+    except AmbiguousCollectionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        return {"success": False, "message": str(exc), "status_counts": {}}
+    return {"success": True, "status_counts": status_counts}

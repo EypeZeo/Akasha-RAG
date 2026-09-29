@@ -112,6 +112,10 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.mocked(api.listCollections).mockResolvedValue({ success: true, items: [collection()], total: 1 });
   vi.mocked(api.getKnowledgeStats).mockResolvedValue(stats());
+  vi.mocked(api.getCollectionStatusCounts).mockResolvedValue({
+    success: true,
+    status_counts: { pending: 3, failed: 0 },
+  });
   vi.mocked(api.listCollectionVideos).mockResolvedValue({ success: true, items: [], total: 0 });
   vi.mocked(api.getSettingsStatus).mockResolvedValue({ success: true, chat_ready: true, ingest_ready: true });
   vi.mocked(api.listPendingKnowledge).mockResolvedValue({
@@ -321,6 +325,7 @@ describe('ingest readiness check', () => {
     await screen.findByText(`${en.oneClickIngest} (3)`);
     ingest(); // readiness check 1, for A
     fireEvent.click(screen.getByText('Collection B'));
+    await screen.findByText(`${en.oneClickIngest} (3)`);
     ingest(); // readiness check 2, for B
 
     await act(async () => { readyB.resolve({ success: true, chat_ready: true, ingest_ready: true }); });

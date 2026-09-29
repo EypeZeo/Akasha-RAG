@@ -730,15 +730,15 @@ export default function SourcesPanel({
     : '';
 
   useEffect(() => {
-    if (!actionScopeId || !actionScopePlatform || actionScopeId === 'all'
-        || actionScopeId === expandedIdRef.current) {
+    if (!actionScopeId || !actionScopePlatform
+        || (actionScopeId === 'all' && actionScopePlatform === 'all')) {
       setActionStatusData(null);
       return;
     }
 
     let isCurrent = true;
     setActionStatusData(null);
-    void Promise.resolve(api.listCollectionVideos(actionScopeId, 1, 1, actionScopePlatform))
+    void Promise.resolve(api.getCollectionStatusCounts(actionScopeId, actionScopePlatform))
       .then(response => {
         if (isCurrent && response.success && response.status_counts) {
           setActionStatusData({
@@ -752,13 +752,21 @@ export default function SourcesPanel({
     return () => { isCurrent = false; };
   }, [actionScopeId, actionScopePlatform, expandedId, statsRefreshKey]);
 
-  const actionStatusCounts =
+  const shownActionStatusCounts =
     shownVideos?.collectionId === actionScopeId && shownVideos.platform === actionScopePlatform
       ? shownVideos.statusCounts
-      : (actionStatusData?.key === actionScopeKey ? actionStatusData.counts : undefined);
+      : undefined;
+  const actionStatusCounts = shownActionStatusCounts
+    ?? (actionStatusData?.key === actionScopeKey ? actionStatusData.counts : undefined);
+  // A synthetic "all" collection is still scoped when a concrete platform is
+  // selected.  Only the literal (all platform, all collection) pair may use
+  // the global stats fallback; otherwise wait for the scope-count request
+  // rather than showing another platform's pending items.
   const actionRetryableCount = actionStatusCounts
     ? (actionStatusCounts.pending ?? 0) + (actionStatusCounts.failed ?? 0)
-    : retryableCount;
+    : actionScope?.id === 'all' && actionScope.platform === 'all'
+      ? retryableCount
+      : 0;
 
   const openScopedExport = () => {
     if (!actionScope) return;

@@ -161,6 +161,19 @@ def test_all_sync_skips_zhihu_when_the_local_session_is_missing(client):
     sync_zhihu.assert_not_awaited()
 
 
+def test_collection_status_counts_keeps_the_synthetic_all_row_platform_scoped(client):
+    with patch(
+        "app.api.routes.favorites.favorites_service.list_collection_videos",
+        return_value=([], 0, None, False, {"pending": 53}),
+    ) as list_items:
+        response = client.get("/api/favorites/collections/all/status-counts?platform=zhihu")
+
+    assert response.status_code == 200
+    assert response.json() == {"success": True, "status_counts": {"pending": 53}}
+    list_items.assert_called_once()
+    assert list_items.call_args.kwargs["platform"] == "zhihu"
+
+
 def test_knowledge_pending_platform_filter(client):
     """测试待入库内容平台过滤"""
     resp = client.get("/api/knowledge/pending?platform=bilibili")
