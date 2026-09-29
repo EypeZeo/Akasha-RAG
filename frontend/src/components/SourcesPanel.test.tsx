@@ -300,6 +300,32 @@ describe('SourcesPanel collections list & pagination', () => {
 });
 
 describe('SourcesPanel expanded video list & search', () => {
+  it('uses platform-scoped status counts for the synthetic all-favorites row', async () => {
+    useWorkspaceStore.setState({ selectedPlatform: 'zhihu' });
+    vi.mocked(api.listCollections).mockResolvedValue({
+      success: true,
+      items: [makeCollection({ collection_id: 'all', title: '全部收藏', platform: undefined, video_count: 53 })],
+      total: 1,
+    });
+    // Global knowledge stats deliberately contain work from other platforms.
+    vi.mocked(api.getKnowledgeStats).mockResolvedValue({
+      success: true,
+      video_cache: { pending: 215, failed: 0, done: 29 },
+    });
+    vi.mocked(api.getCollectionStatusCounts).mockResolvedValue({
+      success: true,
+      status_counts: { pending: 53 },
+    });
+
+    setup();
+
+    await waitFor(() => {
+      expect(api.getCollectionStatusCounts).toHaveBeenCalledWith('all', 'zhihu');
+    });
+    expect(await screen.findByText(`${TRANSLATIONS.en.oneClickIngest} (53)`)).toBeTruthy();
+    expect(screen.queryByText(`${TRANSLATIONS.en.oneClickIngest} (215)`)).toBeNull();
+  });
+
   it('filters collection items by ingestion state and requests the chosen status', async () => {
     vi.mocked(api.listCollectionVideos).mockResolvedValue({
       success: true,
@@ -334,13 +360,17 @@ describe('SourcesPanel expanded video list & search', () => {
       total: 3,
       status_counts: { pending: 2, failed: 1 },
     });
+    vi.mocked(api.getCollectionStatusCounts).mockResolvedValue({
+      success: true,
+      status_counts: { pending: 2, failed: 1 },
+    });
     const view = setup({ collectionExpandMode: 'chevron' });
 
     fireEvent.click(await screen.findByText('Test Collection'));
     expect(view.onSelectCollection).toHaveBeenCalledWith('col-1', undefined);
     view.rerender({ selectedId: 'col-1' });
     await waitFor(() => {
-      expect(api.listCollectionVideos).toHaveBeenCalledWith('col-1', 1, 1, 'all');
+      expect(api.getCollectionStatusCounts).toHaveBeenCalledWith('col-1', 'all');
     });
     expect(api.listCollectionVideos).not.toHaveBeenCalledWith('col-1', 1, 20, 'all', undefined);
     expect(await screen.findByText(`${TRANSLATIONS.en.oneClickIngest} (3)`)).toBeTruthy();

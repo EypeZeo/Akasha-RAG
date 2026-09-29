@@ -212,6 +212,14 @@ export async function listCollectionVideos(
   return request(`/favorites/collections/${collectionId}/videos?page=${page}&size=${size}${pQuery}${cQuery}${sQuery}`);
 }
 
+export async function getCollectionStatusCounts(
+  collectionId: string,
+  platform?: string,
+): Promise<{ success: boolean; status_counts: Record<string, number>; message?: string }> {
+  const pQuery = platform && platform !== 'all' ? `?platform=${encodeURIComponent(platform)}` : '';
+  return request(`/favorites/collections/${collectionId}/status-counts${pQuery}`);
+}
+
 // ---- Knowledge ----
 
 export interface SyncParams {
