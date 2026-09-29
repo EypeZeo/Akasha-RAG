@@ -382,7 +382,15 @@ class ZhihuCollector:
 
     @staticmethod
     def _capture_qr_element(element: Any, *, is_canvas: bool) -> str | None:
-        """Capture one exact QR renderer only after it is visible and complete."""
+        """Capture one exact, visible QR renderer.
+
+        Zhihu draws its QR canvas with a cross-origin image source.  Calling
+        ``getImageData`` on that canvas raises ``SecurityError`` even though it
+        is fully rendered and Playwright can screenshot it.  Do not inspect
+        canvas pixels here: the exact selector, geometry checks, and the
+        two-identical-screenshots gate in :meth:`_wait_for_qrcode` are the
+        reliable completeness proof that does not break cross-origin canvases.
+        """
         try:
             if not element.is_visible():
                 return None
@@ -392,27 +400,7 @@ class ZhihuCollector:
             ratio = box["width"] / box["height"]
             if ratio < 0.9 or ratio > 1.1:
                 return None
-            if is_canvas:
-                pixels = element.evaluate("""canvas => {
-                    if (!(canvas instanceof HTMLCanvasElement) || !canvas.width || !canvas.height) return null;
-                    try {
-                        const data = canvas.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, canvas.width, canvas.height).data;
-                        let dark = 0, light = 0;
-                        for (let i = 0; i < data.length; i += 4) {
-                            const value = (data[i] + data[i + 1] + data[i + 2]) / 3;
-                            if (value < 64) dark += 1;
-                            if (value > 192) light += 1;
-                        }
-                        return { dark, light, total: canvas.width * canvas.height };
-                    } catch (_) { return null; }
-                }""")
-                if not isinstance(pixels, dict) or not pixels.get("total"):
-                    return None
-                dark_ratio = pixels.get("dark", 0) / pixels["total"]
-                light_ratio = pixels.get("light", 0) / pixels["total"]
-                if dark_ratio < 0.01 or light_ratio < 0.1:
-                    return None
-            elif not element.evaluate("image => image.complete && image.naturalWidth >= 96 && image.naturalHeight >= 96"):
+            if not is_canvas and not element.evaluate("image => image.complete && image.naturalWidth >= 96 && image.naturalHeight >= 96"):
                 return None
             return base64.b64encode(element.screenshot(type="png")).decode("ascii")
         except Exception:
