@@ -728,6 +728,7 @@ export default function SourcesPanel({
   const actionScopeKey = actionScopeId && actionScopePlatform
     ? JSON.stringify([actionScopePlatform, actionScopeId])
     : '';
+  const videoCategoryLabel = actionScope?.platform === 'zhihu' ? t('video') : t('shortVideo');
 
   useEffect(() => {
     if (!actionScopeId || !actionScopePlatform
@@ -1078,10 +1079,10 @@ export default function SourcesPanel({
                                 ? 'bg-white shadow-2xs text-blue-600 font-bold'
                                 : 'text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]'
                             }`}
-                            title={`${t('shortVideo')}: ${videoItemsCount}`}
+                            title={`${videoCategoryLabel}: ${videoItemsCount}`}
                           >
                             <span>📹</span>
-                            <span>{t('shortVideo')} ({videoItemsCount})</span>
+                            <span>{videoCategoryLabel} ({videoItemsCount})</span>
                           </button>
                           <button
                             onClick={() => setTypeFilter('note')}
@@ -1154,7 +1155,7 @@ export default function SourcesPanel({
                                     ? 'bg-purple-50 text-purple-600 border border-purple-200/60'
                                     : 'bg-blue-50 text-blue-600 border border-blue-200/60'
                                 }`}
-                                title={isNote ? t('imageNote') : t('shortVideo')}
+                                title={isNote ? t('imageNote') : (v.platform === 'zhihu' ? t('video') : t('shortVideo'))}
                               >
                                 {isNote ? t('tagNote') : t('tagVideo')}
                               </span>

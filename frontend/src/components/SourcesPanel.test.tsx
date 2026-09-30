@@ -498,6 +498,32 @@ describe('SourcesPanel expanded video list & search', () => {
     expect(screen.getByText('A Note')).toBeTruthy();
   });
 
+  it('labels Zhihu video favorites as videos, not short videos', async () => {
+    useWorkspaceStore.setState({ selectedPlatform: 'zhihu' });
+    vi.mocked(api.listCollections).mockResolvedValueOnce({
+      success: true,
+      items: [makeCollection({ platform: 'zhihu' })],
+      total: 1,
+    });
+    vi.mocked(api.listCollectionVideos).mockResolvedValueOnce({
+      success: true,
+      items: [
+        makeVideo({ title: 'Zhihu Video', platform: 'zhihu' }),
+        makeVideo({ id: 2, platform_item_id: 'zhihu-note', title: 'Zhihu Note', platform: 'zhihu', item_type: 'note', duration: 0 }),
+      ],
+      total: 2,
+      note_count: 1,
+    });
+
+    setup();
+    await screen.findByText('Test Collection');
+    clickCollection('Test Collection');
+    await screen.findByText('Zhihu Video');
+
+    expect(screen.getByRole('button', { name: /Video \(1\)$/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Videos \(1\)$/ })).toBeNull();
+  });
+
   it('shows the type-filter tabs even for an all-notes collection with zero videos', async () => {
     vi.mocked(api.listCollectionVideos).mockResolvedValueOnce({
       success: true,
