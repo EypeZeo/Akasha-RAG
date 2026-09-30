@@ -79,6 +79,7 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
     const tick = async () => {
       try {
         const pRes = await api.listPlatforms();
+        if (cancelled) return;
         if (pRes.success && pRes.platforms) {
           const dy = pRes.platforms.find(p => p.platform === 'douyin');
           setLoggedPlatforms(pRes.platforms.filter(item => item.is_logged_in));
@@ -89,6 +90,7 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
           lastStatus = dy?.status || '';
         } else {
           const s = await api.loginStatus();
+          if (cancelled) return;
           lastStatus = s.status;
         }
       } catch {}

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import * as api from '../api';
 import { useI18n } from '../i18n';
 import { useWorkspaceStore } from '../store/workspace';
+import { pollProgress } from '../utils/pollProgress';
 
 interface Props {
   /** bumped by the parent when a new session is created / a turn completes */
@@ -47,6 +48,21 @@ export default function ChatSessionDrawer({ refreshKey, onSessionDeleted, onNewC
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const renameRef = useRef<HTMLInputElement>(null);
+  const renameIdRef = useRef<number | null>(null);
+  const mountedRef = useRef(true);
+  const listControllerRef = useRef<AbortController | null>(null);
+  const queryRef = useRef(debounced);
+  queryRef.current = debounced;
+  const deletingRef = useRef(new Set<number>());
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      listControllerRef.current?.abort();
+      listControllerRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(search), 250);
@@ -54,41 +70,67 @@ export default function ChatSessionDrawer({ refreshKey, onSessionDeleted, onNewC
   }, [search]);
 
   const fetchSessions = useCallback(async () => {
+    if (!mountedRef.current) return;
+    listControllerRef.current?.abort();
+    const controller = new AbortController();
+    listControllerRef.current = controller;
     try {
-      const r = await api.listSessions(debounced);
-      if (r.success) setSessions(r.items);
+      const r = await pollProgress(signal => api.listSessions(queryRef.current, signal), controller);
+      if (mountedRef.current && listControllerRef.current === controller && !controller.signal.aborted && r.success) {
+        setSessions(r.items);
+      }
     } catch { /* ignore */ }
-  }, [debounced]);
+    finally {
+      if (listControllerRef.current === controller) listControllerRef.current = null;
+    }
+  }, []);
 
-  useEffect(() => { fetchSessions(); }, [fetchSessions, refreshKey]);
+  useEffect(() => {
+    fetchSessions();
+    return () => {
+      listControllerRef.current?.abort();
+      listControllerRef.current = null;
+    };
+  }, [fetchSessions, refreshKey, debounced]);
 
   useEffect(() => {
     if (renamingId != null) renameRef.current?.focus();
   }, [renamingId]);
 
   const startRename = (s: api.SessionItem) => {
+    renameIdRef.current = s.id;
     setRenamingId(s.id);
     setRenameValue(s.title);
   };
 
   const commitRename = async () => {
-    const id = renamingId;
+    const id = renameIdRef.current;
+    renameIdRef.current = null;
     const title = renameValue.trim();
     setRenamingId(null);
     if (id == null || !title) return;
     try {
-      await api.renameSession(id, title);
+      const response = await api.renameSession(id, title);
+      if (!mountedRef.current || !response.success) return;
       setSessions(prev => prev.map(s => (s.id === id ? { ...s, title } : s)));
+      void fetchSessions();
     } catch { /* ignore */ }
   };
 
   const handleDelete = async (id: number) => {
+    if (deletingRef.current.has(id)) return;
     if (!confirm(t('confirmDeleteChat'))) return;
+    deletingRef.current.add(id);
     try {
-      await api.deleteSession(id);
+      const response = await api.deleteSession(id);
+      if (!mountedRef.current || !response.success) return;
+      listControllerRef.current?.abort();
+      listControllerRef.current = null;
       setSessions(prev => prev.filter(s => s.id !== id));
       onSessionDeleted(id);
+      void fetchSessions();
     } catch { /* ignore */ }
+    finally { deletingRef.current.delete(id); }
   };
 
   const grouped = BUCKET_ORDER.map(b => ({
@@ -180,7 +222,7 @@ export default function ChatSessionDrawer({ refreshKey, onSessionDeleted, onNewC
                           onClick={e => e.stopPropagation()}
                           onKeyDown={e => {
                             if (e.key === 'Enter') commitRename();
-                            if (e.key === 'Escape') setRenamingId(null);
+                            if (e.key === 'Escape') { renameIdRef.current = null; setRenamingId(null); }
                           }}
                           onBlur={commitRename}
                           className="flex-1 min-w-0 text-xs px-1 py-0.5 rounded border border-accent bg-white text-[var(--color-ink)] focus:outline-none"

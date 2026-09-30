@@ -97,6 +97,19 @@ const listBox = () => screen.getByText('video 1').closest('button')!.parentEleme
 const settle = (fn: () => void) => act(async () => { fn(); });
 
 describe('BuildConfirmModal request scope', () => {
+  it.each(['video', 'note'] as const)('uses explicit %s metadata for custom-selection submission', async contentType => {
+    const calls = stubPending();
+    const { onConfirm } = renderModal({ platform: 'zhihu' });
+    await settle(() => calls[0].resolve(pageOf([
+      video(1, { duration: 0 }),
+      video(2, { title: 'note 2', item_type: 'note', duration: 60 }),
+    ], 1, false, { total: 2, video_count: 1, note_count: 1 })));
+    // Enter custom mode by removing the other content type.
+    fireEvent.click(screen.getByText(contentType === 'video' ? 'note 2' : 'video 1'));
+    fireEvent.click(confirmButton());
+    expect(onConfirm).toHaveBeenCalledWith([contentType === 'video' ? '1' : '2'], contentType, 'selected', 'zhihu');
+  });
+
   let errorSpy: MockInstance;
 
   beforeEach(() => {

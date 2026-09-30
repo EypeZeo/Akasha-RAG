@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as api from '../api';
+import { pollProgress } from '../utils/pollProgress';
 
 const ACTIVE_EXPORT_KEY = 'akasha:active_export';
 
@@ -23,11 +24,13 @@ export function useExportFlow(t: TFunction) {
   const exportDownloadedRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   const generationRef = useRef(0);
-  const pollInFlightRef = useRef<number | null>(null);
+  const pollInFlightRef = useRef<{ generation: number; controller: AbortController } | null>(null);
   const translateRef = useRef(t);
   translateRef.current = t;
 
   const stopExportPoll = useCallback(() => {
+    pollInFlightRef.current?.controller.abort();
+    pollInFlightRef.current = null;
     if (exportPollRef.current) {
       clearInterval(exportPollRef.current);
       exportPollRef.current = null;
@@ -53,10 +56,11 @@ export function useExportFlow(t: TFunction) {
   ) => {
     // A slow response must not be perpetually superseded by newer interval
     // ticks. Keep at most one request in flight for each task generation.
-    if (pollInFlightRef.current === generation) return;
-    pollInFlightRef.current = generation;
+    if (pollInFlightRef.current?.generation === generation) return;
+    const request = { generation, controller: new AbortController() };
+    pollInFlightRef.current = request;
     try {
-      const p = await api.getExportProgress(taskId);
+      const p = await pollProgress(signal => api.getExportProgress(taskId, signal), request.controller);
       if (!mountedRef.current || generationRef.current !== generation) return;
       if (!p || p.success === false) {
         // 任务已过期/不存在
@@ -83,7 +87,7 @@ export function useExportFlow(t: TFunction) {
       }
     } catch { /* 网络抖动，下次再试 */ }
     finally {
-      if (pollInFlightRef.current === generation) pollInFlightRef.current = null;
+      if (pollInFlightRef.current === request) pollInFlightRef.current = null;
     }
   }, [stopExportPoll, triggerBrowserDownload]);
 

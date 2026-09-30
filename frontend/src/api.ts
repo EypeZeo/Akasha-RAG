@@ -309,8 +309,8 @@ export async function deleteVideo(platformItemId: string, platform: string): Pro
   return request(`/knowledge/videos/${encodeURIComponent(platformItemId)}?platform=${encodeURIComponent(platform)}`, { method: 'DELETE' });
 }
 
-export async function getSyncProgress(taskId: string): Promise<any> {
-  return request(`/knowledge/sync/${taskId}`);
+export async function getSyncProgress(taskId: string, signal?: AbortSignal): Promise<any> {
+  return request(`/knowledge/sync/${taskId}`, { signal });
 }
 
 export async function cancelSync(taskId: string): Promise<{ success: boolean; message?: string }> {
@@ -366,13 +366,32 @@ export async function exportBatchStart(
   return data;
 }
 
-export async function getExportProgress(taskId: string): Promise<ExportProgress> {
-  return request(`/knowledge/export/batch/${taskId}`);
+export async function getExportProgress(taskId: string, signal?: AbortSignal): Promise<ExportProgress> {
+  return request(`/knowledge/export/batch/${taskId}`, { signal });
 }
 
 /** 浏览器模式产物下载地址（产物保留一段时间，可反复下载）。 */
 export function exportDownloadUrl(taskId: string): string {
   return `${BASE}/knowledge/export/batch/${taskId}/download`;
+}
+
+/** AI export consumes model resources and therefore requires the client header. */
+export async function exportVideoWithAi(platformItemId: string, platform: string): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(
+    `${BASE}/knowledge/export/${encodeURIComponent(platformItemId)}?mode=ai&platform=${encodeURIComponent(platform)}`,
+    { headers: CLIENT_HEADERS },
+  );
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (response.headers.get('content-type')?.includes('application/json')) {
+    throw new Error('Export did not return a document');
+  }
+  const disposition = response.headers.get('content-disposition') || '';
+  const encoded = disposition.match(/filename\*=utf-8''([^;]+)/i)?.[1];
+  let filename = disposition.match(/filename="([^"]+)"/i)?.[1] || `${platform}-${platformItemId}.md`;
+  if (encoded) {
+    try { filename = decodeURIComponent(encoded); } catch { /* use fallback */ }
+  }
+  return { blob: await response.blob(), filename };
 }
 
 /** 弹出系统原生「选择文件夹」对话框。 */
@@ -532,9 +551,9 @@ export async function* chatAskStream(
   }
 }
 
-export async function listSessions(q?: string): Promise<{ success: boolean; items: SessionItem[] }> {
+export async function listSessions(q?: string, signal?: AbortSignal): Promise<{ success: boolean; items: SessionItem[] }> {
   const query = q && q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
-  return request(`/chat/sessions${query}`);
+  return request(`/chat/sessions${query}`, { signal });
 }
 
 export async function getSessionMessages(

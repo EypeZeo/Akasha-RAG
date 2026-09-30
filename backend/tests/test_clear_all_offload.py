@@ -73,3 +73,42 @@ async def test_clear_all_offloads_chroma_and_db_work(tmp_path, monkeypatch):
 
     assert result == {"success": True, "reset_count": 0}
     fake_chroma.clear_all.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_task_cannot_be_published_between_maintenance_check_and_clear(tmp_path, monkeypatch):
+    engine = create_engine(
+        f"sqlite:///{(tmp_path / 'maintenance_race.db').as_posix()}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(engine)
+    started, release, submit_started = threading.Event(), threading.Event(), threading.Event()
+    worker = Worker()
+    monkeypatch.setattr(knowledge_module, "worker", worker)
+
+    def clear():
+        started.set()
+        assert release.wait(5)
+
+    monkeypatch.setattr(chroma_module, "get_chroma_service", lambda: SimpleNamespace(clear_all=clear))
+
+    def submit():
+        submit_started.set()
+        worker.submit("concurrent", lambda **kwargs: None)
+
+    with factory() as db:
+        clearing = asyncio.create_task(knowledge_module.clear_all_knowledge(knowledge_module.ClearAllRequest(), db))
+        assert await asyncio.to_thread(started.wait, 5)
+        submitting = asyncio.create_task(asyncio.to_thread(submit))
+        try:
+            assert await asyncio.to_thread(submit_started.wait, 5)
+            await asyncio.sleep(0.02)
+            assert worker.get_progress("concurrent") is None
+        finally:
+            release.set()
+            result = await clearing
+            await submitting
+    assert result["success"] is True
+    assert worker.get_progress("concurrent")["status"] == "queued"
+    engine.dispose()

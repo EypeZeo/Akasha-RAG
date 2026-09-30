@@ -135,6 +135,9 @@ beforeEach(() => {
   vi.mocked(api.listCollections).mockResolvedValue({ success: true, items: [makeCollection()], total: 1 });
   vi.mocked(api.getKnowledgeStats).mockResolvedValue({ success: true });
   vi.mocked(api.listCollectionVideos).mockResolvedValue({ success: true, items: [], total: 0 });
+  vi.mocked(api.getCollectionStatusCounts).mockResolvedValue({
+    success: true, status_counts: { done: 3, pending: 3 },
+  });
 });
 
 afterEach(() => {
@@ -471,17 +474,17 @@ describe('P4 — actions are scoped to a real, unambiguous, platform-compatible 
   const actionEntries = () => ({
     headerExport: screen.getByTitle(TRANSLATIONS.en.batchExportTooltip) as HTMLButtonElement,
     bottomExport: screen.getByText(new RegExp(TRANSLATIONS.en.batchExport)).closest('button') as HTMLButtonElement,
-    clear: screen.getByText(TRANSLATIONS.en.clearIngested).closest('button') as HTMLButtonElement,
+    clear: screen.queryByText(TRANSLATIONS.en.clearIngested)?.closest('button') ?? null,
     ingest: screen.getByText(new RegExp(TRANSLATIONS.en.oneClickIngest)).closest('button') as HTMLButtonElement,
-    quickVideo: screen.getByText(new RegExp(TRANSLATIONS.en.onlyIngestVideo)).closest('button') as HTMLButtonElement,
-    quickNote: screen.getByText(new RegExp(TRANSLATIONS.en.onlyIngestNote)).closest('button') as HTMLButtonElement,
+    quickVideo: screen.queryByText(new RegExp(TRANSLATIONS.en.onlyIngestVideo))?.closest('button') ?? null,
+    quickNote: screen.queryByText(new RegExp(TRANSLATIONS.en.onlyIngestNote))?.closest('button') ?? null,
   });
 
   it('P4.2. all six action entries render, enabled, when there is real, unambiguous work to do', async () => {
     vi.mocked(api.getKnowledgeStats).mockResolvedValue(fullStats());
     setup();
     await screen.findByText('Test Collection');
-    const entries = Object.values(actionEntries());
+    const entries = Object.values(actionEntries()).filter((button): button is HTMLButtonElement => button !== null);
     expect(entries).toHaveLength(6);
     for (const button of entries) expect(button).not.toBeDisabled();
   });
@@ -492,7 +495,10 @@ describe('P4 — actions are scoped to a real, unambiguous, platform-compatible 
     setup({ selectedId: 'same' }); // no selectedOwner — ambiguous among the two 'same' rows
     await screen.findByText('Douyin same');
 
-    const entries = Object.values(actionEntries());
+    expect(actionEntries().clear).toBeNull();
+    expect(actionEntries().quickVideo).toBeNull();
+    expect(actionEntries().quickNote).toBeNull();
+    const entries = Object.values(actionEntries()).filter((button): button is HTMLButtonElement => button !== null);
     for (const button of entries) expect(button).toBeDisabled();
 
     for (const button of entries) fireEvent.click(button);
@@ -509,7 +515,8 @@ describe('P4 — actions are scoped to a real, unambiguous, platform-compatible 
     setup();
 
     expect(await screen.findByRole('alert')).toBeTruthy();
-    for (const button of Object.values(actionEntries())) expect(button).toBeDisabled();
+    expect(actionEntries().clear).toBeNull();
+    for (const button of Object.values(actionEntries()).filter(button => button !== null)) expect(button).toBeDisabled();
   });
 
   it('P4.5. in the "all" view, clearing a real row sends that row\'s own platform, never "all"', async () => {
@@ -520,7 +527,8 @@ describe('P4 — actions are scoped to a real, unambiguous, platform-compatible 
     await screen.findByText('Bili row');
     fireEvent.click(screen.getByText('Bili row')); // expand it — platformFilter is still 'all'
 
-    await act(async () => { fireEvent.click(screen.getByText(TRANSLATIONS.en.clearIngested)); });
+    const clear = await screen.findByText(TRANSLATIONS.en.clearIngested);
+    await act(async () => { fireEvent.click(clear); });
 
     expect(api.clearAllKnowledge).toHaveBeenCalledWith('b1', 'bilibili');
   });
@@ -534,7 +542,8 @@ describe('P4 — actions are scoped to a real, unambiguous, platform-compatible 
     await screen.findByText('Bili row');
     fireEvent.click(screen.getByText('Bili row'));
 
-    fireEvent.click(screen.getByText(new RegExp(TRANSLATIONS.en.batchExport)));
+    const scopedExport = await screen.findByText(`${TRANSLATIONS.en.batchExport} (3)`);
+    fireEvent.click(scopedExport);
     fireEvent.click(await screen.findByText(TRANSLATIONS.en.destBrowser));
     fireEvent.click(screen.getByText(TRANSLATIONS.en.startExportBrowser));
 

@@ -11,6 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import gc
+from unittest.mock import AsyncMock
+from types import SimpleNamespace
+
+import httpx
 
 import pytest
 
@@ -58,6 +62,52 @@ def test_aclose_closes_every_cached_client_and_clears_caches(isolated_client):
 
     assert len(isolated_client._clients) == 0
     assert len(isolated_client._semaphores) == 0
+
+
+def test_aclose_does_not_close_or_evict_another_event_loops_pool(isolated_client):
+    first = asyncio.new_event_loop()
+    second = asyncio.new_event_loop()
+
+    async def populate():
+        client = isolated_client._get_client()
+        isolated_client._get_semaphore()
+        return client
+
+    try:
+        first_client = first.run_until_complete(populate())
+        second_client = second.run_until_complete(populate())
+        first.run_until_complete(isolated_client.aclose())
+        assert first_client.is_closed
+        assert not second_client.is_closed
+        assert isolated_client._clients[second] is second_client
+        assert second in isolated_client._semaphores
+        second.run_until_complete(isolated_client.aclose())
+        assert second_client.is_closed
+    finally:
+        first.run_until_complete(isolated_client.aclose())
+        second.run_until_complete(isolated_client.aclose())
+        first.close()
+        second.close()
+
+
+@pytest.mark.asyncio
+async def test_transient_request_failure_does_not_close_shared_pool(isolated_client, monkeypatch):
+    response = httpx.Response(200)
+    client = SimpleNamespace(
+        is_closed=False,
+        get=AsyncMock(side_effect=[httpx.ConnectTimeout("timeout"), response]),
+        aclose=AsyncMock(),
+    )
+    loop = asyncio.get_running_loop()
+    isolated_client._clients[loop] = client
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+    result = await isolated_client._request("GET", "https://api.bilibili.com/test", max_retries=2)
+    assert result is response
+    assert isolated_client._clients[loop] is client
+    assert client.get.await_count == 2
+    client.aclose.assert_not_awaited()
+    await isolated_client.aclose()
+    client.aclose.assert_awaited_once()
 
 
 def test_wbi_lock_does_not_leak_across_destroyed_loops():

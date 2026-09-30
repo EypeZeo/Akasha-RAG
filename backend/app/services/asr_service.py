@@ -99,30 +99,32 @@ class ASRService:
                 deadline = time.monotonic() + settings.asr_timeout_seconds
                 payload = run_kwargs["input"]
                 sent_input = False
-                while True:
-                    try:
-                        completed_stdout, _ = process.communicate(
-                            input=None if sent_input else payload,
-                            timeout=min(0.25, max(0.01, deadline - time.monotonic())),
-                        )
-                        completed = subprocess.CompletedProcess(command, process.returncode, completed_stdout)
-                        break
-                    except subprocess.TimeoutExpired:
-                        sent_input = True
-                        if cancel_check():
-                            process.kill()
-                            try:
-                                process.communicate(timeout=5.0)
-                            except subprocess.TimeoutExpired:
-                                logger.warning("ASR 工作进程未能在 5 秒内终止，强制清理")
-                            raise RuntimeError("ASR 转写已取消，工作进程已终止")
-                        if time.monotonic() >= deadline:
-                            process.kill()
-                            try:
-                                process.communicate(timeout=5.0)
-                            except subprocess.TimeoutExpired:
-                                logger.warning("ASR 工作进程超时后未能在 5 秒内终止，强制清理")
-                            raise subprocess.TimeoutExpired(command, settings.asr_timeout_seconds)
+                completed_normally = False
+                try:
+                    while True:
+                        try:
+                            completed_stdout, _ = process.communicate(
+                                input=None if sent_input else payload,
+                                timeout=min(0.25, max(0.01, deadline - time.monotonic())),
+                            )
+                            completed = subprocess.CompletedProcess(command, process.returncode, completed_stdout)
+                            completed_normally = True
+                            break
+                        except subprocess.TimeoutExpired:
+                            sent_input = True
+                            if cancel_check():
+                                raise RuntimeError("ASR 转写已取消，工作进程已终止")
+                            if time.monotonic() >= deadline:
+                                raise subprocess.TimeoutExpired(command, settings.asr_timeout_seconds)
+                finally:
+                    # Also reap on callback/protocol failures or interruption,
+                    # not just the two expected timeout/cancellation branches.
+                    if not completed_normally:
+                        process.kill()
+                        try:
+                            process.communicate(timeout=5.0)
+                        except subprocess.TimeoutExpired:
+                            logger.warning("ASR 工作进程未能在 5 秒内终止，强制清理")
         except subprocess.TimeoutExpired:
             raise RuntimeError(
                 f"ASR 转写超时 [{audio_path.name}]: "

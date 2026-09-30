@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as api from '../api';
+import { pollProgress } from '../utils/pollProgress';
 
 const ACTIVE_BUILD_KEY = 'akasha:active_build';
 
@@ -14,6 +15,7 @@ export function useBuildFlow(t: TFunction, onBuildComplete: () => void) {
   const [buildTaskId, setBuildTaskId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const buildPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRequestRef = useRef<AbortController | null>(null);
   const buildMissesRef = useRef(0);
   // "跨代"正确性：新任务开始/finishBuild()/卸载时递增，每个 tick 闭包记住
   // 自己创建时的值，真正生效前重新比对——过期任务的响应、组件卸载后的迟到
@@ -48,6 +50,8 @@ export function useBuildFlow(t: TFunction, onBuildComplete: () => void) {
   }, []);
 
   const stopBuildPoll = useCallback(() => {
+    pollRequestRef.current?.abort();
+    pollRequestRef.current = null;
     if (buildPollRef.current) {
       clearInterval(buildPollRef.current);
       buildPollRef.current = null;
@@ -95,11 +99,16 @@ export function useBuildFlow(t: TFunction, onBuildComplete: () => void) {
     } catch { /* ignore */ }
 
     const tick = async () => {
+      if (pollRequestRef.current || generationRef.current !== myGeneration || terminalSeizedRef.current) return;
+      const controller = new AbortController();
+      pollRequestRef.current = controller;
       let p: any;
       try {
-        p = await api.getSyncProgress(taskId);
+        p = await pollProgress(signal => api.getSyncProgress(taskId, signal), controller);
       } catch {
         return; // 网络抖动，下次再试
+      } finally {
+        if (pollRequestRef.current === controller) pollRequestRef.current = null;
       }
       if (generationRef.current !== myGeneration) return; // 过期任务/卸载后的迟到响应，整个丢弃
       if (!p || p.success === false) {

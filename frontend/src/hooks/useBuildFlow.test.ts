@@ -46,6 +46,37 @@ afterEach(() => {
 });
 
 describe('useBuildFlow', () => {
+  it('aborts a hung progress request, retries, and ignores its late response', async () => {
+    vi.useFakeTimers();
+    const hung = deferred<SyncProgressResponse>();
+    vi.mocked(api.getSyncProgress).mockReturnValueOnce(hung.promise)
+      .mockResolvedValue({ success: true, status: 'running', progress: 4, total: 10 });
+    const { result, unmount } = renderHook(() => useBuildFlow(t, vi.fn()));
+    act(() => result.current.startBuildPolling('hung-task', 'video'));
+    const firstSignal = vi.mocked(api.getSyncProgress).mock.calls[0][1]!;
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(firstSignal.aborted).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(vi.mocked(api.getSyncProgress).mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(result.current.buildProgress).toBe(4);
+    await act(async () => { hung.resolve({ success: true, status: 'done', total: 99 }); });
+    expect(result.current.buildProgress).toBe(4);
+    expect(result.current.building).toBe(true);
+    unmount();
+  });
+
+  it('aborts the in-flight GET on unmount without cancelling the backend task', () => {
+    const pending = deferred<SyncProgressResponse>();
+    vi.mocked(api.getSyncProgress).mockReturnValue(pending.promise);
+    const { result, unmount } = renderHook(() => useBuildFlow(t, vi.fn()));
+    act(() => result.current.startBuildPolling('active-task', 'video'));
+    const signal = vi.mocked(api.getSyncProgress).mock.calls[0][1]!;
+    unmount();
+    expect(signal.aborted).toBe(true);
+    expect(api.cancelSync).not.toHaveBeenCalled();
+    expect(localStorage.getItem(ACTIVE_BUILD_KEY)).toContain('active-task');
+  });
+
   it('1. starts polling into building=true, then picks up real progress from the first tick', async () => {
     vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 2, total: 5 });
     const onBuildComplete = vi.fn();
@@ -261,10 +292,10 @@ describe('useBuildFlow', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
     // B's interval must still be alive — A's stale terminal must not have
     // cleared it.
-    expect(api.getSyncProgress).toHaveBeenCalledWith('task-b');
+    expect(api.getSyncProgress).toHaveBeenCalledWith('task-b', expect.any(AbortSignal));
   });
 
-  it('9. two overlapping ticks of the same task both reaching terminal status only tear down once', async () => {
+  it('9. slow progress requests never overlap and terminal completion only tears down once', async () => {
     vi.useFakeTimers();
     const deferred1 = deferred<SyncProgressResponse>();
     const deferred2 = deferred<SyncProgressResponse>();
@@ -278,8 +309,9 @@ describe('useBuildFlow', () => {
       result.current.startBuildPolling('task-9', '视频'); // fires tick #1 synchronously (deferred1)
     });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1500); // interval fires tick #2 (deferred2), #1 still pending
+      await vi.advanceTimersByTimeAsync(6000);
     });
+    expect(api.getSyncProgress).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       deferred1.resolve({ success: true, status: 'done', total: 10 }); // seizes the terminal teardown
@@ -363,7 +395,7 @@ describe('useBuildFlow', () => {
 
     vi.mocked(api.getSyncProgress).mockClear();
     await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
-    expect(api.getSyncProgress).toHaveBeenCalledWith('task-12'); // tick keeps firing after cancel is requested
+    expect(api.getSyncProgress).toHaveBeenCalledWith('task-12', expect.any(AbortSignal)); // tick keeps firing after cancel is requested
   });
 
   it('13. a failed cancel bounces cancelling back to false without touching the active task', async () => {
@@ -428,7 +460,7 @@ describe('useBuildFlow', () => {
       expect(result.current.buildTaskId).toBe('task-15');
     });
     expect(result.current.buildMessage).toBe('ingestRestoring');
-    expect(api.getSyncProgress).toHaveBeenCalledWith('task-15');
+    expect(api.getSyncProgress).toHaveBeenCalledWith('task-15', expect.any(AbortSignal));
   });
 
   describe('16. corrupted ACTIVE_BUILD_KEY data is cleaned up on mount instead of silently ignored forever', () => {
@@ -516,7 +548,7 @@ describe('useBuildFlow', () => {
         result.current.startBuildPolling('task-18b', '视频');
         await vi.advanceTimersByTimeAsync(0);
       });
-      expect(api.getSyncProgress).toHaveBeenCalledWith('task-18b');
+      expect(api.getSyncProgress).toHaveBeenCalledWith('task-18b', expect.any(AbortSignal));
       expect(result.current.buildProgress).toBe(1);
 
       vi.mocked(api.getSyncProgress).mockClear();

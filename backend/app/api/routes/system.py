@@ -30,22 +30,24 @@ _LOG_FILE_PATTERNS: dict[LogType, str] = {
 # 目录选择框互斥：同一时刻只允许一个原生对话框在等待
 _pick_dir_lock = threading.Lock()
 
-def _tail_lines(path: Path, max_lines: int, chunk_size: int = 8192) -> List[str]:
+def _tail_lines(path: Path, max_lines: int, chunk_size: int = 8192, max_bytes: int = 1024 * 1024) -> List[str]:
     """从文件末尾往前按块读取，凑够 max_lines 行或读到文件头就停——
     不把整份日志文件读进内存（大文件时 f.readlines() 是真实的内存/IO 问题）。"""
     with open(path, "rb") as f:
         f.seek(0, os.SEEK_END)
         remaining = f.tell()
-        block = bytearray()
+        blocks = []
+        bytes_read = 0
         newline_count = 0
-        while remaining > 0 and newline_count <= max_lines:
-            read_size = min(chunk_size, remaining)
+        while remaining > 0 and newline_count <= max_lines and bytes_read < max_bytes:
+            read_size = min(chunk_size, remaining, max_bytes - bytes_read)
             remaining -= read_size
             f.seek(remaining)
             data = f.read(read_size)
+            bytes_read += len(data)
             newline_count += data.count(b"\n")
-            block[0:0] = data
-        text = block.decode("utf-8", errors="replace")
+            blocks.append(data)
+        text = b"".join(reversed(blocks)).decode("utf-8", errors="replace")
     lines = text.splitlines()
     return lines[-max_lines:] if len(lines) > max_lines else lines
 
@@ -111,6 +113,10 @@ async def set_log_level(body: SetLogLevelRequest):
 
 @router.post("/open-folder")
 async def open_local_folder(body: OpenFolderRequest):
+    return await run_in_threadpool(_open_local_folder, body)
+
+
+def _open_local_folder(body: OpenFolderRequest):
     """
     在 Windows 资源管理器中一键打开本地文件夹
     """
@@ -122,10 +128,9 @@ async def open_local_folder(body: OpenFolderRequest):
         target_path = Path(body.custom_path)
         # 安全检查：解析路径并确保它是有效的绝对路径
         try:
-            target_path = target_path.resolve()
-            # 基本安全验证：确保路径不包含危险模式
             if not target_path.is_absolute():
                 return {"success": False, "message": "仅支持绝对路径"}
+            target_path = target_path.resolve()
         except (ValueError, OSError) as e:
             return {"success": False, "message": f"路径无效: {e}"}
     else:
@@ -140,6 +145,9 @@ async def open_local_folder(body: OpenFolderRequest):
             return {"success": False, "message": f"目录不存在且创建失败: {e}"}
 
     abs_path = str(target_path.resolve())
+
+    if not target_path.is_dir():
+        return {"success": False, "message": "仅支持打开目录"}
 
     try:
         if sys.platform == "win32":
@@ -229,7 +237,7 @@ async def get_audio_cache_info():
     获取音频缓存目录 (audio_cache) 的当前占用大小与文件数量统计
     """
     from app.services.media_service import get_audio_cache_stats
-    stats = get_audio_cache_stats()
+    stats = await run_in_threadpool(get_audio_cache_stats)
     return {"success": True, "stats": stats}
 
 
@@ -244,7 +252,8 @@ async def clean_audio_cache_endpoint(body: CleanAudioCacheRequest = CleanAudioCa
     手动触发音频缓存目录清理（支持自定义保留时长和最大容量）
     """
     from app.services.media_service import clean_audio_cache
-    res = clean_audio_cache(
+    res = await run_in_threadpool(
+        clean_audio_cache,
         max_age_hours=body.max_age_hours,
         max_size_mb=body.max_size_mb,
     )

@@ -1,4 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { pollProgress } from '../utils/pollProgress';
+
+async function readJson<T>(url: string, signal: AbortSignal, body?: string): Promise<T> {
+  const response = await fetch(url, {
+    signal,
+    headers: { 'X-Akasha-Client': '1', 'Content-Type': 'application/json' },
+    ...(body ? { method: 'POST', body } : {}),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
+}
 
 interface SystemMetrics {
   process: {
@@ -78,66 +89,94 @@ export default function DeveloperPanel() {
   const [databaseMetrics, setDatabaseMetrics] = useState<DatabaseMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const mountedRef = useRef(true);
+  const toggleControllerRef = useRef<AbortController | null>(null);
 
   // 检查开发者模式状态
   useEffect(() => {
+    mountedRef.current = true;
+    const controller = new AbortController();
+    let disposed = false;
     const checkDeveloperMode = async () => {
       try {
-        const res = await fetch('/api/settings/developer-mode', {
-          headers: { 'X-Akasha-Client': '1' },
-        });
-        const data = await res.json();
+        const data = await pollProgress(signal => readJson<{ enabled: boolean }>('/api/settings/developer-mode', signal), controller);
+        if (disposed || controller.signal.aborted || !mountedRef.current) return;
+        if (typeof data.enabled !== 'boolean') throw new Error('Invalid developer mode response');
         setDeveloperMode(data.enabled);
         setLoading(false);
       } catch (_err) {
+        if (disposed || !mountedRef.current) return;
         setError('无法连接到后端服务');
         setLoading(false);
       }
     };
     checkDeveloperMode();
+    return () => {
+      disposed = true;
+      mountedRef.current = false;
+      controller.abort();
+      toggleControllerRef.current?.abort();
+      toggleControllerRef.current = null;
+    };
   }, []);
 
   // 自动刷新指标（每 5 秒）
   useEffect(() => {
     if (!developerMode) return;
+    let disposed = false;
+    let current: AbortController | null = null;
 
     const fetchMetrics = async () => {
+      if (disposed || current) return;
+      const controller = new AbortController();
+      current = controller;
       try {
-        const [system, network, cache, database] = await Promise.all([
-          fetch('/api/metrics/system', { headers: { 'X-Akasha-Client': '1' } }).then(r => r.json()),
-          fetch('/api/metrics/network', { headers: { 'X-Akasha-Client': '1' } }).then(r => r.json()),
-          fetch('/api/metrics/cache', { headers: { 'X-Akasha-Client': '1' } }).then(r => r.json()),
-          fetch('/api/metrics/database', { headers: { 'X-Akasha-Client': '1' } }).then(r => r.json()),
-        ]);
+        const [system, network, cache, database] = await pollProgress(signal => Promise.all([
+          readJson<SystemMetrics>('/api/metrics/system', signal),
+          readJson<NetworkMetrics>('/api/metrics/network', signal),
+          readJson<CacheMetrics>('/api/metrics/cache', signal),
+          readJson<DatabaseMetrics>('/api/metrics/database', signal),
+        ]), controller);
+        if (disposed || controller.signal.aborted) return;
         setSystemMetrics(system);
         setNetworkMetrics(network);
         setCacheMetrics(cache);
         setDatabaseMetrics(database);
         setError('');
       } catch (_err) {
+        if (disposed) return;
         setError('获取监控数据失败');
+      } finally {
+        controller.abort();
+        if (current === controller) current = null;
       }
     };
 
     fetchMetrics();
     const interval = setInterval(fetchMetrics, 5000);
-    return () => clearInterval(interval);
+    return () => {
+      disposed = true;
+      current?.abort();
+      clearInterval(interval);
+    };
   }, [developerMode]);
 
   const toggleDeveloperMode = async () => {
+    if (toggleControllerRef.current) return;
+    const controller = new AbortController();
+    toggleControllerRef.current = controller;
     try {
-      const res = await fetch('/api/settings/developer-mode', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Akasha-Client': '1',
-        },
-        body: JSON.stringify({ enabled: !developerMode }),
-      });
-      const data = await res.json();
+      const data = await pollProgress(signal => readJson<{ enabled: boolean }>(
+        '/api/settings/developer-mode', signal, JSON.stringify({ enabled: !developerMode }),
+      ), controller);
+      if (!mountedRef.current || controller.signal.aborted) return;
+      if (typeof data.enabled !== 'boolean') throw new Error('Invalid developer mode response');
       setDeveloperMode(data.enabled);
     } catch (_err) {
+      if (!mountedRef.current || toggleControllerRef.current !== controller) return;
       setError('切换开发者模式失败');
+    } finally {
+      if (toggleControllerRef.current === controller) toggleControllerRef.current = null;
     }
   };
 
@@ -177,6 +216,7 @@ export default function DeveloperPanel() {
           <p className="mt-4 text-xs text-gray-500">
             注意：此设置不持久化，重启后需重新启用
           </p>
+          {error && <p role="alert" className="mt-4 text-sm text-red-600">{error}</p>}
         </div>
       </div>
     );

@@ -6,7 +6,7 @@
 import logging
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field, StringConstraints
 from sqlalchemy import select
@@ -31,6 +31,13 @@ router = APIRouter(prefix="/knowledge", tags=["知识库"])
 RemoteId = Annotated[str, StringConstraints(max_length=64)]
 
 
+def _with_submission_guard(func, *args, **kwargs):
+    # Acquire in the thread pool: waiting for a maintenance operation must
+    # never stall the event loop. Submit uses this same reentrant lock.
+    with worker.submission_guard():
+        return func(*args, **kwargs)
+
+
 class SyncRequest(BaseModel):
     scope: Literal["all", "selected"] = "all"
     collection_id: str | None = Field(default=None, max_length=64)
@@ -51,7 +58,8 @@ async def sync_knowledge(body: SyncRequest, db: Session = Depends(get_db)):
     :return: 任务 ID 和待处理数量
     """
     try:
-        result = knowledge_service.start_sync(
+        result = await run_in_threadpool(
+            _with_submission_guard, knowledge_service.start_sync,
             db, scope=body.scope, collection_id=body.collection_id,
             content_type=body.content_type, selected_ids=body.selected_ids or None,
             platform=body.platform,
@@ -93,7 +101,7 @@ async def cancel_sync(task_id: str):
 
 
 @router.get("/pending")
-async def list_pending_items(
+def list_pending_items(
     collection_id: str | None = Query(None, max_length=64),
     content_type: str = Query("all", pattern="^(all|video|note)$"),
     platform: PlatformFilter | None = Query(None, description="平台过滤: all 或已登记平台"),
@@ -124,6 +132,10 @@ async def list_pending_items(
 
 @router.post("/reset-failed")
 async def reset_failed_videos(db: Session = Depends(get_db)):
+    return await run_in_threadpool(_with_submission_guard, _reset_failed_videos_sync, db)
+
+
+def _reset_failed_videos_sync(db: Session):
     """
     将所有失败/卡住的视频重置为 pending
 
@@ -169,6 +181,10 @@ async def reset_failed_videos(db: Session = Depends(get_db)):
 
 @router.delete("/videos/{platform_item_id}")
 async def delete_video(platform_item_id: str, platform: str | None = Query(None), db: Session = Depends(get_db)):
+    return await run_in_threadpool(_with_submission_guard, _delete_video_sync, platform_item_id, platform, db)
+
+
+def _delete_video_sync(platform_item_id: str, platform: str | None, db: Session):
     """
     删除已入库视频
 
@@ -179,6 +195,8 @@ async def delete_video(platform_item_id: str, platform: str | None = Query(None)
     :param db: 数据库会话
     :return: 删除结果
     """
+    if worker.has_active_tasks():
+        return {"success": False, "message": "入库任务仍在执行或排队，请等待任务结束后删除"}
     try:
         result = knowledge_service.delete_video(db, platform_item_id, platform)
         knowledge_service.invalidate_stats_cache()
@@ -188,7 +206,7 @@ async def delete_video(platform_item_id: str, platform: str | None = Query(None)
 
 
 @router.get("/stats")
-async def get_knowledge_stats(db: Session = Depends(get_db)):
+def get_knowledge_stats(db: Session = Depends(get_db)):
     """
     获取知识库统计信息
 
@@ -200,10 +218,10 @@ async def get_knowledge_stats(db: Session = Depends(get_db)):
 
 
 @router.get("/export/{platform_item_id}", response_class=PlainTextResponse)
-async def export_video_markdown(
-    platform_item_id: str,
+def export_video_markdown(
+    platform_item_id: Annotated[str, Path(max_length=64)],
     mode: str = Query("original", pattern="^(original|ai)$"),
-    platform: str | None = Query(None),
+    platform: PlatformFilter | None = Query(None),
     db: Session = Depends(get_db),
 ):
     """
@@ -221,10 +239,13 @@ async def export_video_markdown(
     cache_query = select(VideoCache).join(VideoCache.content_item).where(ContentItem.remote_item_id == platform_item_id)
     if platform and platform != "all":
         cache_query = cache_query.where(ContentItem.platform == platform)
-    cache = db.execute(cache_query).scalar_one_or_none()
+    caches = db.scalars(cache_query.limit(2)).all()
+    if len(caches) > 1:
+        raise HTTPException(status_code=400, detail="内容 ID 在多个平台存在，请指定平台后重试")
+    cache = caches[0] if caches else None
 
     if cache is None:
-        return f"# 导出失败\n\n视频 `{platform_item_id}` 未找到，请先同步收藏夹。\n"
+        raise HTTPException(status_code=404, detail="内容未找到，请先同步收藏夹")
 
     try:
         if mode == "original":
@@ -232,14 +253,15 @@ async def export_video_markdown(
         else:
             md = export_ai_organized(cache, db=db)
     except ValueError as exc:
-        return f"# 导出失败\n\n{exc}\n"
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     from fastapi.responses import Response
+    from urllib.parse import quote
     return Response(
         content=md,
         media_type="text/plain; charset=utf-8",
         headers={
-            "Content-Disposition": f"attachment; filename={platform_item_id}.md"
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(platform_item_id, safe='')}.md"
         },
     )
 
@@ -278,16 +300,19 @@ async def export_batch_knowledge(body: BatchExportRequest, db: Session = Depends
     except CollectionNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    task_id = export_worker.submit_export({
-        "collection_id": body.collection_id,
-        "platform": body.platform,
-        "selected_ids": body.selected_ids,
-        "content_type": body.content_type,
-        "format": body.format,
-        "pack_mode": body.pack_mode,
-        "target_dir": body.target_dir,
-        "auto_open": body.auto_open,
-    })
+    try:
+        task_id = await run_in_threadpool(export_worker.submit_export, {
+            "collection_id": body.collection_id,
+            "platform": body.platform,
+            "selected_ids": body.selected_ids,
+            "content_type": body.content_type,
+            "format": body.format,
+            "pack_mode": body.pack_mode,
+            "target_dir": body.target_dir,
+            "auto_open": body.auto_open,
+        })
+    except export_worker.ExportQueueFullError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     mode = "local" if (body.target_dir or "").strip() else "browser"
     return {"success": True, "task_id": task_id, "mode": mode}
 
@@ -337,6 +362,10 @@ async def clear_all_knowledge(
     清理 ChromaDB 向量库、重置所有/指定收藏夹 VideoCache 为 pending 状态，
     清空转写文本及缓存音频文件。
     """
+    return await run_in_threadpool(_with_submission_guard, _clear_all_knowledge_sync, db, body)
+
+
+def _clear_all_knowledge_sync(db: Session, body: ClearAllRequest) -> dict:
     if worker.has_active_tasks():
         # 入库流水线用一次比较并置换的 SQL 认领条目后，从不再检查这条记录
         # 是否被清空操作重置过——如果这里在有活跃任务时继续执行，worker
@@ -348,10 +377,6 @@ async def clear_all_knowledge(
             "message": "入库任务仍在执行或排队，请等待任务结束后清空",
             "chroma_cleared": False,
         }
-    return await run_in_threadpool(_clear_all_knowledge_sync, db, body)
-
-
-def _clear_all_knowledge_sync(db: Session, body: ClearAllRequest) -> dict:
     from sqlalchemy import update as sql_update
     from app.services.chroma_service import get_chroma_service
 

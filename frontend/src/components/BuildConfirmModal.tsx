@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useId, useRef } from 'react';
 import * as api from '../api';
+import { isNoteItem } from '../utils/contentKind';
 import { useI18n } from '../i18n';
 import Dialog from './ui/Dialog';
 
@@ -148,11 +149,11 @@ export default function BuildConfirmModal({
 
   const selectedVideoCount = selectionMode === 'all'
     ? (tabFilter === 'note' ? 0 : stats.video_count)
-    : items.filter(v => selectedIds.has(String(v.id)) && (v.item_type === 'video' || (v.duration ?? 0) > 0)).length;
+    : items.filter(v => selectedIds.has(String(v.id)) && !isNoteItem(v)).length;
 
   const selectedNoteCount = selectionMode === 'all'
     ? (tabFilter === 'video' ? 0 : stats.note_count)
-    : items.filter(v => selectedIds.has(String(v.id)) && (v.item_type === 'note' || (v.duration ?? 0) === 0)).length;
+    : items.filter(v => selectedIds.has(String(v.id)) && isNoteItem(v)).length;
 
   // 单项勾选与取消
   const toggleOne = (id: string) => {
@@ -350,7 +351,7 @@ export default function BuildConfirmModal({
           ) : (
             <>
               {items.map(v => {
-                const isNote = v.item_type === 'note' || (v.duration ?? 0) === 0;
+                const isNote = isNoteItem(v);
                 const checked = isItemChecked(String(v.id));
                 return (
                   <button

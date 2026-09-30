@@ -104,8 +104,7 @@ class BilibiliClient:
         max_retries: int = 3,
         **kwargs,
     ) -> httpx.Response:
-        """统一请求执行器：提供并发信号量管控、重试机制及连接池自动回收。"""
-        loop = asyncio.get_running_loop()
+        """统一请求执行器：提供并发信号量管控与有限重试。"""
         last_exc: Optional[Exception] = None
 
         for attempt in range(1, max_retries + 1):
@@ -134,13 +133,8 @@ class BilibiliClient:
                     url,
                     type(exc).__name__,
                 )
-                if loop in self._clients:
-                    old_client = self._clients.pop(loop)
-                    if not old_client.is_closed:
-                        try:
-                            await old_client.aclose()
-                        except Exception:
-                            pass
+                # httpx discards a failed connection itself. Closing the shared
+                # loop pool here would also abort unrelated concurrent requests.
                 if attempt < max_retries:
                     await asyncio.sleep(0.5 * attempt)
             except Exception:
@@ -151,13 +145,17 @@ class BilibiliClient:
         raise RuntimeError(f"请求失败: {url}")
 
     async def aclose(self) -> None:
-        """关闭所有事件循环所属的连接池。"""
-        clients = list(self._clients.values())
-        self._clients.clear()
-        self._semaphores.clear()
-        for client in clients:
-            if not client.is_closed:
-                await client.aclose()
+        """Close only the current loop's pool, leaving concurrent jobs intact.
+
+        Knowledge workers use separate loops alongside the API loop. A worker
+        completing one video must never close another loop's active sockets.
+        Every loop owner calls this method before shutting its loop down.
+        """
+        loop = asyncio.get_running_loop()
+        client = self._clients.pop(loop, None)
+        self._semaphores.pop(loop, None)
+        if client is not None and not client.is_closed:
+            await client.aclose()
 
     # ==================================================================
     # 状态持久化与 Cookie 管理

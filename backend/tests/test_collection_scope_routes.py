@@ -264,3 +264,32 @@ def test_export_options_are_closed_sets_and_bounded(env, field, value):
     response = call(env, "export", "douyin", collection=None, **{field: value})
     assert response.status_code == 422
     env.queued.assert_not_called()
+
+
+def test_single_export_rejects_ambiguous_platform_and_runs_outside_event_loop(env, monkeypatch):
+    import asyncio
+    from app.api.routes import knowledge
+
+    def export(cache):
+        with pytest.raises(RuntimeError, match="no running event loop"):
+            asyncio.get_running_loop()
+        return cache.content_item.platform
+
+    monkeypatch.setattr(knowledge, "export_original", export)
+    assert env.client.get("/api/knowledge/export/shared").status_code == 400
+    response = env.client.get("/api/knowledge/export/shared", params={"platform": "douyin"})
+    assert response.status_code == 200
+    assert response.text == "douyin"
+    assert "filename*=UTF-8''shared.md" in response.headers["content-disposition"]
+    assert env.client.get(f"/api/knowledge/export/{LONG}").status_code == 422
+    assert env.client.get("/api/knowledge/export/shared", params={"platform": "youtube"}).status_code == 422
+
+
+def test_single_export_failure_is_not_a_successful_document_download(env, monkeypatch):
+    from app.api.routes import knowledge
+
+    monkeypatch.setattr(knowledge, "export_original", Mock(side_effect=ValueError("请先入库")))
+    response = env.client.get("/api/knowledge/export/shared", params={"platform": "douyin"})
+    assert response.status_code == 400
+    assert "content-disposition" not in response.headers
+    assert env.client.get("/api/knowledge/export/missing").status_code == 404

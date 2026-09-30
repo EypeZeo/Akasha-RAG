@@ -36,6 +36,7 @@ beforeEach(() => {
     success: true, video_cache: { done: 2, pending: 0, failed: 0, downloading: 0, transcribing: 0 },
   });
   vi.mocked(api.clearAllKnowledge).mockResolvedValue({ success: true, reset_count: 1 });
+  vi.mocked(api.getCollectionStatusCounts).mockResolvedValue({ success: true, status_counts: { done: 1 } });
 });
 
 describe('SourcesStudio connects the workspace store to SourcesPanel as one composite selection', () => {
@@ -45,7 +46,7 @@ describe('SourcesStudio connects the workspace store to SourcesPanel as one comp
     renderStudio();
     await screen.findByText('Bilibili same');
 
-    const clear = screen.getByText(TRANSLATIONS.en.clearIngested).closest('button') as HTMLButtonElement;
+    const clear = (await screen.findByText(TRANSLATIONS.en.clearIngested)).closest('button') as HTMLButtonElement;
     expect(clear).not.toBeDisabled(); // ambiguous (disabled) if the owner never reached the panel
 
     await act(async () => { fireEvent.click(clear); });

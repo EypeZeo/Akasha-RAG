@@ -114,7 +114,7 @@ beforeEach(() => {
   vi.mocked(api.getKnowledgeStats).mockResolvedValue(stats());
   vi.mocked(api.getCollectionStatusCounts).mockResolvedValue({
     success: true,
-    status_counts: { pending: 3, failed: 0 },
+    status_counts: { pending: 3, failed: 0, done: 3 },
   });
   vi.mocked(api.listCollectionVideos).mockResolvedValue({ success: true, items: [], total: 0 });
   vi.mocked(api.getSettingsStatus).mockResolvedValue({ success: true, chat_ready: true, ingest_ready: true });

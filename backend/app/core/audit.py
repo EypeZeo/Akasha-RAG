@@ -12,7 +12,23 @@ from pathlib import Path
 from typing import Any, Optional
 
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+_SECRET_FIELDS = ("key", "token", "secret", "password", "cookie", "authorization", "credential")
+
+
+def _redact_details(value: Any) -> Any:
+    """Keep structured diagnostics without persisting credential values."""
+    if isinstance(value, dict):
+        return {
+            key: "[REDACTED]" if any(marker in str(key).lower() for marker in _SECRET_FIELDS)
+            else _redact_details(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redact_details(item) for item in value]
+    return value
 
 
 class AuditEventType(str, Enum):
@@ -52,7 +68,7 @@ class AuditEvent(BaseModel):
     action: str
     resource: Optional[str] = None
     result: str  # success, failure, error
-    details: dict[str, Any] = {}
+    details: dict[str, Any] = Field(default_factory=dict)
     error_message: Optional[str] = None
 
 
@@ -68,19 +84,23 @@ class AuditLogger:
         """配置审计日志记录器"""
         log_file = self.log_dir / "audit.log"
         
-        # 移除已有的审计日志 handler（避免重复）
-        logger.remove()
+        # Own only this sink; audit initialization must never remove the
+        # application's console/error handlers or copy unrelated log records.
+        if getattr(self, "_handler_id", None) is not None:
+            logger.remove(self._handler_id)
         
         # 添加专用的审计日志 handler
-        logger.add(
+        self._handler_id = logger.add(
             log_file,
-            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level} | {message}",
+            format="{message}",
             rotation="10 MB",
             retention="90 days",
             compression="zip",
             enqueue=True,
-            serialize=True,  # 输出 JSON 格式
+            filter=lambda record: record["extra"].get("akasha_audit") is True,
+            diagnose=False,
         )
+        self._logger = logger.bind(akasha_audit=True)
     
     def log_event(self, event: AuditEvent):
         """记录审计事件"""
@@ -94,17 +114,17 @@ class AuditLogger:
                 "action": event.action,
                 "resource": event.resource,
                 "result": event.result,
-                "details": event.details,
+                "details": _redact_details(event.details),
                 "error_message": event.error_message,
             }
             
             # 根据结果选择日志级别
             if event.result == "success":
-                logger.info(json.dumps(log_entry, ensure_ascii=False))
+                self._logger.info(json.dumps(log_entry, ensure_ascii=False))
             elif event.result == "failure":
-                logger.warning(json.dumps(log_entry, ensure_ascii=False))
+                self._logger.warning(json.dumps(log_entry, ensure_ascii=False))
             else:
-                logger.error(json.dumps(log_entry, ensure_ascii=False))
+                self._logger.error(json.dumps(log_entry, ensure_ascii=False))
         except Exception as e:
             logger.exception(f"Failed to log audit event: {e}")
     
@@ -185,6 +205,7 @@ class AuditLogger:
     
     def log_settings_change(self, ip_address: str, setting_name: str, old_value: Any, new_value: Any):
         """记录设置变更"""
+        sensitive = any(marker in setting_name.lower() for marker in _SECRET_FIELDS)
         event = AuditEvent(
             timestamp=datetime.datetime.now(),
             event_type=AuditEventType.SETTINGS_CHANGE,
@@ -193,8 +214,8 @@ class AuditLogger:
             resource=setting_name,
             result="success",
             details={
-                "old_value": str(old_value),
-                "new_value": str(new_value),
+                "old_value": "[REDACTED]" if sensitive else str(_redact_details(old_value)),
+                "new_value": "[REDACTED]" if sensitive else str(_redact_details(new_value)),
             },
         )
         self.log_event(event)
