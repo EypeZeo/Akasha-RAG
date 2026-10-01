@@ -16,12 +16,12 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-Verwandle deine Douyin- (das chinesische TikTok), Bilibili- und Zhihu-Favoriten in eine einzige durchsuchbare, dialogfähige persönliche Wissensdatenbank.
+Fasse Favoriten aus mehreren Plattformen zu einer durchsuchbaren, dialogfähigen persönlichen Wissensdatenbank zusammen.
 
 ## Unterstützte Plattformen
 
 | Plattform | Unterstützte Favoriteninhalte |
-| --- | --- |
+| :---: | :---: |
 | Douyin | Kurzvideos und Bild-Text-Beiträge |
 | Bilibili | Videos |
 | Zhihu | Videos sowie Text- und Bildinhalte, einschließlich Artikeln und Antworten |
@@ -182,17 +182,34 @@ version.txt                        einzige Quelle der Version (von release-pleas
 
 | Methode | Pfad | Zweck |
 |---------|------|-------|
-| POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | Douyin QR-Anmeldung |
-| POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | Bilibili QR-Anmeldung |
-| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | Zhihu QR-Anmeldung |
-| POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | Favoriten |
-| POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | Einlesen + Fortschritt |
-| GET  | `/api/knowledge/stats` | Statistik der Wissensdatenbank |
-| POST | `/api/knowledge/clear-all` · `/reset-failed` | Leeren / Zurücksetzen |
-| POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | Batch-Export (Hintergrund-Task) |
+| POST | `/api/auth/douyin/login/start` | Douyin-QR-Anmeldung starten |
+| GET | `/api/auth/douyin/login/status` | Douyin-Anmeldestatus abrufen |
+| POST | `/api/auth/douyin/logout` | Von Douyin abmelden |
+| POST | `/api/auth/bilibili/qrcode/generate` | Bilibili-Anmelde-QR erzeugen |
+| GET | `/api/auth/bilibili/qrcode/poll` | Bilibili-QR-Status abfragen |
+| GET | `/api/auth/bilibili/status` | Bilibili-Anmeldestatus abrufen |
+| POST | `/api/auth/bilibili/logout` | Von Bilibili abmelden |
+| POST | `/api/auth/zhihu/login/start` | Zhihu-QR-Anmeldung starten |
+| GET | `/api/auth/zhihu/login/status` | Zhihu-Anmeldestatus abrufen |
+| POST | `/api/auth/zhihu/login/cancel` | Zhihu-Anmeldung abbrechen |
+| POST | `/api/auth/zhihu/logout` | Von Zhihu abmelden |
+| POST | `/api/favorites/sync` | Favoriten synchronisieren |
+| GET | `/api/favorites/collections` | Favoritenordner auflisten |
+| GET | `/api/favorites/collections/{collection_id}/videos` | Ordnerinhalt abrufen |
+| POST | `/api/knowledge/sync` | Einlesen starten |
+| GET | `/api/knowledge/sync/{task_id}` | Einlesefortschritt abrufen |
+| GET | `/api/knowledge/stats` | Wissensdatenbankstatistik abrufen |
+| POST | `/api/knowledge/clear-all` | Wissensdatenbank leeren |
+| POST | `/api/knowledge/reset-failed` | Fehlgeschlagene Einträge zurücksetzen |
+| POST | `/api/knowledge/export/batch` | Batch-Export erstellen |
+| GET | `/api/knowledge/export/batch/{task_id}` | Batch-Exportstatus abrufen |
+| GET | `/api/knowledge/export/batch/{task_id}/download` | Batch-Export herunterladen |
 | POST | `/api/system/pick-directory` | Nativer Ordner-Auswahldialog |
-| POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | Chat |
-| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | Chat-Verlauf (≤ 200 pro Seite; `snapshot` legt die Exportgrenze fest) |
+| POST | `/api/chat/ask` | Frage stellen |
+| POST | `/api/chat/ask/stream` | Streaming-Frage stellen |
+| GET | `/api/chat/sessions` | Chat-Sitzungen auflisten |
+| GET | `/api/chat/sessions/{session_id}/messages?limit=200&before&until` | Chat-Verlauf abrufen (höchstens 200 Nachrichten pro Seite) |
+| GET | `/api/chat/sessions/{session_id}/snapshot` | Feste Chat-Grenze für den Export abrufen |
 
 ## Kosten
 

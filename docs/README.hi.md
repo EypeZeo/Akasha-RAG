@@ -16,12 +16,12 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-अपने Douyin (चीन का TikTok), Bilibili और Zhihu पसंदीदा को एक ही खोजने-योग्य, बातचीत-योग्य निजी नॉलेज बेस में बदलें।
+कई प्लेटफ़ॉर्म के पसंदीदा को एक ही खोजने-योग्य और बातचीत-योग्य निजी नॉलेज बेस में एकत्र करें।
 
 ## समर्थित प्लेटफ़ॉर्म
 
 | प्लेटफ़ॉर्म | समर्थित पसंदीदा सामग्री |
-| --- | --- |
+| :---: | :---: |
 | Douyin | छोटे वीडियो और चित्र-टेक्स्ट पोस्ट |
 | Bilibili | वीडियो |
 | Zhihu | वीडियो और लेखों व उत्तरों सहित टेक्स्ट/चित्र सामग्री |
@@ -182,17 +182,34 @@ version.txt                        संस्करण का एकल स्
 
 | मेथड | पथ | उद्देश्य |
 |------|-----|---------|
-| POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | Douyin QR लॉगिन |
-| POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | Bilibili QR लॉगिन |
-| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | Zhihu QR लॉगिन |
-| POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | पसंदीदा |
-| POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | इनजेस्ट + प्रगति |
-| GET  | `/api/knowledge/stats` | नॉलेज बेस आँकड़े |
-| POST | `/api/knowledge/clear-all` · `/reset-failed` | साफ़ / रीसेट |
-| POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | बैच एक्सपोर्ट (बैकग्राउंड टास्क) |
+| POST | `/api/auth/douyin/login/start` | Douyin QR लॉगिन शुरू करें |
+| GET | `/api/auth/douyin/login/status` | Douyin लॉगिन स्थिति प्राप्त करें |
+| POST | `/api/auth/douyin/logout` | Douyin से लॉग आउट करें |
+| POST | `/api/auth/bilibili/qrcode/generate` | Bilibili लॉगिन QR बनाएँ |
+| GET | `/api/auth/bilibili/qrcode/poll` | Bilibili QR स्थिति जाँचें |
+| GET | `/api/auth/bilibili/status` | Bilibili लॉगिन स्थिति प्राप्त करें |
+| POST | `/api/auth/bilibili/logout` | Bilibili से लॉग आउट करें |
+| POST | `/api/auth/zhihu/login/start` | Zhihu QR लॉगिन शुरू करें |
+| GET | `/api/auth/zhihu/login/status` | Zhihu लॉगिन स्थिति प्राप्त करें |
+| POST | `/api/auth/zhihu/login/cancel` | Zhihu लॉगिन रद्द करें |
+| POST | `/api/auth/zhihu/logout` | Zhihu से लॉग आउट करें |
+| POST | `/api/favorites/sync` | पसंदीदा सिंक करें |
+| GET | `/api/favorites/collections` | पसंदीदा फ़ोल्डर सूची प्राप्त करें |
+| GET | `/api/favorites/collections/{collection_id}/videos` | फ़ोल्डर सामग्री प्राप्त करें |
+| POST | `/api/knowledge/sync` | इनजेस्ट शुरू करें |
+| GET | `/api/knowledge/sync/{task_id}` | इनजेस्ट प्रगति प्राप्त करें |
+| GET | `/api/knowledge/stats` | नॉलेज बेस आँकड़े प्राप्त करें |
+| POST | `/api/knowledge/clear-all` | नॉलेज बेस साफ़ करें |
+| POST | `/api/knowledge/reset-failed` | विफल आइटम रीसेट करें |
+| POST | `/api/knowledge/export/batch` | बैच एक्सपोर्ट बनाएँ |
+| GET | `/api/knowledge/export/batch/{task_id}` | बैच एक्सपोर्ट स्थिति प्राप्त करें |
+| GET | `/api/knowledge/export/batch/{task_id}/download` | बैच एक्सपोर्ट डाउनलोड करें |
 | POST | `/api/system/pick-directory` | नेटिव फ़ोल्डर चयन |
-| POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | चैट |
-| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | चैट इतिहास (प्रति पृष्ठ ≤ 200; `snapshot` निर्यात की सीमा तय करता है) |
+| POST | `/api/chat/ask` | प्रश्न पूछें |
+| POST | `/api/chat/ask/stream` | स्ट्रीमिंग प्रश्न पूछें |
+| GET | `/api/chat/sessions` | चैट सत्र सूची प्राप्त करें |
+| GET | `/api/chat/sessions/{session_id}/messages?limit=200&before&until` | चैट इतिहास प्राप्त करें (प्रति पृष्ठ अधिकतम 200 संदेश) |
+| GET | `/api/chat/sessions/{session_id}/snapshot` | निर्यात के लिए स्थिर चैट सीमा प्राप्त करें |
 
 ## लागत
 

@@ -16,12 +16,12 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-Turn your Douyin (TikTok China), Bilibili, and Zhihu favorites into one searchable, chattable personal knowledge base.
+Aggregate favorites from supported platforms into one searchable, conversational personal knowledge base.
 
 ## Supported platforms
 
 | Platform | Supported favorite content |
-| --- | --- |
+| :---: | :---: |
 | Douyin | Short videos and image-text posts |
 | Bilibili | Videos |
 | Zhihu | Videos and text/image content, including articles and answers |
@@ -181,17 +181,34 @@ version.txt                        single source of truth for the version (maint
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | Douyin scan login |
-| POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | Bilibili scan login |
-| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | Zhihu QR login |
-| POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | Favorites |
-| POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | Ingest + progress |
-| GET  | `/api/knowledge/stats` | Knowledge-base stats |
-| POST | `/api/knowledge/clear-all` · `/reset-failed` | Clear / reset |
-| POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | Batch export (background task) |
+| POST | `/api/auth/douyin/login/start` | Start Douyin QR login |
+| GET | `/api/auth/douyin/login/status` | Get Douyin login status |
+| POST | `/api/auth/douyin/logout` | Log out of Douyin |
+| POST | `/api/auth/bilibili/qrcode/generate` | Generate a Bilibili login QR code |
+| GET | `/api/auth/bilibili/qrcode/poll` | Poll Bilibili QR-code status |
+| GET | `/api/auth/bilibili/status` | Get Bilibili login status |
+| POST | `/api/auth/bilibili/logout` | Log out of Bilibili |
+| POST | `/api/auth/zhihu/login/start` | Start Zhihu QR login |
+| GET | `/api/auth/zhihu/login/status` | Get Zhihu login status |
+| POST | `/api/auth/zhihu/login/cancel` | Cancel Zhihu login |
+| POST | `/api/auth/zhihu/logout` | Log out of Zhihu |
+| POST | `/api/favorites/sync` | Sync favorites |
+| GET | `/api/favorites/collections` | List favorite collections |
+| GET | `/api/favorites/collections/{collection_id}/videos` | Get collection content |
+| POST | `/api/knowledge/sync` | Start ingestion |
+| GET | `/api/knowledge/sync/{task_id}` | Get ingestion progress |
+| GET | `/api/knowledge/stats` | Get knowledge-base statistics |
+| POST | `/api/knowledge/clear-all` | Clear the knowledge base |
+| POST | `/api/knowledge/reset-failed` | Reset failed items |
+| POST | `/api/knowledge/export/batch` | Create a batch export task |
+| GET | `/api/knowledge/export/batch/{task_id}` | Get a batch export task |
+| GET | `/api/knowledge/export/batch/{task_id}/download` | Download a batch export |
 | POST | `/api/system/pick-directory` | Native folder picker |
-| POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | Chat |
-| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | Chat history (≤ 200 per page; `snapshot` pins an export) |
+| POST | `/api/chat/ask` | Ask a question |
+| POST | `/api/chat/ask/stream` | Ask a streaming question |
+| GET | `/api/chat/sessions` | List chat sessions |
+| GET | `/api/chat/sessions/{session_id}/messages?limit=200&before&until` | Get chat history (at most 200 messages per page) |
+| GET | `/api/chat/sessions/{session_id}/snapshot` | Get the fixed chat boundary for an export |
 
 ## Costs
 

@@ -16,12 +16,12 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-把你的抖音、哔哩哔哩和知乎收藏夹，一键变成一个可以搜索、可以对话的私人知识库。
+聚合多平台收藏夹，一键变成一个可以搜索、可以对话的私人知识库。
 
 ## 已支持的平台
 
 | 平台 | 支持的收藏内容 |
-| --- | --- |
+| :---: | :---: |
 | 抖音 | 短视频、图文 |
 | 哔哩哔哩 | 视频 |
 | 知乎 | 视频、图文内容（文章、回答等） |
@@ -186,17 +186,34 @@ version.txt                        版本号单一来源（release-please 维护
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | 抖音扫码登录 |
-| POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | 哔哩哔哩扫码登录 |
-| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | 知乎扫码登录 |
-| POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | 收藏夹 |
-| POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | 一键入库 + 进度 |
-| GET  | `/api/knowledge/stats` | 知识库统计 |
-| POST | `/api/knowledge/clear-all` · `/reset-failed` | 清空 / 重置 |
-| POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | 批量导出（后台任务） |
+| POST | `/api/auth/douyin/login/start` | 开始抖音扫码登录 |
+| GET | `/api/auth/douyin/login/status` | 查询抖音登录状态 |
+| POST | `/api/auth/douyin/logout` | 退出抖音登录 |
+| POST | `/api/auth/bilibili/qrcode/generate` | 生成哔哩哔哩登录二维码 |
+| GET | `/api/auth/bilibili/qrcode/poll` | 轮询哔哩哔哩二维码状态 |
+| GET | `/api/auth/bilibili/status` | 查询哔哩哔哩登录状态 |
+| POST | `/api/auth/bilibili/logout` | 退出哔哩哔哩登录 |
+| POST | `/api/auth/zhihu/login/start` | 开始知乎扫码登录 |
+| GET | `/api/auth/zhihu/login/status` | 查询知乎登录状态 |
+| POST | `/api/auth/zhihu/login/cancel` | 取消知乎登录 |
+| POST | `/api/auth/zhihu/logout` | 退出知乎登录 |
+| POST | `/api/favorites/sync` | 同步收藏夹 |
+| GET | `/api/favorites/collections` | 获取收藏夹列表 |
+| GET | `/api/favorites/collections/{collection_id}/videos` | 获取收藏内容 |
+| POST | `/api/knowledge/sync` | 一键入库 |
+| GET | `/api/knowledge/sync/{task_id}` | 查询入库进度 |
+| GET | `/api/knowledge/stats` | 知识库统计 |
+| POST | `/api/knowledge/clear-all` | 清空知识库 |
+| POST | `/api/knowledge/reset-failed` | 重置失败项 |
+| POST | `/api/knowledge/export/batch` | 创建批量导出任务 |
+| GET | `/api/knowledge/export/batch/{task_id}` | 查询批量导出任务 |
+| GET | `/api/knowledge/export/batch/{task_id}/download` | 下载批量导出结果 |
 | POST | `/api/system/pick-directory` | 系统原生目录选择框 |
-| POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | 对话 |
-| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | 对话历史（每页 ≤ 200 条；`snapshot` 固定导出边界） |
+| POST | `/api/chat/ask` | 发起对话 |
+| POST | `/api/chat/ask/stream` | 发起流式对话 |
+| GET | `/api/chat/sessions` | 获取对话列表 |
+| GET | `/api/chat/sessions/{session_id}/messages?limit=200&before&until` | 获取对话历史（每页最多 200 条） |
+| GET | `/api/chat/sessions/{session_id}/snapshot` | 获取用于导出的固定对话边界 |
 
 ## 费用说明
 

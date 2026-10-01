@@ -16,12 +16,12 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-더우인(중국판 TikTok), 빌리빌리, 즈후 즐겨찾기를 검색하고 대화할 수 있는 하나의 개인 지식 베이스로 바꿉니다.
+여러 플랫폼의 즐겨찾기를 모아 검색하고 대화할 수 있는 하나의 개인 지식 베이스로 만듭니다.
 
 ## 지원 플랫폼
 
 | 플랫폼 | 지원하는 즐겨찾기 콘텐츠 |
-| --- | --- |
+| :---: | :---: |
 | 더우인 | 짧은 동영상, 이미지·텍스트 게시물 |
 | 빌리빌리 | 동영상 |
 | 즈후 | 동영상, 글·이미지 콘텐츠(문서, 답변 등) |
@@ -182,17 +182,34 @@ version.txt                        버전 단일 출처 (release-please 가 관�
 
 | 메서드 | 경로 | 용도 |
 |--------|------|------|
-| POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | 더우인 QR 로그인 |
-| POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | 빌리빌리 QR 로그인 |
-| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | 즈후 QR 로그인 |
-| POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | 즐겨찾기 |
-| POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | 입고 + 진행률 |
-| GET  | `/api/knowledge/stats` | 지식 베이스 통계 |
-| POST | `/api/knowledge/clear-all` · `/reset-failed` | 비우기 / 재설정 |
-| POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | 일괄 내보내기 (백그라운드 작업) |
+| POST | `/api/auth/douyin/login/start` | 더우인 QR 로그인 시작 |
+| GET | `/api/auth/douyin/login/status` | 더우인 로그인 상태 조회 |
+| POST | `/api/auth/douyin/logout` | 더우인 로그아웃 |
+| POST | `/api/auth/bilibili/qrcode/generate` | 빌리빌리 로그인 QR 생성 |
+| GET | `/api/auth/bilibili/qrcode/poll` | 빌리빌리 QR 상태 조회 |
+| GET | `/api/auth/bilibili/status` | 빌리빌리 로그인 상태 조회 |
+| POST | `/api/auth/bilibili/logout` | 빌리빌리 로그아웃 |
+| POST | `/api/auth/zhihu/login/start` | 즈후 QR 로그인 시작 |
+| GET | `/api/auth/zhihu/login/status` | 즈후 로그인 상태 조회 |
+| POST | `/api/auth/zhihu/login/cancel` | 즈후 로그인 취소 |
+| POST | `/api/auth/zhihu/logout` | 즈후 로그아웃 |
+| POST | `/api/favorites/sync` | 즐겨찾기 동기화 |
+| GET | `/api/favorites/collections` | 즐겨찾기 폴더 목록 조회 |
+| GET | `/api/favorites/collections/{collection_id}/videos` | 폴더 콘텐츠 조회 |
+| POST | `/api/knowledge/sync` | 입고 시작 |
+| GET | `/api/knowledge/sync/{task_id}` | 입고 진행률 조회 |
+| GET | `/api/knowledge/stats` | 지식 베이스 통계 조회 |
+| POST | `/api/knowledge/clear-all` | 지식 베이스 비우기 |
+| POST | `/api/knowledge/reset-failed` | 실패 항목 재설정 |
+| POST | `/api/knowledge/export/batch` | 일괄 내보내기 생성 |
+| GET | `/api/knowledge/export/batch/{task_id}` | 일괄 내보내기 상태 조회 |
+| GET | `/api/knowledge/export/batch/{task_id}/download` | 일괄 내보내기 다운로드 |
 | POST | `/api/system/pick-directory` | 네이티브 폴더 선택 |
-| POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | 대화 |
-| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | 대화 기록 (페이지당 최대 200개, `snapshot`이 내보내기 경계를 고정) |
+| POST | `/api/chat/ask` | 대화 시작 |
+| POST | `/api/chat/ask/stream` | 스트리밍 대화 시작 |
+| GET | `/api/chat/sessions` | 대화 목록 조회 |
+| GET | `/api/chat/sessions/{session_id}/messages?limit=200&before&until` | 대화 기록 조회(페이지당 최대 200개) |
+| GET | `/api/chat/sessions/{session_id}/snapshot` | 내보내기용 고정 대화 경계 조회 |
 
 ## 비용
 

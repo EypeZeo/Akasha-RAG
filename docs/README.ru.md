@@ -16,12 +16,12 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-Превратите избранное из Douyin (китайский TikTok), Bilibili и Zhihu в единую личную базу знаний с поиском и диалогом.
+Соберите избранное с разных платформ в единую личную базу знаний с поиском и диалогом.
 
 ## Поддерживаемые платформы
 
 | Платформа | Поддерживаемый контент в избранном |
-| --- | --- |
+| :---: | :---: |
 | Douyin | Короткие видео и публикации с изображениями и текстом |
 | Bilibili | Видео |
 | Zhihu | Видео и текстово-графический контент, включая статьи и ответы |
@@ -182,17 +182,34 @@ version.txt                        единственный источник в�
 
 | Метод | Путь | Назначение |
 |-------|------|-----------|
-| POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | Вход по QR (Douyin) |
-| POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | Вход по QR (Bilibili) |
-| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | Вход по QR (Zhihu) |
-| POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | Избранное |
-| POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | Загрузка + прогресс |
-| GET  | `/api/knowledge/stats` | Статистика базы знаний |
-| POST | `/api/knowledge/clear-all` · `/reset-failed` | Очистка / сброс |
-| POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | Пакетный экспорт (фоновая задача) |
+| POST | `/api/auth/douyin/login/start` | Начать вход по QR Douyin |
+| GET | `/api/auth/douyin/login/status` | Получить статус входа Douyin |
+| POST | `/api/auth/douyin/logout` | Выйти из Douyin |
+| POST | `/api/auth/bilibili/qrcode/generate` | Создать QR для входа Bilibili |
+| GET | `/api/auth/bilibili/qrcode/poll` | Получить статус QR Bilibili |
+| GET | `/api/auth/bilibili/status` | Получить статус входа Bilibili |
+| POST | `/api/auth/bilibili/logout` | Выйти из Bilibili |
+| POST | `/api/auth/zhihu/login/start` | Начать вход по QR Zhihu |
+| GET | `/api/auth/zhihu/login/status` | Получить статус входа Zhihu |
+| POST | `/api/auth/zhihu/login/cancel` | Отменить вход Zhihu |
+| POST | `/api/auth/zhihu/logout` | Выйти из Zhihu |
+| POST | `/api/favorites/sync` | Синхронизировать избранное |
+| GET | `/api/favorites/collections` | Получить список папок избранного |
+| GET | `/api/favorites/collections/{collection_id}/videos` | Получить содержимое папки |
+| POST | `/api/knowledge/sync` | Начать загрузку |
+| GET | `/api/knowledge/sync/{task_id}` | Получить ход загрузки |
+| GET | `/api/knowledge/stats` | Получить статистику базы знаний |
+| POST | `/api/knowledge/clear-all` | Очистить базу знаний |
+| POST | `/api/knowledge/reset-failed` | Сбросить неудачные элементы |
+| POST | `/api/knowledge/export/batch` | Создать пакетный экспорт |
+| GET | `/api/knowledge/export/batch/{task_id}` | Получить пакетный экспорт |
+| GET | `/api/knowledge/export/batch/{task_id}/download` | Скачать пакетный экспорт |
 | POST | `/api/system/pick-directory` | Нативный выбор папки |
-| POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | Чат |
-| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | История чата (до 200 на страницу; `snapshot` фиксирует границу экспорта) |
+| POST | `/api/chat/ask` | Задать вопрос |
+| POST | `/api/chat/ask/stream` | Задать потоковый вопрос |
+| GET | `/api/chat/sessions` | Получить список сессий |
+| GET | `/api/chat/sessions/{session_id}/messages?limit=200&before&until` | Получить историю чата (до 200 сообщений на страницу) |
+| GET | `/api/chat/sessions/{session_id}/snapshot` | Получить фиксированную границу чата для экспорта |
 
 ## Стоимость
 
