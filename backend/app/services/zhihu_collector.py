@@ -19,14 +19,18 @@ import re
 import threading
 import time
 import base64
+import io
+import asyncio
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
 
 from playwright.sync_api import sync_playwright
+from PIL import Image
 
 from app.core.config import settings
+from app.core.external_urls import safe_platform_image_url
 from app.core.secure_storage import delete_json, read_json, write_json
 from app.services.douyin_collector import (
     FavoriteScrapedCollection,
@@ -239,6 +243,7 @@ class ZhihuCollector:
         self._state_path = Path(settings.zhihu_state_path)
         self._profile_path = self._state_path.with_name(_ZHIHU_PROFILE_PATH)
         self._qrcode_image_base64: str | None = None
+        self._previous_qrcode: str | None = None
         self.status = "idle"
         self.message = ""
         self._profile: dict[str, str] = self._load_profile()
@@ -248,7 +253,7 @@ class ZhihuCollector:
         try:
             value = read_json(self._profile_path)
             if isinstance(value, dict):
-                return {key: str(value.get(key) or "") for key in ("nickname", "avatar_url") if value.get(key)}
+                return self._safe_profile(value)
         except Exception as exc:
             logger.debug("读取知乎展示资料失败: %s", exc)
         return {}
@@ -295,6 +300,7 @@ class ZhihuCollector:
                 return False, "知乎登录窗口已在运行"
             self._cancel.clear()
             self._qrcode_image_base64 = None
+            self._previous_qrcode = None
             self.status = "pending"
             self.message = "请使用知乎 App 扫码登录"
             self._thread = threading.Thread(target=self._login_worker, name="zhihu-login", daemon=True)
@@ -309,14 +315,23 @@ class ZhihuCollector:
             self._qrcode_image_base64 = None
         return True, "已取消知乎登录"
 
+    async def wait_for_login_retirement(self, timeout: float = 3.0) -> bool:
+        """Wait off the API loop for an expired browser worker to release it."""
+        status = self.status
+        thread = self._thread
+        if status not in ("expired", "failed") or not thread or not thread.is_alive():
+            return True
+        await asyncio.to_thread(thread.join, timeout)
+        return not thread.is_alive() and self.status == status
+
     def logout(self) -> tuple[bool, str]:
         self.cancel_login()
         thread = self._thread
         if thread and thread is not threading.current_thread():
             thread.join(timeout=3.0)
-        delete_json(self._state_path)
-        delete_json(self._profile_path)
         with self._lock:
+            delete_json(self._state_path)
+            delete_json(self._profile_path)
             self._profile = {}
             self.status = "idle"
             self.message = "已退出知乎登录"
@@ -329,9 +344,9 @@ class ZhihuCollector:
         accepts the session.  Keeping such a state after a failed live check
         makes the frontend disable the Zhihu login tab indefinitely.
         """
-        delete_json(self._state_path)
-        delete_json(self._profile_path)
         with self._lock:
+            delete_json(self._state_path)
+            delete_json(self._profile_path)
             self._profile = {}
             self._qrcode_image_base64 = None
             self.status = "idle"
@@ -358,20 +373,28 @@ class ZhihuCollector:
                     if self._cancel.is_set():
                         return
                     write_json(self._state_path, context.storage_state())
-                    self._profile = self._extract_profile(page)
-                    if self._profile:
-                        write_json(self._profile_path, self._profile)
+                    # The verified /me payload is authoritative. DOM fallback
+                    # may fill missing fields, never replace its account name.
+                    self._remember_profile({
+                        key: value for key, value in self._extract_profile(page).items()
+                        if not self._profile.get(key)
+                    })
                     with self._lock:
+                        self._qrcode_image_base64 = None
                         self.status = "logged_in"
                         self.message = "知乎登录成功"
                     from app.services.worker import worker
                     worker.unblock_platform("zhihu")
                     return
-                time.sleep(1)
+                self._poll_qrcode(page)
+                # Dispatch browser events while waiting so provider-side QR
+                # rotation continues in this same browser session.
+                page.wait_for_timeout(1000)
             if not self._cancel.is_set():
                 with self._lock:
                     self.status = "expired"
                     self.message = "知乎登录等待超时，请重新打开登录窗口"
+                    self._qrcode_image_base64 = None
         except Exception as exc:
             if self._cancel.is_set():
                 logger.info("知乎登录流程已取消")
@@ -410,14 +433,27 @@ class ZhihuCollector:
             if not element.is_visible():
                 return None
             box = element.bounding_box()
-            if not box or box["width"] < 96 or box["height"] < 96:
+            if not box or not (96 <= box["width"] <= 1024 and 96 <= box["height"] <= 1024):
                 return None
             ratio = box["width"] / box["height"]
             if ratio < 0.9 or ratio > 1.1:
                 return None
             if not is_canvas and not element.evaluate("image => image.complete && image.naturalWidth >= 96 && image.naturalHeight >= 96"):
                 return None
-            return base64.b64encode(element.screenshot(type="png")).decode("ascii")
+            screenshot = element.screenshot(type="png")
+            if len(screenshot) > 4 * 1024 * 1024:
+                return None
+            # Inspect the screenshot rather than reading a potentially tainted
+            # canvas. Two stable screenshots can also be an entirely blank
+            # renderer: require meaningful dark and light pixel populations.
+            with Image.open(io.BytesIO(screenshot)) as image:
+                if image.format != "PNG" or not (96 <= image.width <= 2048 and 96 <= image.height <= 2048):
+                    return None
+                histogram = image.convert("L").histogram()
+                minimum = image.width * image.height * 0.02
+                if sum(histogram[:81]) < minimum or sum(histogram[175:]) < minimum:
+                    return None
+            return base64.b64encode(screenshot).decode("ascii")
         except Exception:
             return None
 
@@ -444,7 +480,10 @@ class ZhihuCollector:
             qrcode = self._capture_qrcode(page)
             if qrcode and qrcode == previous_qrcode:
                 with self._lock:
+                    if self._cancel.is_set():
+                        return
                     self._qrcode_image_base64 = qrcode
+                    self._previous_qrcode = qrcode
                     self.message = "请使用知乎 App 扫码登录"
                 return
             previous_qrcode = qrcode
@@ -453,7 +492,45 @@ class ZhihuCollector:
             raise ZhihuRequestError("未能从知乎登录页获取二维码，请重试")
 
     @staticmethod
-    def _page_logged_in(page, context) -> bool:
+    def _qrcode_expired(page) -> bool:
+        # Read only the visible QR UI. Text elsewhere on the sign-in page
+        # must not trigger a reload or interrupt phone confirmation.
+        return bool(page.evaluate(r"""() => {
+            const root = document.querySelector('div.Qrcode-container');
+            if (!root || !root.getClientRects().length) return false;
+            if (getComputedStyle(root).visibility !== 'visible' ||
+                Number(getComputedStyle(root).opacity) === 0) return false;
+            return /二维码.{0,8}(?:过期|失效)|(?:过期|失效).{0,8}二维码|点击(?:此处)?刷新|QR\s*code.{0,12}expired/i.test(root.innerText);
+        }"""))
+
+    def _poll_qrcode(self, page) -> None:
+        if self._cancel.is_set():
+            return
+        if self._qrcode_expired(page):
+            with self._lock:
+                self._qrcode_image_base64 = None
+                self._previous_qrcode = None
+                self.message = "二维码已过期，正在获取新的登录二维码"
+            # Reload the same sign-in page/context instead of leaving an
+            # expired canvas visible or creating a second browser worker.
+            page.reload(wait_until="domcontentloaded", timeout=20_000)
+            self._wait_for_qrcode(page)
+            return
+        qrcode = self._capture_qrcode(page)
+        with self._lock:
+            if self._cancel.is_set():
+                return
+            if qrcode and qrcode == self._previous_qrcode:
+                self._qrcode_image_base64 = qrcode
+                self.message = "请使用知乎 App 扫码登录"
+            elif qrcode != self._qrcode_image_base64:
+                # A changed/incomplete renderer cannot be scanned until the
+                # second identical sample confirms that it has finished.
+                self._qrcode_image_base64 = None
+                self.message = "正在获取新的登录二维码，请稍等"
+            self._previous_qrcode = qrcode
+
+    def _page_logged_in(self, page, context) -> bool:
         try:
             cookies = context.cookies()
             if not any(cookie.get("name") in _AUTH_COOKIE_NAMES and cookie.get("value") for cookie in cookies):
@@ -469,18 +546,63 @@ class ZhihuCollector:
                 return False
             payload = json.loads(result.get("text", "{}"))
             value = payload.get("data", payload) if isinstance(payload, dict) else {}
-            return isinstance(value, dict) and bool(value.get("id") or value.get("url_token") or value.get("name"))
+            logged_in = isinstance(value, dict) and bool(value.get("id") or value.get("url_token") or value.get("name"))
+            if logged_in:
+                # The current-account check already fetches these fields. Do
+                # not scrape another user's answer card or issue another API
+                # request merely to populate the account display.
+                profile = {"nickname": value.get("name"), "avatar_url": value.get("avatar_url")}
+                if not profile["avatar_url"] and isinstance(value.get("avatar_url_template"), str):
+                    profile["avatar_url"] = value["avatar_url_template"].replace("{size}", "xl")
+                self._remember_profile(profile)
+            return logged_in
         except Exception:
             return False
 
     @staticmethod
+    def _safe_profile(value: Any) -> dict[str, str]:
+        if not isinstance(value, dict):
+            return {}
+        nickname = value.get("nickname")
+        nickname = nickname.strip()[:128] if isinstance(nickname, str) else ""
+        avatar = safe_platform_image_url("zhihu", value.get("avatar_url"))
+        return {key: item for key, item in (("nickname", nickname), ("avatar_url", avatar)) if item}
+
+    def _remember_profile(self, value: Any) -> None:
+        profile = self._safe_profile(value)
+        if not profile:
+            return
+        with self._lock:
+            if self._cancel.is_set():
+                return
+            merged = {**self._profile, **profile}
+            if merged == self._profile:
+                return
+            # Display-cache persistence must not change authentication success.
+            try:
+                write_json(self._profile_path, merged)
+            except Exception:
+                logger.debug("保存知乎展示资料失败", exc_info=True)
+            self._profile = merged
+
+    @staticmethod
     def _extract_profile(page) -> dict[str, str]:
         try:
-            value = page.evaluate("""() => ({
-                nickname: document.querySelector('[data-za-detail-view-path="UserProfile"]')?.textContent?.trim() || '',
-                avatar_url: document.querySelector('img.Avatar, img[class*="Avatar"]')?.src || ''
-            })""")
-            return {key: str(value.get(key) or "") for key in ("nickname", "avatar_url") if value.get(key)}
+            value = page.evaluate("""() => {
+                const visible = node => !!node && node.getClientRects().length > 0 &&
+                    getComputedStyle(node).visibility !== 'hidden';
+                // The header account button belongs to the logged-in user;
+                // page-wide Avatar/UserLink selectors also match feed authors.
+                const header = document.querySelector('.AppHeader');
+                const avatar = header?.querySelector('img.AppHeader-profileAvatar');
+                if (!visible(avatar)) return {};
+                const name = avatar.alt?.trim() || '';
+                return {
+                    nickname: ['头像', '我的头像', '用户头像', 'Avatar', 'avatar'].includes(name) ? '' : name,
+                    avatar_url: avatar.currentSrc || avatar.src || '',
+                };
+            }""")
+            return ZhihuCollector._safe_profile(value)
         except Exception:
             return {}
 

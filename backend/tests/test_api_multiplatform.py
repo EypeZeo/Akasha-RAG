@@ -220,6 +220,7 @@ async def test_douyin_qrcode_endpoints(client):
          patch("app.api.routes.auth.collector.refresh_qrcode", return_value=fake_qr), \
          patch("app.api.routes.auth.collector.show_browser_window", return_value=True):
         
+        mock_start.return_value = (True, 'waiting')
         mock_wait.return_value = fake_qr
 
         # 1. 生成二维码
