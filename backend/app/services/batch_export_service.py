@@ -417,6 +417,10 @@ class BatchExportService:
             current_row = ws.max_row
             for col_num in range(1, len(row_data) + 1):
                 c = ws.cell(row=current_row, column=col_num)
+                # Provider text and model output are data, even when they
+                # begin with '='. Never let openpyxl serialize them as formulas.
+                if isinstance(row_data[col_num - 1], str):
+                    c.data_type = "s"
                 c.font = font_body
                 if col_num in (1, 2, 6):
                     c.alignment = align_center
@@ -434,6 +438,8 @@ class BatchExportService:
                 cont_row = ws.max_row
                 for col_num in range(1, len(continuation) + 1):
                     c = ws.cell(row=cont_row, column=col_num)
+                    if isinstance(continuation[col_num - 1], str):
+                        c.data_type = "s"
                     c.font = font_body
                     c.alignment = align_center if col_num in (1, 2, 6) else align_left
 

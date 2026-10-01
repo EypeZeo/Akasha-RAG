@@ -64,3 +64,20 @@ def test_normal_length_transcript_stays_on_a_single_row():
     ws = wb.active
     # header row + exactly one data row, no continuation rows produced.
     assert ws.max_row == 2
+
+
+def test_untrusted_metadata_and_continuation_text_are_never_formulas(monkeypatch):
+    formula = '=HYPERLINK("https://example.com", "external")'
+    cache, fv = _fake_item("=1+1", "x" * 30000 + formula, author=formula)
+    cache.title = formula
+    monkeypatch.setattr(
+        "app.services.batch_export_service.export_ai_organized",
+        lambda *args, **kwargs: formula,
+    )
+    wb = load_workbook(BatchExportService()._export_excel([(cache, fv)], "both"))
+    ws = wb.active
+    assert ws["B2"].value == "=1+1"
+    for coordinate in ("B2", "C2", "D2", "G2", "H3"):
+        assert ws[coordinate].data_type == "s"
+    assert ws["H3"].value == formula
+    assert not any(cell.data_type == "f" for row in ws for cell in row)

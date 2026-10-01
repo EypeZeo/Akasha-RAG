@@ -7,6 +7,7 @@ import ApiKeyMissingModal from './ApiKeyMissingModal';
 import { useI18n } from '../i18n';
 import { VIDEOS_PER_PAGE_OPTIONS, type CollectionExpandMode } from '../utils/settings';
 import { aggregateSyncCounts, getFailedPlatforms } from '../utils/syncSummary';
+import { isNoteItem } from '../utils/contentKind';
 import { useWorkspaceStore } from '../store/workspace';
 import { useExportFlow } from '../hooks/useExportFlow';
 import { useBuildFlow } from '../hooks/useBuildFlow';
@@ -105,7 +106,7 @@ export default function SourcesPanel({
   const [showBuildConfirm, setShowBuildConfirm] = useState(false);
   // 打开确认弹窗那一刻的作用域快照：弹窗开着期间选中项/平台再变，也不影响这次入库/导出的目标。
   const [buildScope, setBuildScope] = useState<ActionScope | null>(null);
-  const [exportScope, setExportScope] = useState<ActionScope | null>(null);
+  const [exportScope, setExportScope] = useState<(ActionScope & { doneCount: number }) | null>(null);
   const [actionStatusData, setActionStatusData] = useState<{ key: string; counts: Record<string, number> } | null>(null);
   const mountedRef = useRef(true);
   const [buildInitialType, setBuildInitialType] = useState<'all' | 'video' | 'note'>('all');
@@ -600,9 +601,29 @@ export default function SourcesPanel({
     fetchVideos(id, 1);
   };
 
-  const handleExport = (platformItemId: string, platform: string, mode: 'original' | 'ai') => {
-    const url = `/api/knowledge/export/${encodeURIComponent(platformItemId)}?mode=${mode}&platform=${encodeURIComponent(platform)}`;
-    window.open(url, '_blank');
+  const handleExport = async (platformItemId: string, platform: string, mode: 'original' | 'ai') => {
+    if (mode === 'original') {
+      const url = `/api/knowledge/export/${encodeURIComponent(platformItemId)}?mode=original&platform=${encodeURIComponent(platform)}`;
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
+    try {
+      const { blob, filename } = await api.exportVideoWithAi(platformItemId, platform);
+      if (!mountedRef.current) return;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      try {
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+      } finally {
+        anchor.remove();
+        URL.revokeObjectURL(url);
+      }
+    } catch {
+      notify(t('operationFailed'));
+    }
   };
 
   const handleDelete = async (platformItemId: string, platform: string) => {
@@ -687,8 +708,8 @@ export default function SourcesPanel({
   const videosLoading = loadingVideos || (expandedId !== null && shownVideos === null);
 
   // 分类计数：优先用服务端整栏口径（跨分页稳定）；服务端字段缺失时回退到当前页统计
-  const pageVideoCount = expandedVideos.filter(v => (v.item_type === 'video' || (v.duration ?? 0) > 0)).length;
-  const pageNoteCount = expandedVideos.filter(v => (v.item_type === 'note' || (v.duration ?? 0) === 0)).length;
+  const pageNoteCount = expandedVideos.filter(isNoteItem).length;
+  const pageVideoCount = expandedVideos.length - pageNoteCount;
   const videoItemsCount = expandedVideoCount || pageVideoCount;
   const noteItemsCount = expandedNoteCount || pageNoteCount;
   // 整栏没有任何图文（B站的常态，也含恰好全是视频的抖音收藏夹）时，隐去分类筛选行
@@ -697,7 +718,7 @@ export default function SourcesPanel({
   // 展开收藏夹内容的本地关键词搜索与分类筛选 (300ms 防抖)
   const filteredVideos = expandedVideos.filter(v => {
     if (statusFilter !== 'all' && v.status !== statusFilter) return false;
-    const isNote = v.item_type === 'note' || (v.duration ?? 0) === 0;
+    const isNote = isNoteItem(v);
     if (typeFilter === 'video' && isNote) return false;
     if (typeFilter === 'note' && !isNote) return false;
     if (!debouncedSearch.trim()) return true;
@@ -768,10 +789,14 @@ export default function SourcesPanel({
     : actionScope?.id === 'all' && actionScope.platform === 'all'
       ? retryableCount
       : 0;
+  const isGlobalActionScope = actionScope?.id === 'all' && actionScope.platform === 'all';
+  const actionDoneCount = actionStatusCounts?.done ?? (isGlobalActionScope ? doneCount : 0);
+  const videoActionLabel = `${t('onlyIngestVideo')}${isGlobalActionScope ? ` (${videoRetryable})` : ''}`;
+  const noteActionLabel = `${t('onlyIngestNote')}${isGlobalActionScope ? ` (${noteRetryable})` : ''}`;
 
   const openScopedExport = () => {
     if (!actionScope) return;
-    setExportScope({ ...actionScope });
+    setExportScope({ ...actionScope, doneCount: actionDoneCount });
     openExportModal();
   };
 
@@ -817,7 +842,7 @@ export default function SourcesPanel({
           <div className="flex items-center gap-1.5">
             <button
               onClick={openScopedExport}
-              disabled={doneCount === 0 || !actionScope}
+              disabled={actionDoneCount === 0 || !actionScope}
               className="group flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium text-accent bg-accent/10 hover:bg-accent/18 active:scale-95 transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-accent/10 shadow-2xs cursor-pointer"
               title={t('batchExportTooltip')}
             >
@@ -1129,7 +1154,7 @@ export default function SourcesPanel({
                     ) : (
                       <div className="max-h-[360px] overflow-y-auto pr-1 flex flex-col gap-1 subtle-scrollbar">
                         {filteredVideos.map(v => {
-                          const isNote = v.item_type === 'note' || (v.duration ?? 0) === 0;
+                          const isNote = isNoteItem(v);
                           return (
                             <div
                               key={v.id}
@@ -1302,7 +1327,7 @@ export default function SourcesPanel({
         <div className="flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold text-[var(--color-ink-soft)]">📥 {building ? t('ingesting') : (isSubmitting ? t('ingestSubmitting') : t('kbStatus'))}</h3>
-            {doneCount > 0 && !building && !isSubmitting && (
+            {actionDoneCount > 0 && !building && !isSubmitting && (
               <button
                 onClick={handleClearAll}
                 disabled={clearing || !actionScope}
@@ -1431,7 +1456,7 @@ export default function SourcesPanel({
                 </button>
                 <button
                   onClick={openScopedExport}
-                  disabled={doneCount === 0 || !actionScope}
+                  disabled={actionDoneCount === 0 || !actionScope}
                   className="group py-2.5 rounded-xl border border-accent/35 bg-accent-light hover:bg-accent/20 text-accent text-xs font-bold transition-all duration-200 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
                 >
                   <svg className="w-3.5 h-3.5 shrink-0 group-hover:-translate-y-0.5 transition-transform duration-200" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1439,37 +1464,37 @@ export default function SourcesPanel({
                     <polyline points="17 8 12 3 7 8" />
                     <line x1="12" y1="3" x2="12" y2="15" />
                   </svg>
-                  <span>{t('batchExport')} ({doneCount})</span>
+                  <span>{t('batchExport')} ({actionDoneCount})</span>
                 </button>
               </div>
 
               {/* 仅入库视频 / 仅入库图文 快捷分流入口 */}
-              {videoRetryable > 0 && noteRetryable > 0 && (
+              {(isGlobalActionScope ? videoRetryable > 0 && noteRetryable > 0 : actionRetryableCount > 0) && (
                 <div className="flex gap-1.5">
                   <button
                     onClick={() => openBuildModal('video')}
                     disabled={!actionScope}
                     className="flex-1 py-1.5 px-2 rounded-lg text-[10px] bg-blue-50/80 hover:bg-blue-100 text-blue-700 border border-blue-200/60 font-medium transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-1"
-                    title={`${t('onlyIngestVideo')} (${videoRetryable})`}
+                    title={videoActionLabel}
                   >
                     <svg className="w-3 h-3 text-blue-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="m22 8-6 4 6 4V8Z" />
                       <rect width="14" height="12" x="2" y="6" rx="2" />
                     </svg>
-                    <span>{t('onlyIngestVideo')} ({videoRetryable})</span>
+                    <span>{videoActionLabel}</span>
                   </button>
                   <button
                     onClick={() => openBuildModal('note')}
                     disabled={!actionScope}
                     className="flex-1 py-1.5 px-2 rounded-lg text-[10px] bg-purple-50/80 hover:bg-purple-100 text-purple-700 border border-purple-200/60 font-medium transition-all active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer flex items-center justify-center gap-1"
-                    title={`${t('onlyIngestNote')} (${noteRetryable})`}
+                    title={noteActionLabel}
                   >
                     <svg className="w-3 h-3 text-purple-600 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
                       <circle cx="9" cy="9" r="2" />
                       <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
                     </svg>
-                    <span>{t('onlyIngestNote')} ({noteRetryable})</span>
+                    <span>{noteActionLabel}</span>
                   </button>
                 </div>
               )}
@@ -1507,7 +1532,7 @@ export default function SourcesPanel({
           collectionId={exportScope.id}
           collectionTitle={exportScope.title}
           platform={exportScope.platform}
-          doneCount={doneCount}
+          doneCount={exportScope.doneCount}
           onClose={closeExportModal}
           onExportStarted={(taskId, mode) => startExportPolling(taskId, mode)}
         />

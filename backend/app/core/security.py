@@ -17,6 +17,7 @@ CORS 预检，天然免疫这类 CSRF，不需要维护 token/session。
 from __future__ import annotations
 
 from ipaddress import ip_address
+from urllib.parse import urlsplit
 
 from fastapi import Header, HTTPException, Request
 
@@ -51,15 +52,53 @@ def is_loopback_client(request: Request) -> bool:
         return False
 
 
+def is_local_host(request: Request) -> bool:
+    """Reject DNS rebinding even when the TCP peer is the local browser.
+
+    A hostile hostname can re-resolve to loopback after serving JavaScript.
+    Its requests are then same-origin and can include our fixed client header.
+    Forwarded host headers are deliberately not trusted.
+    """
+    hosts = request.headers.getlist("host")
+    if len(hosts) != 1:
+        return False
+    try:
+        parsed = urlsplit("//" + hosts[0])
+        host = parsed.hostname
+        if (
+            not host or parsed.username is not None or parsed.password is not None
+            or parsed.path or parsed.query or parsed.fragment
+        ):
+            return False
+        # Accessing port also rejects invalid/out-of-range port spellings.
+        parsed.port
+        if host.lower() == "localhost":
+            return True
+        if host == "testserver" and request.client and request.client.host == "testclient":
+            return True
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 async def require_local_client(
     request: Request, x_akasha_client: str | None = Header(default=None)
 ) -> None:
     """挂在 api_router 上的全局依赖：缺失或值不对时直接 403。"""
     if not is_loopback_client(request):
         raise HTTPException(status_code=403, detail="Akasha-RAG API accepts loopback clients only")
+    if not is_local_host(request):
+        raise HTTPException(status_code=403, detail="Akasha-RAG API requires a local Host header")
     if request.method == "GET":
         route = request.scope.get("route")
-        if getattr(route, "path", None) in _EXEMPT_GET_ROUTES:
+        route_path = getattr(route, "path", None)
+        # AI export creates/caches a summary and can incur provider charges.
+        # Only the original, read-only download may use native navigation.
+        generates_summary = (
+            route_path == "/knowledge/export/{platform_item_id}"
+            and "ai" in request.query_params.getlist("mode")
+        )
+        if route_path in _EXEMPT_GET_ROUTES and not generates_summary:
             return
     if x_akasha_client != REQUIRED_CLIENT_HEADER_VALUE:
         raise HTTPException(status_code=403, detail="Missing or invalid X-Akasha-Client header")

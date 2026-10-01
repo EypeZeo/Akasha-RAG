@@ -27,6 +27,11 @@ logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="export")
 _tasks: dict[str, dict] = {}
 _lock = threading.Lock()
+_MAX_ACTIVE_EXPORTS = 8
+
+
+class ExportQueueFullError(RuntimeError):
+    """Admission failed before allocating an unbounded executor job."""
 
 _EXPORT_TMP_DIR = Path(__file__).resolve().parents[2] / "app" / "storage" / "export_tmp"
 
@@ -66,6 +71,8 @@ def submit_export(params: dict) -> str:
     task_id = uuid.uuid4().hex[:12]
     mode = "local" if (params.get("target_dir") or "").strip() else "browser"
     with _lock:
+        if sum(t["status"] in ("queued", "running") for t in _tasks.values()) >= _MAX_ACTIVE_EXPORTS:
+            raise ExportQueueFullError("导出队列已满，请等待已有任务完成后重试")
         _tasks[task_id] = {
             "status": "queued",
             "progress": 0,
@@ -75,13 +82,20 @@ def submit_export(params: dict) -> str:
             "result": None,
             "created_at": time.time(),
         }
-    _get_executor().submit(_run, task_id, params)
+    try:
+        _get_executor().submit(_run, task_id, params)
+    except Exception:
+        with _lock:
+            _tasks.pop(task_id, None)
+        raise
     logger.info("导出任务已提交: %s (mode=%s)", task_id, mode)
     return task_id
 
 
 def _run(task_id: str, params: dict) -> None:
     with _lock:
+        if task_id not in _tasks or _tasks[task_id]["status"] != "queued":
+            return
         _tasks[task_id]["status"] = "running"
         _tasks[task_id]["message"] = "正在准备导出..."
     try:
@@ -130,6 +144,7 @@ def _run(task_id: str, params: dict) -> None:
         with _lock:
             t = _tasks[task_id]
             t["status"] = "done"
+            t["finished_at"] = time.time()
             t["result"] = result
             t["progress"] = t["total"] or t["progress"]
             t["message"] = result.get("message") or "导出完成"
@@ -138,6 +153,7 @@ def _run(task_id: str, params: dict) -> None:
         logger.exception("导出任务失败: %s", task_id)
         with _lock:
             _tasks[task_id]["status"] = "failed"
+            _tasks[task_id]["finished_at"] = time.time()
             _tasks[task_id]["message"] = str(exc)[:500]
             _tasks[task_id]["result"] = {"success": False, "message": str(exc)[:500]}
 
@@ -157,6 +173,10 @@ def take_download(task_id: str) -> Optional[tuple[Path, str, str]]:
 def shutdown() -> None:
     """应用关闭时优雅停掉导出线程池（不等待长任务）。"""
     try:
+        with _lock:
+            for task in _tasks.values():
+                if task["status"] == "queued":
+                    task.update(status="failed", message="服务已关闭，导出任务未执行", finished_at=time.time())
         _executor.shutdown(wait=False, cancel_futures=True)
     except Exception:
         pass
@@ -166,13 +186,19 @@ def _purge_stale() -> None:
     """清理过期产物文件与任务记录。"""
     ttl = settings.export_tmp_retention_minutes * 60
     now = time.time()
+    with _lock:
+        active_ids = {tid for tid, t in _tasks.items() if t["status"] in ("queued", "running")}
     try:
         for f in _export_tmp_dir().iterdir():
-            if f.is_file() and now - f.stat().st_mtime > ttl:
+            if f.stem not in active_ids and f.is_file() and now - f.stat().st_mtime > ttl:
                 f.unlink(missing_ok=True)
     except Exception:
         pass
     with _lock:
-        stale = [tid for tid, t in _tasks.items() if now - t.get("created_at", now) > ttl]
+        stale = [
+            tid for tid, t in _tasks.items()
+            if t["status"] in ("done", "failed")
+            and now - t.get("finished_at", t.get("created_at", now)) > ttl
+        ]
         for tid in stale:
             _tasks.pop(tid, None)

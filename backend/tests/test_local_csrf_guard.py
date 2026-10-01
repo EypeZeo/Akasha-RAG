@@ -11,7 +11,7 @@ app/core/security.py 模块文档）。
 import asyncio
 
 import pytest
-from fastapi import HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
@@ -99,3 +99,41 @@ def test_non_loopback_client_is_rejected_even_with_the_browser_header():
     with pytest.raises(HTTPException) as caught:
         asyncio.run(require_local_client(request, x_akasha_client="1"))
     assert caught.value.status_code == 403
+
+
+def _guarded_app():
+    # Isolate the guard from database/Chroma startup and paid model calls.
+    guarded = FastAPI()
+    routes = APIRouter(dependencies=[Depends(require_local_client)])
+
+    @routes.get("/settings")
+    @routes.get("/knowledge/export/{platform_item_id}")
+    def protected(platform_item_id: str = ""):
+        return {"ok": True}
+
+    guarded.include_router(routes)
+    return guarded
+
+
+@pytest.mark.parametrize("host", ["rebind.attacker.example", "localhost.evil.example", "localhost:bad", "127.0.0.1@evil.example"])
+def test_loopback_header_cannot_bypass_host_validation(host):
+    response = TestClient(_guarded_app()).get(
+        "/settings", headers={"Host": host, "X-Akasha-Client": "1"}
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize("host", ["localhost:8000", "127.0.0.1:8000", "[::1]:8000", "testserver"])
+def test_local_host_names_and_ip_literals_are_allowed(host):
+    response = TestClient(_guarded_app()).get(
+        "/settings", headers={"Host": host, "X-Akasha-Client": "1"}
+    )
+    assert response.status_code == 200
+
+
+def test_ai_export_requires_browser_header_but_original_download_does_not():
+    client = TestClient(_guarded_app())
+    assert client.get("/knowledge/export/1?mode=original").status_code == 200
+    assert client.get("/knowledge/export/1?mode=ai").status_code == 403
+    assert client.get("/knowledge/export/1?mode=original&mode=ai").status_code == 403
+    assert client.get("/knowledge/export/1?mode=ai", headers={"X-Akasha-Client": "1"}).status_code == 200

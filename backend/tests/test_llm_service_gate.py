@@ -1,9 +1,8 @@
 """
 PR2B-4 回归测试：LLMClient.chat/stream_chat 接入模型调用闸门
 
-`chat()` 现有的 @retry 没有白名单也没有 reraise=True——闸门必须包在
-_chat_with_retry 外面一层，一次逻辑调用只进一次闸门，不会因为内部重试
-2 次而被重复计数、也不会让 ModelCallAdmissionTimeout 被盲目重试。
+`chat()` 闸门包在 _chat_with_retry 外面，一次逻辑调用只进一次闸门，
+不会因为内部网络重试而被重复计数，也不会重试 ModelCallAdmissionTimeout。
 `stream_chat()` 是生成器，闸门要横跨整个生成周期，正常耗尽和被外部提前
 `.close()` 都要正确释放。
 """
@@ -13,6 +12,7 @@ import time
 from unittest.mock import Mock
 
 import pytest
+import httpx
 
 from app.core.model_gate import ModelCallAdmissionTimeout
 from app.services import llm_service as llm_module
@@ -36,7 +36,7 @@ def test_chat_acquires_gate_once_per_call_not_per_retry(monkeypatch):
     def fake_openai_chat(*args, **kwargs):
         calls["n"] += 1
         if calls["n"] == 1:
-            raise RuntimeError("transient")
+            raise httpx.ConnectError("transient")
         return "answer"
 
     monkeypatch.setattr(llm_module, "_openai_chat", fake_openai_chat)

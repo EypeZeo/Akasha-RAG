@@ -44,6 +44,26 @@ afterEach(() => {
 });
 
 describe('useExportFlow', () => {
+  it('recovers from a hung progress request and aborts on unmount', async () => {
+    vi.useFakeTimers();
+    const hung = deferred<api.ExportProgress>();
+    const next = deferred<api.ExportProgress>();
+    vi.mocked(api.getExportProgress).mockReturnValueOnce(hung.promise).mockReturnValue(next.promise);
+    const { result, unmount } = renderHook(() => useExportFlow(t));
+    act(() => result.current.startExportPolling('hung-export', 'local'));
+    const firstSignal = vi.mocked(api.getExportProgress).mock.calls[0][1]!;
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(firstSignal.aborted).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(api.getExportProgress).toHaveBeenCalledTimes(2);
+    await act(async () => { hung.resolve({ success: true, status: 'done', progress: 99, total: 99 }); });
+    expect(result.current.exportTask?.status).toBe('queued');
+    const nextSignal = vi.mocked(api.getExportProgress).mock.calls[1][1]!;
+    unmount();
+    expect(nextSignal.aborted).toBe(true);
+    expect(localStorage.getItem(ACTIVE_EXPORT_KEY)).toContain('hung-export');
+  });
+
   it('starts a task as queued and picks up status changes from polling', async () => {
     vi.mocked(api.getExportProgress).mockResolvedValue({
       success: true, status: 'running', progress: 2, total: 5,
@@ -102,7 +122,7 @@ describe('useExportFlow', () => {
       expect(result.current.exportTask?.id).toBe('task-3');
     });
     expect(result.current.exportTask?.mode).toBe('browser');
-    expect(api.getExportProgress).toHaveBeenCalledWith('task-3');
+    expect(api.getExportProgress).toHaveBeenCalledWith('task-3', expect.any(AbortSignal));
   });
 
   it('only triggers one real download per task id even if called repeatedly', () => {
@@ -187,7 +207,7 @@ describe('useExportFlow', () => {
     // A's stale terminal response must not have cleared B's interval.
     vi.mocked(api.getExportProgress).mockClear();
     await act(async () => { await vi.advanceTimersByTimeAsync(1_500); });
-    expect(api.getExportProgress).toHaveBeenCalledWith('task-b');
+    expect(api.getExportProgress).toHaveBeenCalledWith('task-b', expect.any(AbortSignal));
   });
 
   it('a task started while another is still being polled is not overwritten by the old one\'s late response', async () => {

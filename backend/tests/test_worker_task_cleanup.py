@@ -40,3 +40,14 @@ def test_submit_creates_a_timestamped_task_record():
     except Exception:
         pass
     assert "created_at" in worker._tasks["t1"]
+
+
+def test_retention_starts_when_long_running_task_finishes(monkeypatch):
+    monkeypatch.setattr(settings, "worker_task_retention_minutes", 1)
+    worker = Worker()
+    now = time.time()
+    worker._tasks["long-job"] = {
+        "status": "done", "created_at": now - 3600, "finished_at": now,
+    }
+    worker._purge_stale_tasks()
+    assert worker.get_progress("long-job") is not None

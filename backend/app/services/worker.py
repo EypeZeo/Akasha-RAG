@@ -9,6 +9,7 @@ import logging
 import queue
 import threading
 import time
+from contextlib import contextmanager
 from typing import Callable, Optional
 
 from app.core.config import settings
@@ -43,6 +44,9 @@ class Worker:
         self._current_task_id: Optional[str] = None
         self._tasks: dict[str, dict] = {}
         self._lock = threading.Lock()
+        self._submission_lock = threading.RLock()
+        self._lifecycle_lock = threading.Lock()
+        self._thread_exiting = False
         self._running = False
         # A provider logout must not cancel unrelated providers in a mixed batch.
         self._blocked_platforms: set[str] = set()
@@ -51,21 +55,42 @@ class Worker:
         """
         启动工作线程
         """
-        if self._thread.is_alive():
-            return
-        self._running = True
-        if self._thread._started.is_set():
-            self._thread = threading.Thread(
-                target=self._run, daemon=True, name="knowledge-worker"
-            )
-        self._thread.start()
+        with self._lifecycle_lock:
+            self._running = True
+            if self._thread.is_alive() and not self._thread_exiting:
+                return
+            if self._thread._started.is_set():
+                self._thread = threading.Thread(
+                    target=self._run, daemon=True, name="knowledge-worker"
+                )
+            self._thread_exiting = False
+            self._thread.start()
         logger.info("后台工作线程已启动")
 
     def stop(self) -> None:
         """
         停止工作线程
         """
-        self._running = False
+        with self.submission_guard():
+            with self._lifecycle_lock:
+                self._running = False
+                with self._lock:
+                    for task in self._tasks.values():
+                        if task["status"] in ("queued", "running"):
+                            task["cancelled"] = True
+                            task["message"] = "正在取消..."
+                # Drain jobs not yet claimed by the worker. A concurrently claimed
+                # job observes its cancellation flag before entering its body.
+                while True:
+                    try:
+                        task_id, *_ = self._queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    with self._lock:
+                        self._tasks[task_id]["status"] = "cancelled"
+                        self._tasks[task_id]["message"] = "已取消"
+                        self._tasks[task_id]["finished_at"] = time.time()
+                    self._queue.task_done()
 
     def submit(
         self,
@@ -89,25 +114,38 @@ class Worker:
         :param kwargs: 关键字参数
         :raises queue.Full: 队列已满且超时
         """
-        self._purge_stale_tasks()
-        with self._lock:
-            self._tasks[task_id] = {
-                "status": "queued",
-                "progress": 0,
-                "total": progress_total,
-                "message": progress_message,
-                "cancelled": False,
-                "created_at": time.time(),
-            }
-        try:
-            self._queue.put((task_id, func, args, kwargs), timeout=timeout)
-            logger.info("任务已提交: %s", task_id)
-        except queue.Full:
+        with self.submission_guard():
+            self._purge_stale_tasks()
             with self._lock:
-                self._tasks[task_id]["status"] = "failed"
-                self._tasks[task_id]["message"] = "任务队列已满，请稍后重试"
-            logger.error("任务队列已满，拒绝任务: %s", task_id)
-            raise RuntimeError("任务队列已满，请稍后重试")
+                self._tasks[task_id] = {
+                    "status": "queued",
+                    "progress": 0,
+                    "total": progress_total,
+                    "message": progress_message,
+                    "cancelled": False,
+                    "created_at": time.time(),
+                }
+            try:
+                self._queue.put((task_id, func, args, kwargs), timeout=timeout)
+                logger.info("任务已提交: %s", task_id)
+            except queue.Full:
+                with self._lock:
+                    self._tasks[task_id]["status"] = "failed"
+                    self._tasks[task_id]["message"] = "任务队列已满，请稍后重试"
+                    self._tasks[task_id]["finished_at"] = time.time()
+                logger.error("任务队列已满，拒绝任务: %s", task_id)
+                raise RuntimeError("任务队列已满，请稍后重试")
+
+    @contextmanager
+    def submission_guard(self):
+        """Serialize task publication with knowledge maintenance operations.
+
+        Callers must check active tasks while holding this guard. Processing
+        jobs never take it, so maintenance may inspect progress without
+        preventing running jobs from reaching a terminal state.
+        """
+        with self._submission_lock:
+            yield
 
     def get_progress(self, task_id: str) -> Optional[dict]:
         """
@@ -163,7 +201,8 @@ class Worker:
             stale = [
                 tid
                 for tid, task in self._tasks.items()
-                if task.get("status") in _TERMINAL_STATUSES and now - task.get("created_at", now) > ttl
+                if task.get("status") in _TERMINAL_STATUSES
+                and now - task.get("finished_at", task.get("created_at", now)) > ttl
             ]
             for tid in stale:
                 self._tasks.pop(tid, None)
@@ -191,13 +230,26 @@ class Worker:
 
         从队列取任务并执行，更新状态。
         """
-        while self._running:
+        while True:
+            # Coordinate the exit decision with start(): is_alive() alone is
+            # insufficient when the old thread has already decided to return.
+            # This separate lock never blocks dequeue on a full submission queue.
+            with self._lifecycle_lock:
+                if not self._running:
+                    self._thread_exiting = True
+                    return
             try:
                 task_id, func, args, kwargs = self._queue.get(timeout=1)
             except queue.Empty:
                 continue
 
             with self._lock:
+                if self._tasks[task_id].get("cancelled"):
+                    self._tasks[task_id]["status"] = "cancelled"
+                    self._tasks[task_id]["message"] = "已取消"
+                    self._tasks[task_id]["finished_at"] = time.time()
+                    self._queue.task_done()
+                    continue
                 self._current_task_id = task_id
                 self._tasks[task_id]["status"] = "running"
                 self._tasks[task_id]["message"] = "正在处理..."
@@ -216,12 +268,14 @@ class Worker:
                         self._tasks[task_id]["progress"] = (
                             self._tasks[task_id]["total"]
                         )
+                    self._tasks[task_id]["finished_at"] = time.time()
 
             except Exception as exc:
                 logger.exception("任务执行失败: %s", task_id)
                 with self._lock:
                     self._tasks[task_id]["status"] = "failed"
                     self._tasks[task_id]["message"] = str(exc)[:500]
+                    self._tasks[task_id]["finished_at"] = time.time()
 
             finally:
                 with self._lock:
@@ -244,7 +298,7 @@ class Worker:
         :param message: 进度消息
         """
         with self._lock:
-            if task_id in self._tasks and self._tasks[task_id]["status"] not in ("done", "failed"):
+            if task_id in self._tasks and self._tasks[task_id]["status"] not in _TERMINAL_STATUSES:
                 self._tasks[task_id]["progress"] = progress
                 self._tasks[task_id]["total"] = total
                 if message:

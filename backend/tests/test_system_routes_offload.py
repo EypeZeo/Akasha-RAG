@@ -118,3 +118,52 @@ def test_tail_lines_reads_a_bounded_amount_not_the_whole_file(tmp_path, monkeypa
 
     assert lines == [f"line-{i}" for i in range(total_lines - 5, total_lines)]
     assert sum(read_sizes) < file_size / 10, "tail read pulled in far more than a bounded slice of the file"
+
+
+def test_tail_lines_bounds_unterminated_large_log_record(tmp_path):
+    path = tmp_path / "single-record.log"
+    path.write_bytes(b"a" * (4 * 1024 * 1024))
+    lines = system._tail_lines(path, max_lines=100, max_bytes=16384)
+    assert len(lines) == 1
+    assert len(lines[0]) == 16384
+
+
+@pytest.mark.asyncio
+async def test_open_folder_cannot_execute_an_existing_file(tmp_path, monkeypatch):
+    executable = tmp_path / "malicious.exe"
+    executable.write_bytes(b"not an executable")
+    calls = []
+    monkeypatch.setattr(system.os, "startfile", lambda *args: calls.append(args), raising=False)
+    monkeypatch.setattr(system.subprocess, "Popen", lambda *args: calls.append(args))
+    result = await system.open_local_folder(system.OpenFolderRequest(folder_type="custom", custom_path=str(executable)))
+    assert result["success"] is False
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_open_folder_rejects_relative_paths():
+    result = await system.open_local_folder(system.OpenFolderRequest(folder_type="custom", custom_path="relative"))
+    assert result["success"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["stats", "clean"])
+async def test_audio_cache_routes_offload_disk_scan(monkeypatch, method):
+    from app.services import media_service
+
+    started = threading.Event()
+    gate = threading.Event()
+
+    def block(**kwargs):
+        started.set()
+        gate.wait(timeout=5)
+        return {}
+
+    if method == "stats":
+        monkeypatch.setattr(media_service, "get_audio_cache_stats", block)
+        route_task = asyncio.create_task(system.get_audio_cache_info())
+    else:
+        monkeypatch.setattr(media_service, "clean_audio_cache", block)
+        route_task = asyncio.create_task(system.clean_audio_cache_endpoint(system.CleanAudioCacheRequest()))
+    await _assert_loop_not_blocked_while(started, gate)
+    assert (await route_task)["success"] is True

@@ -16,8 +16,8 @@ from typing import Iterable, Sequence
 import dashscope
 import httpx
 from dashscope import TextEmbedding
-from openai import OpenAI
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+from openai import APIConnectionError, APIStatusError, OpenAI
+from tenacity import retry, retry_if_exception, retry_if_exception_type, stop_after_attempt, wait_fixed
 from requests.exceptions import RequestException
 
 from app.core.config import settings
@@ -31,6 +31,16 @@ ANTHROPIC_API_VERSION = "2023-06-01"
 # qwen3.7-text-embedding / text-embedding-v4 / v3 均支持 dimension 参数。
 # 更换 EMBEDDING_MODEL 或修改此值后，必须清空知识库重建向量索引。
 EMBEDDING_DIMENSION = 1024
+
+
+def _is_retryable_chat_error(exc: BaseException) -> bool:
+    """Retry transport failures or explicit transient upstream responses only."""
+    if isinstance(exc, (APIStatusError, httpx.HTTPStatusError)):
+        return exc.response.status_code in {408, 429, 500, 502, 503, 504}
+    return isinstance(exc, (
+        APIConnectionError, httpx.TimeoutException, httpx.ConnectError,
+        httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError,
+    ))
 
 
 class LLMClient:
@@ -75,15 +85,14 @@ class LLMClient:
         :param timeout: 超时时间（秒）
         :return: LLM 生成的完整回复
         """
-        # 闸门包在被 @retry 装饰的方法外面一层：_chat_with_retry 的重试
-        # 装饰器没有白名单也没有 reraise=True，如果闸门在里面，
-        # ModelCallAdmissionTimeout 会被盲目重试 3 次、最后包成不可辨识的
-        # tenacity.RetryError。
+        # Hold one admission slot across bounded transport retries. Admission
+        # failures never enter the retry body or trigger an upstream request.
         # TODO(后续批次): 视情况引入"排队等待 + SDK 超时"的统一剩余 deadline 传播。
         with acquire_model_call_slot("llm_chat"):
             return self._chat_with_retry(system_prompt, user_prompt, temperature, max_tokens, timeout)
 
-    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1))
+    @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True,
+           retry=retry_if_exception(_is_retryable_chat_error))
     def _chat_with_retry(
         self,
         system_prompt: str,
@@ -141,38 +150,42 @@ class LLMClient:
 
 def _openai_chat(base_url: str, api_key: str, model: str, system_prompt: str, user_prompt: str,
                   temperature: float, max_tokens: int, timeout: float) -> str:
-    client = OpenAI(api_key=api_key or "sk-placeholder", base_url=base_url)
-    response = client.chat.completions.create(
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        timeout=timeout,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
-    return response.choices[0].message.content or ""
+    with OpenAI(api_key=api_key or "sk-placeholder", base_url=base_url, max_retries=0) as client:
+        response = client.chat.completions.create(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        return response.choices[0].message.content or ""
 
 
 def _openai_stream_chat(base_url: str, api_key: str, model: str, system_prompt: str, user_prompt: str,
                          temperature: float, max_tokens: int, timeout: float) -> Iterable[str]:
-    client = OpenAI(api_key=api_key or "sk-placeholder", base_url=base_url)
-    stream = client.chat.completions.create(
-        model=model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        timeout=timeout,
-        stream=True,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-    )
-    for chunk in stream:
-        delta = chunk.choices[0].delta
-        if delta and delta.content:
-            yield delta.content
+    with OpenAI(api_key=api_key or "sk-placeholder", base_url=base_url, max_retries=0) as client:
+        with client.chat.completions.create(
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            stream=True,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        ) as stream:
+            for chunk in stream:
+                # OpenAI-compatible gateways can send an empty choices list
+                # in a final usage-only chunk.
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    yield delta.content
 
 
 def _anthropic_headers(api_key: str) -> dict:

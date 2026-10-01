@@ -25,6 +25,7 @@ from dashscope.api_entities.dashscope_response import MultiModalConversationResp
 from app.core.config import settings
 from app.core.external_urls import safe_platform_image_url
 from app.core.model_gate import acquire_model_call_slot
+from app.core.secure_storage import read_json
 
 logger = logging.getLogger(__name__)
 _MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -85,13 +86,16 @@ class VisionService:
             Path(__file__).resolve().parent.parent / "storage" / "playwright_user_data" / "state.json",
         ]
         for p in candidates:
-            if p.exists():
-                try:
-                    with open(p, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        return {c["name"]: c["value"] for c in data.get("cookies", []) if c.get("name")}
-                except Exception:
-                    pass
+            try:
+                data = read_json(p)
+                if isinstance(data, dict):
+                    return {
+                        c["name"]: c["value"]
+                        for c in data.get("cookies", [])
+                        if isinstance(c, dict) and c.get("name") and "value" in c
+                    }
+            except (OSError, ValueError, TypeError):
+                continue
         return {}
 
     def _download_trusted_image(self, image_url: str, headers: dict[str, str]) -> bytes | None:
@@ -160,7 +164,6 @@ class VisionService:
             f"https://www.douyin.com/note/{platform_item_id}",
             f"https://www.douyin.com/video/{platform_item_id}",
         ]
-
         for target_url in candidate_urls:
             try:
                 resp = requests.get(target_url, headers=headers, cookies=cookies, timeout=10)
@@ -265,6 +268,8 @@ class VisionService:
             for url in image_urls[:16]
             if (safe_url := safe_platform_image_url("douyin", url))
         ]
+        if not candidate_urls:
+            return ""
         extracted_sections = []
 
         headers = {

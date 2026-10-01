@@ -127,6 +127,26 @@ def test_cancel_check_kills_asr_worker_immediately(service, monkeypatch):
     assert child.killed is True
 
 
+def test_cancel_callback_failure_still_kills_and_reaps_real_child(service, monkeypatch):
+    asr, path = service
+    real_popen = subprocess.Popen
+    children = []
+
+    def popen(command, **kwargs):
+        child = real_popen([command[0], "-c", "import time; time.sleep(60)"], **kwargs)
+        children.append(child)
+        return child
+
+    def broken_cancel_check():
+        raise ValueError("cancel state unavailable")
+
+    monkeypatch.setattr(service_module.subprocess, "Popen", popen)
+    with pytest.raises(ValueError, match="cancel state unavailable"):
+        asr.transcribe(path, cancel_check=broken_cancel_check)
+    assert len(children) == 1
+    assert children[0].poll() is not None
+
+
 @pytest.mark.parametrize("kind", ["empty", "oversize", "m4a", "missing_key", "wrong_model"])
 def test_bad_inputs_fail_before_spawning(service, monkeypatch, kind):
     asr, path = service

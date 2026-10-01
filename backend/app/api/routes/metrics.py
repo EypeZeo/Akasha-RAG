@@ -8,6 +8,7 @@ import platform
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import psutil
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,14 +19,14 @@ from app.core.security import require_local_client
 from app.db.session import get_db
 from sqlalchemy.orm import Session
 
-router = APIRouter(prefix="/api/metrics", tags=["metrics"], dependencies=[Depends(require_local_client)])
+router = APIRouter(prefix="/metrics", tags=["metrics"], dependencies=[Depends(require_local_client)])
 
 # 启动时间（用于计算运行时长）
 _START_TIME = time.time()
 
 
 @router.get("/system")
-async def get_system_metrics() -> dict[str, Any]:
+def get_system_metrics() -> dict[str, Any]:
     """
     获取系统资源指标
     
@@ -76,7 +77,7 @@ async def get_system_metrics() -> dict[str, Any]:
 
 
 @router.get("/network")
-async def get_network_metrics() -> dict[str, Any]:
+def get_network_metrics() -> dict[str, Any]:
     """
     获取网络状态指标
     
@@ -87,9 +88,17 @@ async def get_network_metrics() -> dict[str, Any]:
     
     # 代理检测
     proxy = detect_network_proxy(validate=False)
+    proxy_display = None
+    if proxy:
+        # A diagnostic response must never expose the proxy's user/password.
+        parts = urlsplit(proxy)
+        host = parts.hostname or ""
+        host = f"[{host}]" if ":" in host else host
+        netloc = f"{host}:{parts.port}" if parts.port is not None else host
+        proxy_display = urlunsplit((parts.scheme, netloc, "", "", ""))
     proxy_info = {
         "detected": proxy is not None,
-        "url": proxy if proxy else None,
+        "url": proxy_display,
         "mode": "proxy" if proxy else "direct/tun",
     }
     
@@ -112,7 +121,7 @@ async def get_network_metrics() -> dict[str, Any]:
 
 
 @router.get("/cache")
-async def get_cache_metrics() -> dict[str, Any]:
+def get_cache_metrics() -> dict[str, Any]:
     """
     获取缓存统计
     
@@ -142,19 +151,20 @@ async def get_cache_metrics() -> dict[str, Any]:
     # 音频缓存
     audio_cache_path = Path(settings.audio_cache_dir)
     audio_cache_size = get_dir_size(audio_cache_path)
-    audio_file_count = len(list(audio_cache_path.glob("**/*"))) if audio_cache_path.exists() else 0
+    audio_file_count = sum(1 for item in audio_cache_path.glob("**/*") if item.is_file()) if audio_cache_path.exists() else 0
     
     # 向量库
     chroma_path = Path(settings.chroma_persist_dir)
     chroma_size = get_dir_size(chroma_path)
     
     # 数据库
-    db_path = Path("app/storage/douyinrag.db")
-    db_size = db_path.stat().st_size if db_path.exists() else 0
+    from app.db.session import engine
+    db_path = Path(engine.url.database) if engine.dialect.name == "sqlite" and engine.url.database else None
+    db_size = db_path.stat().st_size if db_path and db_path.is_file() else 0
     
     # WAL 文件
-    wal_path = Path("app/storage/douyinrag.db-wal")
-    wal_size = wal_path.stat().st_size if wal_path.exists() else 0
+    wal_path = Path(str(db_path) + "-wal") if db_path else None
+    wal_size = wal_path.stat().st_size if wal_path and wal_path.is_file() else 0
     
     return {
         "audio_cache": {
@@ -177,7 +187,7 @@ async def get_cache_metrics() -> dict[str, Any]:
 
 
 @router.get("/database")
-async def get_database_metrics(session: Session = Depends(get_db)) -> dict[str, Any]:
+def get_database_metrics(session: Session = Depends(get_db)) -> dict[str, Any]:
     """
     获取数据库统计
     
@@ -186,11 +196,11 @@ async def get_database_metrics(session: Session = Depends(get_db)) -> dict[str, 
     if not settings.developer_mode:
         raise HTTPException(status_code=403, detail="开发者模式未启用")
     
-    from app.db.models import (
+    from app.models.entities import (
         SourceAccount,
         FavoriteCollection,
         ContentItem,
-        CollectionItem,
+        CollectionItemRelation,
         IngestionItem,
     )
     
@@ -199,14 +209,14 @@ async def get_database_metrics(session: Session = Depends(get_db)) -> dict[str, 
             "source_accounts": session.query(SourceAccount).count(),
             "favorite_collections": session.query(FavoriteCollection).count(),
             "content_items": session.query(ContentItem).count(),
-            "collection_items": session.query(CollectionItem).count(),
+            "collection_items": session.query(CollectionItemRelation).count(),
             "ingestion_items": session.query(IngestionItem).count(),
         },
     }
 
 
 @router.get("/health")
-async def get_health_check() -> dict[str, Any]:
+def get_health_check() -> dict[str, Any]:
     """
     健康检查端点（不需要开发者模式）
     
@@ -223,7 +233,7 @@ async def get_health_check() -> dict[str, Any]:
 
 
 @router.get("/audit/recent")
-async def get_recent_audit_logs(limit: int = 50) -> dict[str, Any]:
+def get_recent_audit_logs(limit: int = 50) -> dict[str, Any]:
     """
     获取最近的审计日志
     
@@ -245,18 +255,14 @@ async def get_recent_audit_logs(limit: int = 50) -> dict[str, Any]:
     
     try:
         logs = []
-        with open(audit_log_file, 'r', encoding='utf-8') as f:
-            # 读取最后 N 行
-            lines = f.readlines()
-            recent_lines = lines[-limit:] if len(lines) > limit else lines
-            
-            for line in reversed(recent_lines):
-                try:
-                    import json
-                    log_entry = json.loads(line)
-                    logs.append(log_entry)
-                except json.JSONDecodeError:
-                    continue
+        from app.api.routes.system import _tail_lines
+        for line in reversed(_tail_lines(audit_log_file, max_lines=limit)):
+            try:
+                import json
+                log_entry = json.loads(line)
+                logs.append(log_entry)
+            except json.JSONDecodeError:
+                continue
         
         return {
             "logs": logs,
@@ -267,7 +273,7 @@ async def get_recent_audit_logs(limit: int = 50) -> dict[str, Any]:
 
 
 @router.get("/performance")
-async def get_performance_metrics() -> dict[str, Any]:
+def get_performance_metrics() -> dict[str, Any]:
     """
     获取性能指标
     

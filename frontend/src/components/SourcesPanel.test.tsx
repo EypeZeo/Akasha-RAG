@@ -300,6 +300,80 @@ describe('SourcesPanel collections list & pagination', () => {
 });
 
 describe('SourcesPanel expanded video list & search', () => {
+  it.each(['douyin', 'bilibili', 'zhihu'] as const)('keeps export and ingest action counts inside the %s scope', async platform => {
+    useWorkspaceStore.setState({ selectedPlatform: platform });
+    vi.mocked(api.listCollections).mockResolvedValue({
+      success: true, items: [makeCollection({ collection_id: 'all', title: '全部收藏' })], total: 1,
+    });
+    vi.mocked(api.getKnowledgeStats).mockResolvedValue({
+      success: true, video_cache: { pending: 215, done: 29 },
+      detail: { video: { pending: 162 }, note: { pending: 53 } },
+    });
+    vi.mocked(api.getCollectionStatusCounts).mockResolvedValue({
+      success: true, status_counts: { pending: 3, done: 4 },
+    });
+    setup();
+    expect(await screen.findByText(`${TRANSLATIONS.en.batchExport} (4)`)).toBeTruthy();
+    expect(await screen.findByText(`${TRANSLATIONS.en.oneClickIngest} (3)`)).toBeTruthy();
+    expect(screen.queryByText(`${TRANSLATIONS.en.batchExport} (29)`)).toBeNull();
+    expect(screen.getByText(TRANSLATIONS.en.onlyIngestVideo)).toBeTruthy();
+    expect(screen.getByText(TRANSLATIONS.en.onlyIngestNote)).toBeTruthy();
+    expect(screen.queryByText(`${TRANSLATIONS.en.onlyIngestVideo} (162)`)).toBeNull();
+    expect(screen.queryByText(`${TRANSLATIONS.en.onlyIngestNote} (53)`)).toBeNull();
+  });
+
+  it('downloads AI exports through the authenticated API and releases the object URL', async () => {
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true, items: [makeVideo()], total: 1,
+    });
+    vi.mocked(api.exportVideoWithAi).mockResolvedValue({ blob: new Blob(['summary']), filename: 'summary.md' });
+    const create = vi.fn().mockReturnValue('blob:export');
+    const revoke = vi.fn();
+    vi.stubGlobal('URL', class extends URL {
+      static createObjectURL = create;
+      static revokeObjectURL = revoke;
+    });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    try {
+      setup();
+      await screen.findByText('Test Collection');
+      clickCollection('Test Collection');
+      fireEvent.click(await screen.findByTitle(TRANSLATIONS.en.exportAiTooltip));
+      await waitFor(() => expect(api.exportVideoWithAi).toHaveBeenCalledWith('v1', 'douyin'));
+      await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+      expect(revoke).toHaveBeenCalledWith('blob:export');
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('uses explicit content type for videos with unknown duration and notes with stale duration', async () => {
+    useWorkspaceStore.setState({ selectedPlatform: 'zhihu' });
+    vi.mocked(api.listCollections).mockResolvedValue({
+      success: true, items: [makeCollection({ platform: 'zhihu' })], total: 1,
+    });
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true,
+      items: [
+        makeVideo({ title: 'Unknown duration video', platform: 'zhihu', duration: 0 }),
+        makeVideo({ id: 2, title: 'Explicit note', platform: 'zhihu', item_type: 'note', duration: 30 }),
+      ],
+      total: 2,
+    });
+    setup();
+    clickCollection((await screen.findByText('Test Collection')).textContent!);
+    await screen.findByText('Unknown duration video');
+    expect(screen.getByRole('button', { name: `📹${TRANSLATIONS.en.video} (1)` })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: `📹${TRANSLATIONS.en.video} (1)` }));
+    expect(screen.getByText('Unknown duration video')).toBeTruthy();
+    expect(screen.queryByText('Explicit note')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: `🖼️${TRANSLATIONS.en.imageNote} (1)` }));
+    expect(screen.getByText('Explicit note')).toBeTruthy();
+    expect(screen.queryByText('Unknown duration video')).toBeNull();
+  });
+
   it('uses platform-scoped status counts for the synthetic all-favorites row', async () => {
     useWorkspaceStore.setState({ selectedPlatform: 'zhihu' });
     vi.mocked(api.listCollections).mockResolvedValue({
@@ -724,7 +798,9 @@ describe('SourcesPanel clear all knowledge', () => {
 
   it('scopes both the confirm wording and the API call to the expanded collection, then resets that collection to page 1', async () => {
     vi.mocked(api.getKnowledgeStats).mockResolvedValue(statsWithDone(3));
-    vi.mocked(api.listCollectionVideos).mockResolvedValue({ success: true, items: [makeVideo({ title: 'V1' })], total: 1 });
+    vi.mocked(api.listCollectionVideos).mockResolvedValue({
+      success: true, items: [makeVideo({ title: 'V1' })], total: 1, status_counts: { done: 1 },
+    });
     vi.mocked(api.clearAllKnowledge).mockResolvedValue({ success: true, reset_count: 2 });
 
     setup();
@@ -1118,6 +1194,6 @@ describe('SourcesPanel build submit-path error handling', () => {
     await waitFor(() => {
       expect(screen.getByText(TRANSLATIONS.en.ingestRestoring)).toBeTruthy();
     });
-    expect(api.getSyncProgress).toHaveBeenCalledWith('task-22');
+    expect(api.getSyncProgress).toHaveBeenCalledWith('task-22', expect.any(AbortSignal));
   });
 });

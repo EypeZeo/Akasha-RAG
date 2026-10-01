@@ -105,21 +105,20 @@ def _test_proxy_connectivity(proxy_url: str, timeout: float = 3.0) -> tuple[bool
         parsed = urlsplit(proxy_url)
         host = parsed.hostname
         port = parsed.port or 8080
-        
-        # 尝试连接代理服务器
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(timeout)
-        sock.connect((host, port))
-        sock.close()
+        # Context management releases sockets on refused/timed-out connections
+        # too; create_connection also supports IPv6 proxy addresses.
+        with socket.create_connection((host, port), timeout=timeout):
+            pass
         return True, ""
     except socket.timeout:
-        return False, f"代理连接超时: {proxy_url}"
+        return False, "代理连接超时"
     except socket.gaierror:
-        return False, f"无法解析代理地址: {proxy_url}"
+        return False, "无法解析代理地址"
     except ConnectionRefusedError:
-        return False, f"代理连接被拒绝: {proxy_url}"
+        return False, "代理连接被拒绝"
     except Exception as e:
-        return False, f"代理连接失败: {proxy_url} ({type(e).__name__}: {e})"
+        # Proxy URLs and exception strings may contain username/password.
+        return False, f"代理连接失败 ({type(e).__name__})"
 
 
 def detect_network_proxy(validate: bool = False) -> str | None:

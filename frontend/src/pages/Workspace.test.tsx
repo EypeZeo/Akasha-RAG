@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import Workspace from './Workspace';
-import { I18nProvider } from '../i18n';
+import { I18nProvider, TRANSLATIONS } from '../i18n';
 import * as api from '../api';
 import { useWorkspaceStore } from '../store/workspace';
 
@@ -14,7 +14,9 @@ vi.mock('../components/ChatPanel', () => ({
   ),
 }));
 vi.mock('../components/SourcesStudio', () => ({ default: () => <div /> }));
-vi.mock('../components/SettingsModal', () => ({ default: () => null }));
+vi.mock('../components/SettingsModal', () => ({
+  default: (props: { onAccountsChanged: () => void }) => <button onClick={props.onAccountsChanged}>Refresh accounts</button>,
+}));
 vi.mock('../components/LoginModal', () => ({ default: () => null }));
 vi.mock('../components/ActivityBar', () => ({ default: () => null }));
 
@@ -46,6 +48,21 @@ afterEach(() => {
 });
 
 describe('Workspace hands ChatPanel the platform its selected collection actually belongs to', () => {
+  it('ignores a late platform response after the account state is refreshed', async () => {
+    let resolve!: (value: Awaited<ReturnType<typeof api.listPlatforms>>) => void;
+    vi.mocked(api.listPlatforms).mockReturnValueOnce(new Promise(done => { resolve = done; }))
+      .mockResolvedValue({ success: true, platforms: [] });
+    renderWorkspace();
+    await act(async () => { fireEvent.click(screen.getByText('Refresh accounts')); });
+    await act(async () => {
+      resolve({
+        success: true,
+        platforms: [{ platform: 'zhihu', name: 'Zhihu', status: 'logged_in', is_logged_in: true }],
+      });
+    });
+    expect(screen.queryByText(TRANSLATIONS.en.loggedInPlatforms.replace('{count}', '1').replace('{total}', '3'))).toBeNull();
+  });
+
   it('a real collection selected under one platform scopes chat to that platform, even while the browse filter says "all"', () => {
     useWorkspaceStore.setState({ selectedCollectionId: 'same', selectedCollectionPlatform: 'douyin', selectedPlatform: 'all' });
     renderWorkspace();

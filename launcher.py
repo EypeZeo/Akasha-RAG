@@ -369,6 +369,16 @@ class UnifiedLauncher:
             sys.exit(0)
 
     def run(self) -> int:
+        # Startup can be interrupted before signal handlers are installed
+        # (dependency installation / backend readiness). Always reap services.
+        try:
+            return self._run_services()
+        except KeyboardInterrupt:
+            return self.exit_code
+        finally:
+            self.shutdown(wait_for_key=False)
+
+    def _run_services(self) -> int:
         link_fe = make_clickable_link("http://localhost:5173", "http://localhost:5173")
         link_be = make_clickable_link("http://127.0.0.1:8000", "http://127.0.0.1:8000")
         link_docs = make_clickable_link("http://127.0.0.1:8000/docs", "http://127.0.0.1:8000/docs")
