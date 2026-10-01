@@ -7,6 +7,7 @@ import os
 import platform
 import time
 from pathlib import Path
+from stat import S_ISREG
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -130,41 +131,48 @@ def get_cache_metrics() -> dict[str, Any]:
     if not settings.developer_mode:
         raise HTTPException(status_code=403, detail="开发者模式未启用")
     
-    def get_dir_size(path: Path) -> int:
-        """递归计算目录大小（字节）"""
-        if not path.exists():
+    def file_size(path: Path | None) -> int:
+        # Cleanup/checkpoint workers can remove a cache or WAL file between
+        # discovery and stat. Monitoring must tolerate that normal race.
+        if path is None:
             return 0
-        if path.is_file():
-            return path.stat().st_size
-        total = 0
+        try:
+            info = path.stat()
+            return info.st_size if S_ISREG(info.st_mode) else 0
+        except OSError:
+            return 0
+
+    def directory_stats(path: Path) -> tuple[int, int]:
+        total, count = 0, 0
         try:
             for item in path.rglob("*"):
-                if item.is_file():
-                    try:
-                        total += item.stat().st_size
-                    except (OSError, PermissionError):
-                        pass
-        except (OSError, PermissionError):
+                try:
+                    info = item.stat()
+                    if S_ISREG(info.st_mode):
+                        total += info.st_size
+                        count += 1
+                except OSError:
+                    continue
+        except OSError:
             pass
-        return total
+        return total, count
     
     # 音频缓存
     audio_cache_path = Path(settings.audio_cache_dir)
-    audio_cache_size = get_dir_size(audio_cache_path)
-    audio_file_count = sum(1 for item in audio_cache_path.glob("**/*") if item.is_file()) if audio_cache_path.exists() else 0
+    audio_cache_size, audio_file_count = directory_stats(audio_cache_path)
     
     # 向量库
     chroma_path = Path(settings.chroma_persist_dir)
-    chroma_size = get_dir_size(chroma_path)
+    chroma_size, _ = directory_stats(chroma_path)
     
     # 数据库
     from app.db.session import engine
     db_path = Path(engine.url.database) if engine.dialect.name == "sqlite" and engine.url.database else None
-    db_size = db_path.stat().st_size if db_path and db_path.is_file() else 0
+    db_size = file_size(db_path)
     
     # WAL 文件
     wal_path = Path(str(db_path) + "-wal") if db_path else None
-    wal_size = wal_path.stat().st_size if wal_path and wal_path.is_file() else 0
+    wal_size = file_size(wal_path)
     
     return {
         "audio_cache": {

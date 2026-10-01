@@ -124,31 +124,37 @@ export default function DeveloperPanel() {
   useEffect(() => {
     if (!developerMode) return;
     let disposed = false;
-    let current: AbortController | null = null;
+    let current: AbortController[] | null = null;
 
     const fetchMetrics = async () => {
       if (disposed || current) return;
-      const controller = new AbortController();
-      current = controller;
+      const controllers = Array.from({ length: 4 }, () => new AbortController());
+      current = controllers;
+      const readMetric = <T,>(url: string, index: number) =>
+        pollProgress(signal => readJson<T>(url, signal), controllers[index]);
       try {
-        const [system, network, cache, database] = await pollProgress(signal => Promise.all([
-          readJson<SystemMetrics>('/api/metrics/system', signal),
-          readJson<NetworkMetrics>('/api/metrics/network', signal),
-          readJson<CacheMetrics>('/api/metrics/cache', signal),
-          readJson<DatabaseMetrics>('/api/metrics/database', signal),
-        ]), controller);
-        if (disposed || controller.signal.aborted) return;
-        setSystemMetrics(system);
-        setNetworkMetrics(network);
-        setCacheMetrics(cache);
-        setDatabaseMetrics(database);
-        setError('');
-      } catch (_err) {
+        const [system, network, cache, database] = await Promise.allSettled([
+          readMetric<SystemMetrics>('/api/metrics/system', 0),
+          readMetric<NetworkMetrics>('/api/metrics/network', 1),
+          readMetric<CacheMetrics>('/api/metrics/cache', 2),
+          readMetric<DatabaseMetrics>('/api/metrics/database', 3),
+        ]);
         if (disposed) return;
-        setError('获取监控数据失败');
+        const failed: string[] = [];
+        const apply = <T,>(result: PromiseSettledResult<T>, update: (value: T) => void, label: string) => {
+          if (result.status === 'fulfilled') update(result.value);
+          else failed.push(label);
+        };
+        apply(system, setSystemMetrics, '系统资源');
+        apply(network, setNetworkMetrics, '网络状态');
+        apply(cache, setCacheMetrics, '缓存统计');
+        apply(database, setDatabaseMetrics, '数据库统计');
+        setError(failed.length
+          ? `${failed.length === 4 ? '获取监控数据失败' : '获取部分监控数据失败'}（${failed.join('、')}）；将在 5 秒后重试，已显示的数据可能是上次结果`
+          : '');
       } finally {
-        controller.abort();
-        if (current === controller) current = null;
+        controllers.forEach(controller => controller.abort());
+        if (current === controllers) current = null;
       }
     };
 
@@ -156,7 +162,7 @@ export default function DeveloperPanel() {
     const interval = setInterval(fetchMetrics, 5000);
     return () => {
       disposed = true;
-      current?.abort();
+      current?.forEach(controller => controller.abort());
       clearInterval(interval);
     };
   }, [developerMode]);
@@ -242,7 +248,7 @@ export default function DeveloperPanel() {
         </div>
 
         {error && (
-          <div className="mb-4 rounded-md bg-red-50 dark:bg-red-900/20 p-4 text-sm text-red-800 dark:text-red-400">
+          <div role="alert" className="mb-4 rounded-md bg-red-50 dark:bg-red-900/20 p-4 text-sm text-red-800 dark:text-red-400">
             {error}
           </div>
         )}

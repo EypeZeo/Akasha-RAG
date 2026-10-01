@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from pathlib import Path
 
 import pytest
 from fastapi import APIRouter, Depends, FastAPI
@@ -93,3 +94,61 @@ async def test_system_sampling_does_not_block_event_loop(monkeypatch):
         finally:
             release.set()
         assert (await request).status_code == 200
+
+
+@pytest.mark.parametrize("failure", [FileNotFoundError, PermissionError])
+def test_cache_metrics_tolerate_concurrent_file_cleanup(monkeypatch, tmp_path, failure):
+    from app.db import session as db_session
+
+    monkeypatch.setattr(metrics.settings, "developer_mode", True)
+    audio = tmp_path / "audio"
+    audio.mkdir()
+    kept = audio / "kept.mp3"
+    kept.write_bytes(b"a" * 1048576)
+    removed = audio / "removed.mp3"
+    removed.write_bytes(b"b")
+    chroma = tmp_path / "chroma"
+    chroma.mkdir()
+    (chroma / "index.bin").write_bytes(b"c" * 2097152)
+    monkeypatch.setattr(metrics.settings, "audio_cache_dir", str(audio))
+    monkeypatch.setattr(metrics.settings, "chroma_persist_dir", str(chroma))
+    database = tmp_path / "db.sqlite"
+    database.write_bytes(b"d" * 1048576)
+    wal = Path(str(database) + "-wal")
+    wal.write_bytes(b"e")
+    engine = create_engine(f"sqlite:///{database.as_posix()}")
+    monkeypatch.setattr(db_session, "engine", engine)
+    original_stat = Path.stat
+
+    def concurrent_stat(path, *args, **kwargs):
+        if path in (removed, wal):
+            raise failure("file is being cleaned up")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", concurrent_stat)
+    try:
+        response = TestClient(_app(), headers={"X-Akasha-Client": "1"}).get("/api/metrics/cache")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["audio_cache"]["file_count"] == 1
+        assert data["audio_cache"]["size_mb"] == 1.0
+        assert data["vector_db"]["size_mb"] == 2.0
+        assert data["sqlite"] == {"db_size_mb": 1.0, "wal_size_mb": 0.0, "total_size_mb": 1.0}
+    finally:
+        engine.dispose()
+
+
+def test_cache_metrics_tolerate_unreadable_directory(monkeypatch, tmp_path):
+    monkeypatch.setattr(metrics.settings, "developer_mode", True)
+    monkeypatch.setattr(metrics.settings, "audio_cache_dir", str(tmp_path))
+    original_rglob = Path.rglob
+
+    def unreadable(path, *args, **kwargs):
+        if path == tmp_path:
+            raise PermissionError("directory is temporarily unavailable")
+        return original_rglob(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "rglob", unreadable)
+    response = TestClient(_app(), headers={"X-Akasha-Client": "1"}).get("/api/metrics/cache")
+    assert response.status_code == 200
+    assert response.json()["audio_cache"]["file_count"] == 0

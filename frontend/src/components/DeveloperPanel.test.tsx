@@ -22,7 +22,7 @@ describe('DeveloperPanel request boundaries', () => {
       .mockResolvedValueOnce(new Response('{"enabled":true}'))
       .mockResolvedValue({ ok: false, status: 404, json: readErrorJson }));
     render(<DeveloperPanel />);
-    expect(await screen.findByText('获取监控数据失败')).toBeTruthy();
+    expect(await screen.findByRole('alert')).toHaveTextContent('获取监控数据失败（系统资源、网络状态、缓存统计、数据库统计）');
     expect(readErrorJson).not.toHaveBeenCalled();
     expect(document.body.textContent).not.toContain('NaN');
   });
@@ -56,4 +56,63 @@ describe('DeveloperPanel request boundaries', () => {
     unmount();
     expect(signal.aborted).toBe(true);
   });
+
+  it('keeps successful cards visible when one metric fails and recovers on the next refresh', async () => {
+    vi.useFakeTimers();
+    let cacheFails = true;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith('developer-mode')) return new Response('{"enabled":true}');
+      if (url.endsWith('/cache') && cacheFails) return new Response('', { status: 500 });
+      return new Response(JSON.stringify(metricData[url]));
+    }));
+    render(<DeveloperPanel />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole('alert')).toHaveTextContent('获取部分监控数据失败（缓存统计）');
+    expect(screen.getByRole('heading', { name: '系统资源' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '网络状态' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '数据库统计' })).toBeTruthy();
+    cacheFails = false;
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('heading', { name: '缓存统计' })).toBeTruthy();
+  });
+
+  it('bounds a hung metric independently and ignores its late response after unmount', async () => {
+    vi.useFakeTimers();
+    let finishCache!: (response: Response) => void;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async (url: string) => {
+      if (url.endsWith('developer-mode')) return new Response('{"enabled":true}');
+      if (url.endsWith('/cache')) return new Promise<Response>(resolve => { finishCache = resolve; });
+      return new Response(JSON.stringify(metricData[url]));
+    }));
+    const { unmount } = render(<DeveloperPanel />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(screen.getByRole('alert')).toHaveTextContent('获取部分监控数据失败（缓存统计）');
+    expect(screen.getByRole('heading', { name: '系统资源' })).toBeTruthy();
+    unmount();
+    await act(async () => { finishCache(new Response(JSON.stringify(metricData['/api/metrics/cache']))); });
+    expect(screen.queryByRole('heading', { name: '缓存统计' })).toBeNull();
+  });
 });
+
+const metricData: Record<string, unknown> = {
+  '/api/metrics/system': {
+    process: { pid: 1, cpu_percent: 1, memory_mb: 128, memory_percent: 1, num_threads: 4, uptime_seconds: 60 },
+    system: { platform: 'Windows', python_version: '3.12', cpu_count: 4, cpu_percent: 2,
+      memory_total_mb: 8192, memory_available_mb: 4096, memory_percent: 50,
+      disk_total_gb: 100, disk_used_gb: 20, disk_percent: 20 },
+  },
+  '/api/metrics/network': {
+    proxy: { detected: false, url: null, mode: 'direct/tun' },
+    io_counters: { bytes_sent_mb: 1, bytes_recv_mb: 2, packets_sent: 3, packets_recv: 4,
+      errin: 0, errout: 0, dropin: 0, dropout: 0 },
+  },
+  '/api/metrics/cache': {
+    audio_cache: { size_mb: 1, file_count: 1, path: '', max_size_mb: 300, retention_hours: 24 },
+    vector_db: { size_mb: 2, path: '' }, sqlite: { db_size_mb: 1, wal_size_mb: 0, total_size_mb: 1 },
+  },
+  '/api/metrics/database': {
+    tables: { source_accounts: 3, favorite_collections: 10, content_items: 249, collection_items: 249, ingestion_items: 249 },
+  },
+};
