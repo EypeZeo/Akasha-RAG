@@ -16,12 +16,12 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-Douyin（中国版 TikTok）、哔哩哔哩、Zhihu のお気に入りを、まとめて検索・対話できる個人ナレッジベースに変えます。
+複数プラットフォームのお気に入りを集約し、検索・対話できる個人ナレッジベースに変えます。
 
 ## 対応プラットフォーム
 
 | プラットフォーム | 対応するお気に入りコンテンツ |
-| --- | --- |
+| :---: | :---: |
 | Douyin | 短編動画、画像・テキスト投稿 |
 | 哔哩哔哩 | 動画 |
 | Zhihu | 動画、記事や回答などのテキスト・画像コンテンツ |
@@ -181,17 +181,34 @@ version.txt                        バージョンの単一ソース（release-p
 
 | メソッド | パス | 用途 |
 |----------|------|------|
-| POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | Douyin QR ログイン |
-| POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | 哔哩哔哩 QR ログイン |
-| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | Zhihu QR ログイン |
-| POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | お気に入り |
-| POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | 取り込み + 進捗 |
-| GET  | `/api/knowledge/stats` | ナレッジベース統計 |
-| POST | `/api/knowledge/clear-all` · `/reset-failed` | クリア / リセット |
-| POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | 一括エクスポート（バックグラウンドタスク） |
+| POST | `/api/auth/douyin/login/start` | Douyin QR ログインを開始 |
+| GET | `/api/auth/douyin/login/status` | Douyin ログイン状態を取得 |
+| POST | `/api/auth/douyin/logout` | Douyin からログアウト |
+| POST | `/api/auth/bilibili/qrcode/generate` | 哔哩哔哩のログイン QR を生成 |
+| GET | `/api/auth/bilibili/qrcode/poll` | 哔哩哔哩 QR の状態を取得 |
+| GET | `/api/auth/bilibili/status` | 哔哩哔哩ログイン状態を取得 |
+| POST | `/api/auth/bilibili/logout` | 哔哩哔哩からログアウト |
+| POST | `/api/auth/zhihu/login/start` | Zhihu QR ログインを開始 |
+| GET | `/api/auth/zhihu/login/status` | Zhihu ログイン状態を取得 |
+| POST | `/api/auth/zhihu/login/cancel` | Zhihu ログインをキャンセル |
+| POST | `/api/auth/zhihu/logout` | Zhihu からログアウト |
+| POST | `/api/favorites/sync` | お気に入りを同期 |
+| GET | `/api/favorites/collections` | お気に入りフォルダ一覧を取得 |
+| GET | `/api/favorites/collections/{collection_id}/videos` | フォルダのコンテンツを取得 |
+| POST | `/api/knowledge/sync` | 登録を開始 |
+| GET | `/api/knowledge/sync/{task_id}` | 登録の進捗を取得 |
+| GET | `/api/knowledge/stats` | ナレッジベース統計を取得 |
+| POST | `/api/knowledge/clear-all` | ナレッジベースを消去 |
+| POST | `/api/knowledge/reset-failed` | 失敗項目をリセット |
+| POST | `/api/knowledge/export/batch` | 一括エクスポートを作成 |
+| GET | `/api/knowledge/export/batch/{task_id}` | 一括エクスポート状態を取得 |
+| GET | `/api/knowledge/export/batch/{task_id}/download` | 一括エクスポートをダウンロード |
 | POST | `/api/system/pick-directory` | OS ネイティブのフォルダ選択 |
-| POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | 対話 |
-| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | 対話履歴（1 ページ最大 200 件。`snapshot` はエクスポートの境界を固定） |
+| POST | `/api/chat/ask` | 対話を開始 |
+| POST | `/api/chat/ask/stream` | ストリーミング対話を開始 |
+| GET | `/api/chat/sessions` | 対話一覧を取得 |
+| GET | `/api/chat/sessions/{session_id}/messages?limit=200&before&until` | 対話履歴を取得（1 ページ最大 200 件） |
+| GET | `/api/chat/sessions/{session_id}/snapshot` | エクスポート用の固定対話境界を取得 |
 
 ## コスト
 

@@ -16,12 +16,12 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-Transformez vos favoris Douyin (le TikTok chinois), Bilibili et Zhihu en une seule base de connaissances personnelle, interrogeable et conversationnelle.
+Regroupez vos favoris de plusieurs plateformes dans une base de connaissances personnelle interrogeable et conversationnelle.
 
 ## Plateformes prises en charge
 
 | Plateforme | Contenu de favoris pris en charge |
-| --- | --- |
+| :---: | :---: |
 | Douyin | Courtes vidéos et publications image-texte |
 | Bilibili | Vidéos |
 | Zhihu | Vidéos et contenu texte/image, dont articles et réponses |
@@ -182,17 +182,34 @@ version.txt                        source unique de la version (gérée par rele
 
 | Méthode | Chemin | Rôle |
 |---------|--------|------|
-| POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | Connexion par QR Douyin |
-| POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | Connexion par QR Bilibili |
-| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | Connexion par QR Zhihu |
-| POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | Favoris |
-| POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | Ingestion + progression |
-| GET  | `/api/knowledge/stats` | Statistiques de la base |
-| POST | `/api/knowledge/clear-all` · `/reset-failed` | Vider / réinitialiser |
-| POST | `/api/knowledge/export/batch` · GET `/export/batch/{id}` · `/export/batch/{id}/download` | Export par lot (tâche en arrière-plan) |
+| POST | `/api/auth/douyin/login/start` | Démarrer la connexion QR Douyin |
+| GET | `/api/auth/douyin/login/status` | Obtenir l'état de connexion Douyin |
+| POST | `/api/auth/douyin/logout` | Déconnecter Douyin |
+| POST | `/api/auth/bilibili/qrcode/generate` | Générer le QR de connexion Bilibili |
+| GET | `/api/auth/bilibili/qrcode/poll` | Interroger l'état du QR Bilibili |
+| GET | `/api/auth/bilibili/status` | Obtenir l'état de connexion Bilibili |
+| POST | `/api/auth/bilibili/logout` | Déconnecter Bilibili |
+| POST | `/api/auth/zhihu/login/start` | Démarrer la connexion QR Zhihu |
+| GET | `/api/auth/zhihu/login/status` | Obtenir l'état de connexion Zhihu |
+| POST | `/api/auth/zhihu/login/cancel` | Annuler la connexion Zhihu |
+| POST | `/api/auth/zhihu/logout` | Déconnecter Zhihu |
+| POST | `/api/favorites/sync` | Synchroniser les favoris |
+| GET | `/api/favorites/collections` | Lister les dossiers de favoris |
+| GET | `/api/favorites/collections/{collection_id}/videos` | Obtenir le contenu du dossier |
+| POST | `/api/knowledge/sync` | Démarrer l'ingestion |
+| GET | `/api/knowledge/sync/{task_id}` | Obtenir la progression d'ingestion |
+| GET | `/api/knowledge/stats` | Obtenir les statistiques de la base |
+| POST | `/api/knowledge/clear-all` | Vider la base de connaissances |
+| POST | `/api/knowledge/reset-failed` | Réinitialiser les éléments en échec |
+| POST | `/api/knowledge/export/batch` | Créer une tâche d'export par lot |
+| GET | `/api/knowledge/export/batch/{task_id}` | Obtenir une tâche d'export |
+| GET | `/api/knowledge/export/batch/{task_id}/download` | Télécharger un export par lot |
 | POST | `/api/system/pick-directory` | Sélecteur de dossier natif |
-| POST | `/api/chat/ask` · `/ask/stream` · GET `/sessions` · `/sessions/{id}/messages` | Chat |
-| GET  | `/api/chat/sessions/{id}/messages?limit=200&before&until` · `/sessions/{id}/snapshot` | Historique du chat (≤ 200 par page ; `snapshot` fixe la limite d'un export) |
+| POST | `/api/chat/ask` | Poser une question |
+| POST | `/api/chat/ask/stream` | Poser une question en flux |
+| GET | `/api/chat/sessions` | Lister les sessions de chat |
+| GET | `/api/chat/sessions/{session_id}/messages?limit=200&before&until` | Obtenir l'historique (200 messages au plus par page) |
+| GET | `/api/chat/sessions/{session_id}/snapshot` | Obtenir la limite fixe d'une exportation |
 
 ## Coûts
 
