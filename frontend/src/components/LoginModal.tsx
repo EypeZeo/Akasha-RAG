@@ -334,6 +334,11 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
     { id: 'zhihu', label: t('platformZhihu'), icon: '/platform-icons/zhihu.svg' },
   ];
   const allPlatformsLoggedIn = platformsReady && PLATFORM_ORDER.every((item) => loggedInPlatforms.has(item));
+  const loginCompleted = platform === 'douyin'
+    ? dyStatus === 'syncing' || dyStatus === 'success'
+    : platform === 'bilibili'
+      ? biliStatus === 'success'
+      : zhihuStatus === 'logged_in';
   const title = allPlatformsLoggedIn
     ? t('allPlatformsLoggedIn')
     : platform === 'douyin'
@@ -371,18 +376,14 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
         })}
       </div>
       <h2 id={titleId} className="font-title text-lg font-bold text-[var(--color-ink)] text-center">{title}</h2>
-      {allPlatformsLoggedIn ? (
-        <div className="w-52 h-52 rounded-2xl bg-black/[0.03] flex flex-col items-center justify-center gap-3 border border-black/5 text-center p-5">
-          <span className="text-4xl" aria-hidden="true">✓</span>
-        </div>
-      ) : (
+      {platform === 'douyin' && dyStatus === 'syncing' && !allPlatformsLoggedIn && <Spinner />}
+      {!allPlatformsLoggedIn && !loginCompleted && (
         <>
           <div className="w-52 h-52 rounded-2xl bg-black/[0.03] flex items-center justify-center relative border border-black/5 overflow-hidden p-2">
             {platform === 'douyin' && (
               <div className="flex flex-col items-center gap-3 text-center">
                 {dyQrImg && <img src={dyQrImg.trim().startsWith('data:') ? dyQrImg.trim() : `data:image/png;base64,${dyQrImg.trim()}`} alt="Douyin QR Code" className={`w-44 h-44 object-contain rounded-xl ${dyStatus === 'expired' ? 'blur-xs opacity-30' : ''}`} />}
                 {!dyQrImg && dyStatus !== 'failed' && dyStatus !== 'expired' && <Spinner />}
-                {dyStatus === 'syncing' && <span className="text-xs font-bold text-accent">{t('loginSyncing')}</span>}
                 {dyStatus === 'failed' && <><span className="text-3xl">❌</span><span className="text-xs text-red-500">{dyMessage || t('loginFailed')}</span><button type="button" onClick={() => void loadDouyin(generationRef.current)} className="text-xs text-red-600 underline cursor-pointer">{t('retry')}</button></>}
                 {dyStatus === 'expired' && <button type="button" onClick={() => void loadDouyin(generationRef.current)} className="text-xs text-accent underline cursor-pointer">{t('qrExpiredClickRefresh')}</button>}
               </div>
@@ -390,7 +391,6 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
             {platform === 'bilibili' && (
               <div className="relative flex items-center justify-center w-full h-full">
                 {biliQrImg ? <img src={biliQrImg.trim().startsWith('data:') ? biliQrImg.trim() : `data:image/png;base64,${biliQrImg.trim()}`} alt="Bilibili QR Code" className="w-44 h-44 object-contain rounded-xl" /> : <Spinner color="pink" />}
-                {biliStatus === 'success' && <span className="absolute text-4xl">✅</span>}
                 {(biliStatus === 'failed' || biliStatus === 'expired') && <button type="button" onClick={() => void loadBilibili(generationRef.current)} className="absolute bottom-2 text-xs text-red-600 underline cursor-pointer">{t('retry')}</button>}
               </div>
             )}
@@ -405,9 +405,7 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
                   </>
                 )}
                 <span className="text-xs font-semibold text-blue-700">
-                  {zhihuStatus === 'logged_in'
-                    ? t('zhihuLoginSuccess')
-                    : zhihuStatus === 'failed'
+                  {zhihuStatus === 'failed'
                       ? (zhihuMessage || t('loginFailed'))
                       : zhihuQrImg
                         ? t('zhihuLoginWaiting')
@@ -424,7 +422,7 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
           {platform === 'douyin' && (dyStatus === 'pending' || dyStatus === 'loading') && <button type="button" onClick={async () => { try { await api.douyinShowWindow(); setDyWindowOpened(true); } catch (error) { console.warn('Show browser failed:', error); } }} className="text-[11px] text-[var(--color-ink-muted)] hover:text-accent transition-colors underline cursor-pointer -mt-1">{dyWindowOpened ? t('windowOpened') : t('needCaptchaOpenWindow')}</button>}
         </>
       )}
-      <button type="button" onClick={() => void handleClose()} className="text-xs text-[var(--color-ink-muted)] hover:text-red-500 transition-colors px-4 py-1.5 rounded-lg hover:bg-black/5 cursor-pointer mt-1">{allPlatformsLoggedIn || dyStatus === 'success' || dyStatus === 'syncing' || biliStatus === 'success' || zhihuStatus === 'logged_in' ? t('close') : t('cancelLogin')}</button>
+      <button type="button" onClick={() => void handleClose()} className="text-xs text-[var(--color-ink-muted)] hover:text-red-500 transition-colors px-4 py-1.5 rounded-lg hover:bg-black/5 cursor-pointer mt-1">{allPlatformsLoggedIn || loginCompleted ? t('close') : t('cancelLogin')}</button>
     </Dialog>
   );
 }

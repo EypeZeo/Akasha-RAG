@@ -37,6 +37,7 @@ interface SettingsModalProps {
   onOpenLogs: () => Promise<void>;
   onOpenLoginModal?: (platform: api.PlatformKind) => void;
   onAccountsChanged?: () => void;
+  accountRefreshKey?: number;
 }
 
 /** Collapsible section wrapper for settings that don't need to be visible by default. */
@@ -116,6 +117,7 @@ export default function SettingsModal({
   onOpenLogs,
   onOpenLoginModal,
   onAccountsChanged,
+  accountRefreshKey = 0,
 }: SettingsModalProps) {
   const { lang, setLang, t, languages } = useI18n();
   const titleId = useId();
@@ -126,6 +128,7 @@ export default function SettingsModal({
   const [justRefreshed, setJustRefreshed] = useState(false);
   const [accountPage, setAccountPage] = useState(false);
   const refreshTimerRef = useRef<any>(null);
+  const platformRequestGenerationRef = useRef(0);
 
   // ---- API Keys: DashScope ----
   const [dashscopeMasked, setDashscopeMasked] = useState('');
@@ -225,9 +228,11 @@ export default function SettingsModal({
   };
 
   const fetchPlatforms = useCallback(async () => {
+    const generation = ++platformRequestGenerationRef.current;
     setLoadingPlatforms(true);
     try {
       const res = await api.listPlatforms();
+      if (generation !== platformRequestGenerationRef.current) return;
       if (res.success && res.platforms) {
         setPlatforms(res.platforms);
       }
@@ -237,17 +242,26 @@ export default function SettingsModal({
         setJustRefreshed(false);
       }, 2500);
     } catch {} finally {
-      setLoadingPlatforms(false);
+      if (generation === platformRequestGenerationRef.current) setLoadingPlatforms(false);
     }
   }, []);
 
   useEffect(() => {
     if (isOpen) {
       setAccountPage(false);
-      fetchPlatforms();
       fetchApiSettings();
     }
-  }, [isOpen, fetchPlatforms, fetchApiSettings]);
+  }, [isOpen, fetchApiSettings]);
+
+  // Login can finish while the account page stays mounted behind its dialog.
+  // Refresh its display profile without returning the user to settings home.
+  useEffect(() => {
+    if (isOpen) void fetchPlatforms();
+    return () => {
+      platformRequestGenerationRef.current += 1;
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    };
+  }, [isOpen, accountRefreshKey, fetchPlatforms]);
 
   const handleDouyinLogout = async () => {
     setLoggingOutPlatform('douyin');
