@@ -351,6 +351,7 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
           setShowLoginModal(true);
         }}
         onAccountsChanged={handleAccountsChanged}
+        accountRefreshKey={accountRefreshKey}
       />
       {showLogoutConfirm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/45 backdrop-blur-xs p-4" onClick={() => setShowLogoutConfirm(false)}>

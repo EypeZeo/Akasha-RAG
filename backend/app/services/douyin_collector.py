@@ -19,10 +19,12 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 from playwright.sync_api import sync_playwright
 
 from app.core.config import settings
+from app.core.external_urls import safe_platform_image_url
 from app.core.network import detect_network_proxy
 from app.core.secure_storage import delete_json, read_json, write_json
 
@@ -264,34 +266,127 @@ class DouyinCollector:
             logger.debug("保存抖音展示资料失败: %s", exc)
 
     @staticmethod
-    def _extract_profile(page) -> dict[str, str]:
-        """Best-effort UI extraction; profile rendering must never gate login."""
+    def _extract_profile(page, current_user_id: str = "") -> dict[str, str]:
+        """Read only the current account UI, never feed avatars or page metadata."""
         try:
-            return page.evaluate("""() => {
-                const avatar = [
-                   '[data-e2e="user-avatar"] img',
-                   '[data-e2e="user-info"] img',
-                   'img[src*="douyinpic.com"]',
-                   'img[src*="byteimg.com"]',
-                   'img[src*="pstatp.com"]',
-                   'img[src*="bytedance.com"]',
-                   'img[alt*="头像"]',
-                   'img[alt*="avatar" i]',
-                 ].map(selector => document.querySelector(selector)?.src || '').find(Boolean) || '';
-                 const nickname = [
-                   '[data-e2e="user-name"]',
-                   '[data-e2e="user-info"] [title]',
-                   '[class*="user-name"]',
-                   '[class*="nickname"]',
-                   'a[href*="/user/"]',
-                 ].map(selector => document.querySelector(selector)?.textContent?.trim() || '').find(Boolean) || '';
-                 const metaAvatar = document.querySelector('meta[property="og:image"]')?.getAttribute('content') || '';
-                 const metaTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content') || '';
-                return { avatar_url: avatar || metaAvatar, nickname: nickname || metaTitle };
-             }""") or {}
+            value = page.evaluate(r"""currentUserId => {
+                const visible = el => el && el.getClientRects().length > 0 &&
+                    getComputedStyle(el).visibility !== 'hidden' &&
+                    !el.closest('article, [data-e2e="feed-item"], [data-e2e="video-card"]');
+                const selfPage = location.pathname === '/user/self' ||
+                    (currentUserId && location.pathname === '/user/' + currentUserId);
+                const selectors = ['header [data-e2e="user-avatar"]', 'a[href^="/user/self"]'];
+                if (selfPage) selectors.push('[data-e2e="user-avatar"]', '[data-e2e="user-info"]');
+                const avatars = [];
+                const addAvatar = value => {
+                    if (value && !value.startsWith('data:') && avatars.length < 16 && !avatars.includes(value))
+                        avatars.push(value);
+                };
+                for (const selector of selectors) {
+                    for (const root of document.querySelectorAll(selector)) {
+                        if (!visible(root)) continue;
+                        const images = root.matches('img') ? [root] : root.querySelectorAll('img');
+                        for (const img of images) {
+                            if (!visible(img)) continue;
+                            addAvatar(img.currentSrc);
+                            addAvatar(img.src);
+                            if (avatars.length >= 16) break;
+                        }
+                        if (root.matches('[data-e2e="user-avatar"]')) {
+                            const match = getComputedStyle(root).backgroundImage.match(/^url\(["']?(.*?)["']?\)$/);
+                            addAvatar(match?.[1]);
+                        }
+                        if (avatars.length >= 16) break;
+                    }
+                    if (avatars.length >= 16) break;
+                }
+                const names = selfPage
+                    ? ['[data-e2e="user-name"]', '[data-e2e="user-info"] [data-e2e="user-title"]',
+                       '[data-e2e="user-info"] [class*="nickname"]']
+                    : ['header [data-e2e="user-name"]', 'a[href^="/user/self"] [data-e2e="user-name"]'];
+                const name = names.flatMap(s => [...document.querySelectorAll(s)]).find(visible);
+                return { avatar_urls: avatars, nickname: name?.textContent?.trim() || '' };
+             }""", current_user_id) or {}
+            return DouyinCollector._safe_profile(value)
         except Exception as exc:
             logger.info("抖音账号展示资料暂不可用: %s", exc)
             return {}
+
+    @staticmethod
+    def _safe_profile(value) -> dict[str, str]:
+        if not isinstance(value, dict):
+            return {}
+        profile = {}
+        nickname = value.get("nickname")
+        if isinstance(nickname, str) and nickname.strip():
+            profile["nickname"] = nickname.strip()[:200]
+        avatar = safe_platform_image_url("douyin", value.get("avatar_url"))
+        candidates = value.get("avatar_urls")
+        if not avatar and isinstance(candidates, list):
+            for url in candidates[:16]:
+                avatar = safe_platform_image_url("douyin", url)
+                if avatar:
+                    break
+        if avatar:
+            profile["avatar_url"] = avatar
+        return profile
+
+    def _remember_profile(self, value) -> None:
+        profile = self._safe_profile(value)
+        merged = {**self._profile, **profile}
+        if profile and merged != self._profile and not self._logout_requested.is_set():
+            self._profile = merged
+            self._save_profile()
+
+    def _watch_profile(self, page) -> None:
+        """Observe the site's own current-user request, without calling a new API."""
+        self._profile_user_id = ""
+
+        def on_response(response):
+            try:
+                parts = urlsplit(response.url)
+                if (parts.scheme != "https" or parts.hostname != "www.douyin.com" or
+                        parts.port not in (None, 443) or parts.username is not None or parts.password is not None or
+                        parts.path.rstrip("/") != "/aweme/v1/web/user/profile/self" or
+                        response.status != 200 or self._logout_requested.is_set()):
+                    return
+                payload = response.json()
+                if not isinstance(payload, dict) or payload.get("status_code") != 0:
+                    return
+                user = payload.get("user")
+                if not isinstance(user, dict):
+                    return
+                current_user_id = user.get("sec_uid")
+                if isinstance(current_user_id, str) and 0 < len(current_user_id) <= 128:
+                    self._profile_user_id = current_user_id
+                avatar = ""
+                for key in ("avatar_larger", "avatar_medium", "avatar_thumb"):
+                    image = user.get(key)
+                    urls = image.get("url_list", []) if isinstance(image, dict) else []
+                    if not isinstance(urls, list):
+                        continue
+                    avatar = next((safe_platform_image_url("douyin", url) for url in urls
+                                   if safe_platform_image_url("douyin", url)), "")
+                    if avatar:
+                        break
+                self._remember_profile({"nickname": user.get("nickname"), "avatar_url": avatar})
+            except Exception:
+                # Profile failures must not change the authentication result.
+                logger.debug("抖音当前账号资料响应暂不可用", exc_info=True)
+        page.on("response", on_response)
+
+    def _refresh_profile(self, page, timeout: float = 2.0) -> None:
+        """Allow a bounded render delay; the browser worker owns this page."""
+        deadline = time.monotonic() + timeout
+        while not self._logout_requested.is_set():
+            profile = self._extract_profile(page, getattr(self, "_profile_user_id", ""))
+            self._remember_profile(profile)
+            if profile.get("avatar_url") or time.monotonic() >= deadline:
+                return
+            try:
+                page.wait_for_timeout(200)
+            except Exception:
+                return  # A closed page must not turn a successful login into a failure.
 
     # ------------------------------------------------------------------
     # 浏览器
@@ -503,6 +598,7 @@ class DouyinCollector:
                     self._active_context = context
                     page = context.pages[0] if context.pages else context.new_page()
                     self._active_page = page
+                    self._watch_profile(page)
 
                     try:
                         cdp = context.new_cdp_session(page)
@@ -570,16 +666,11 @@ class DouyinCollector:
                     except Exception as err:
                         logger.warning("即刻持久化登录凭据异常: %s", err)
 
-                    fresh_profile = self._extract_profile(page)
-                    self._profile = {**self._profile, **{
-                        key: value for key, value in fresh_profile.items() if value
-                    }}
-                    self._save_profile()
-
                     # 2. 状态切换为 syncing
                     logger.info("扫码登录成功，立即开始抓取收藏夹...")
                     self.status = "syncing"
                     self.message = "扫码成功，正在同步收藏夹及视频列表..."
+                    self._refresh_profile(page)
 
                     # 3. 立即在同一个 context 中抓数据
                     try:
@@ -662,6 +753,7 @@ class DouyinCollector:
             logger.warning("导航至收藏夹页面偶发超时: %s，尝试继续探测", nav_err)
 
         time.sleep(2.5)
+        self._refresh_profile(page)
 
         # 智能等待并定位 Webpack 收藏夹 API 模块
         logger.info("正在探测 Webpack 收藏夹 API 模块...")
@@ -972,12 +1064,7 @@ class DouyinCollector:
                     )
                     self._active_context = context
                     page = context.pages[0] if context.pages else context.new_page()
-
-                    fresh_profile = self._extract_profile(page)
-                    self._profile = {**self._profile, **{
-                        key: value for key, value in fresh_profile.items() if value
-                    }}
-                    self._save_profile()
+                    self._watch_profile(page)
                     snapshot = self._fetch_in_context(page)
                     self._snapshot = snapshot
                     logger.info("实时抓取完成: %d 收藏夹, %d 视频", len(snapshot.collections), len(snapshot.videos))

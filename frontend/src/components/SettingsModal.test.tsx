@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
+import { act, render, screen, waitFor, cleanup, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach } from 'vitest';
 import SettingsModal from './SettingsModal';
@@ -11,8 +11,8 @@ vi.mock('../api');
 
 afterEach(cleanup);
 
-function setup(onClose = vi.fn()) {
-  render(
+function setup(onClose = vi.fn(), accountRefreshKey = 0) {
+  const view = render(
     <I18nProvider>
       <SettingsModal
         isOpen={true}
@@ -32,10 +32,11 @@ function setup(onClose = vi.fn()) {
         cacheCleaning={false}
         onCleanCache={vi.fn()}
         onOpenLogs={vi.fn()}
+        accountRefreshKey={accountRefreshKey}
       />
     </I18nProvider>,
   );
-  return { onClose };
+  return { onClose, ...view };
 }
 
 describe('SettingsModal', () => {
@@ -61,6 +62,39 @@ describe('SettingsModal', () => {
     const closeButtons = screen.getAllByText(TRANSLATIONS.en.close);
     await userEvent.click(closeButtons[closeButtons.length - 1]);
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it.each([false, true])('refreshes the avatar after login without leaving the account page (late initial response: %s)', async (lateInitialResponse) => {
+    let finishOld: (() => void) | undefined;
+    if (lateInitialResponse) {
+      vi.mocked(api.listPlatforms).mockReturnValueOnce(new Promise(resolve => {
+        finishOld = () => resolve({ success: true, platforms: [
+          { platform: 'douyin', name: 'Douyin', status: 'idle', is_logged_in: false, nickname: 'Old account' },
+        ] });
+      }));
+    }
+    const onClose = vi.fn();
+    const view = setup(onClose);
+    await userEvent.click(screen.getByRole('button', { name: new RegExp(TRANSLATIONS.en.accountsTitle) }));
+    await waitFor(() => expect(api.listPlatforms).toHaveBeenCalled());
+    const avatar = 'https://p3-sign.douyinpic.com/tos-cn/profile.webp';
+    vi.mocked(api.listPlatforms).mockResolvedValue({ success: true, platforms: [
+      { platform: 'douyin', name: 'Douyin', status: 'logged_in', is_logged_in: true, nickname: 'Account owner', avatar_url: avatar },
+    ] });
+    // Reuse the exact mounted component with the refresh key supplied by Workspace.
+    view.rerender(<I18nProvider><SettingsModal
+      isOpen onClose={onClose} logLevel="info" availableLevels={['info']} onLogLevelChange={vi.fn()}
+      collectionsPerPage={20} videosPerPage={20} onCollectionsPerPageChange={vi.fn()} onVideosPerPageChange={vi.fn()}
+      activityBarPosition="left" onActivityBarPositionChange={vi.fn()} theme="dawn" onThemeChange={vi.fn()}
+      cacheMb={0} cacheCleaning={false} onCleanCache={vi.fn()} onOpenLogs={vi.fn()} accountRefreshKey={1}
+    /></I18nProvider>);
+    await waitFor(() => expect(screen.getByText('Account owner')).toBeTruthy());
+    const image = document.querySelector(`img[src="${avatar}"]`);
+    expect(image).toHaveAttribute('referrerpolicy', 'no-referrer');
+    expect(screen.queryByRole('heading', { name: TRANSLATIONS.en.settingsTitle })).toBeNull();
+    if (finishOld) await act(async () => { finishOld!(); });
+    expect(screen.getByText('Account owner')).toBeTruthy();
+    expect(screen.queryByText('Old account')).toBeNull();
   });
 
   it('opening LoginModal from within SettingsModal: Escape only closes the login modal, settings stays open', async () => {

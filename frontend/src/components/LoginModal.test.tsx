@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach } from 'vitest';
 import LoginModal from './LoginModal';
@@ -8,7 +8,10 @@ import * as api from '../api';
 
 vi.mock('../api');
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const platformStatus = (loggedIn: api.PlatformKind[] = []): api.PlatformInfo[] => [
   { platform: 'douyin', name: 'Douyin', is_logged_in: loggedIn.includes('douyin'), status: 'idle' },
@@ -104,6 +107,66 @@ describe('LoginModal', () => {
     await waitFor(() => expect(api.zhihuLoginStart).toHaveBeenCalledTimes(1));
     expect(screen.getAllByText(TRANSLATIONS.en.zhihuLoginOpening).length).toBeGreaterThan(0);
     expect(screen.queryByText(TRANSLATIONS.en.zhihuLoginWaiting)).toBeNull();
+  });
+
+  it('removes the Douyin QR and scan steps while syncing and keeps a single status message', async () => {
+    vi.mocked(api.loginStatus)
+      .mockResolvedValueOnce({ status: 'syncing', message: 'syncing' })
+      .mockResolvedValue({ status: 'logged_in', message: 'done' });
+    vi.useFakeTimers();
+    const { onSuccess } = setup();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByAltText('Douyin QR Code')).toBeTruthy();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+
+    expect(screen.queryByAltText('Douyin QR Code')).toBeNull();
+    expect(screen.queryByText(TRANSLATIONS.en.douyinStep2)).toBeNull();
+    expect(screen.getAllByText(TRANSLATIONS.en.loginSyncing)).toHaveLength(1);
+    expect(onSuccess).not.toHaveBeenCalled();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    expect(screen.getAllByText(TRANSLATIONS.en.loginSuccessDone)).toHaveLength(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+    expect(onSuccess).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['douyin', 'bilibili', 'zhihu'] as const)(
+    'removes the %s QR and scan steps on confirmation without changing delayed completion',
+    async (platform) => {
+      vi.mocked(api.loginStatus).mockResolvedValue({ status: 'logged_in', message: 'done' });
+      vi.mocked(api.bilibiliPollQr).mockResolvedValue({ success: true, status: 'confirmed', message: 'done' });
+      vi.mocked(api.zhihuLoginStart).mockResolvedValue({ success: true, status: 'pending', message: 'scan', qrcode_image_base64: 'ZmFrZS1xcg==' });
+      vi.mocked(api.zhihuLoginStatus).mockResolvedValue({ status: 'logged_in', message: 'done' });
+      vi.useFakeTimers();
+      const { onSuccess } = setup(platform);
+      const qrAlt = platform === 'douyin' ? 'Douyin QR Code' : platform === 'bilibili' ? 'Bilibili QR Code' : 'Zhihu QR Code';
+      const successText = platform === 'douyin' ? TRANSLATIONS.en.loginSuccessDone : platform === 'bilibili' ? TRANSLATIONS.en.bilibiliLoginSuccess : TRANSLATIONS.en.zhihuLoginSuccess;
+      const scanStep = platform === 'douyin' ? TRANSLATIONS.en.douyinStep2 : platform === 'bilibili' ? TRANSLATIONS.en.biliStep2 : TRANSLATIONS.en.zhihuStep1;
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByAltText(qrAlt)).toBeTruthy();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+
+      expect(screen.queryByAltText(qrAlt)).toBeNull();
+      expect(screen.queryByText(scanStep)).toBeNull();
+      expect(screen.getAllByText(successText)).toHaveLength(1);
+      expect(screen.getByRole('button', { name: TRANSLATIONS.en.close })).toBeTruthy();
+      expect(onSuccess).not.toHaveBeenCalled();
+      await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+      expect(onSuccess).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('does not show a Zhihu QR placeholder when the start response is already logged in', async () => {
+    vi.mocked(api.zhihuLoginStart).mockResolvedValue({ success: true, status: 'logged_in', message: 'done' });
+    setup('zhihu');
+
+    await screen.findByRole('heading', { name: TRANSLATIONS.en.zhihuLoginSuccess });
+
+    expect(screen.queryByAltText('Zhihu QR Code')).toBeNull();
+    expect(screen.queryByText(TRANSLATIONS.en.zhihuStep1)).toBeNull();
+    expect(screen.getAllByText(TRANSLATIONS.en.zhihuLoginSuccess)).toHaveLength(1);
   });
 
   it('clicking the close/cancel button calls onClose', async () => {
