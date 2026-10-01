@@ -138,7 +138,15 @@ async def douyin_qrcode_generate():
     """
     启动抖音登录会话并获取内嵌渲染的 Base64 登录二维码
     """
-    collector.start_login()
+    if not await collector.wait_for_login_retirement():
+        return {"success": False, "message": "上一次登录正在结束或已取消，请重试"}
+    started, message = collector.start_login()
+    if not started:
+        return {
+            "success": False,
+            "data": {"qrcode_image_base64": "", "status": collector.status, "expires_in": 120},
+            "message": message,
+        }
     qr_b64 = await collector.wait_for_qrcode(timeout=30.0)
     return {
         "success": bool(qr_b64),
@@ -157,6 +165,10 @@ async def douyin_qrcode_refresh():
     刷新抖音登录二维码
     """
     qr_b64 = collector.refresh_qrcode()
+    if not qr_b64 and collector.status == "pending":
+        # The browser belongs to the login worker. Wait asynchronously for its
+        # refreshed image instead of touching sync Playwright on the API loop.
+        qr_b64 = await collector.wait_for_qrcode(timeout=30.0)
     return {
         "success": bool(qr_b64),
         "data": {
@@ -304,6 +316,8 @@ async def bilibili_logout(db: Session = Depends(get_db)):
 @router.post("/zhihu/login/start")
 async def zhihu_login_start():
     """在无头知乎登录页中获取二维码，用户扫码后保存本机登录态。"""
+    if not await zhihu_collector.wait_for_login_retirement():
+        return {"success": False, "status": "failed", "message": "上一次知乎登录正在结束或已取消，请重试"}
     success, message = zhihu_collector.start_login()
     status = zhihu_collector.get_status()
     return {

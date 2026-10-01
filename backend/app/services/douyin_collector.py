@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import logging
 import shutil
 import sys
@@ -22,6 +23,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 from playwright.sync_api import sync_playwright
+from PIL import Image
 
 from app.core.config import settings
 from app.core.external_urls import safe_platform_image_url
@@ -157,6 +159,7 @@ class DouyinCollector:
         self._sync_diagnostic = DouyinSyncDiagnostic()
         self._qr_image_base64: Optional[str] = None
         self._qr_ready_event = threading.Event()
+        self._qr_refresh_requested = threading.Event()
         self._qr_error: Optional[str] = None
         self._headless_mode: bool = True
         self._cdp_session = None
@@ -410,55 +413,129 @@ class DouyinCollector:
         return {"headless": headless, "args": args, **extra}
 
     @staticmethod
-    def _extract_qrcode_from_page(page) -> Optional[str]:
+    def _extract_qrcode_from_page(page, timeout: float = 25_000) -> Optional[str]:
+        """Read only a rendered QR matrix inside the provider's login container.
+
+        A loading logo is also an image in this container. Validate the decoded
+        image's outer area, where a real QR has both dark and light modules, so
+        a centered logo/blank canvas cannot be published as a login code.
         """
-        从抖音登录页精确提取二维码（严格等待二维码图片或点阵渲染完成，坚决不返回未就绪的 loading 占位图）
-        """
-        # 1. 核心链路：等待 #animate_qrcode_container 内的 Base64 img 渲染就绪
+        probe = r"""() => {
+            const container = document.querySelector('#animate_qrcode_container');
+            if (!container || !container.getClientRects().length) return null;
+            if (getComputedStyle(container).visibility !== 'visible' ||
+                Number(getComputedStyle(container).opacity) === 0) return null;
+            const candidates = Array.from(container.querySelectorAll('img, canvas')).slice(0, 8);
+            const screenshotIndices = [];
+            for (const [index, el] of candidates.entries()) {
+                if (!el.getClientRects().length) continue;
+                const box = el.getBoundingClientRect();
+                if (box.width < 100 || box.height < 100 ||
+                    box.width / box.height < .8 || box.width / box.height > 1.25) continue;
+                if (getComputedStyle(el).visibility !== 'visible' ||
+                    Number(getComputedStyle(el).opacity) === 0) continue;
+                if (el.tagName === 'IMG' && (!el.complete || !el.naturalWidth)) continue;
+                const width = el.naturalWidth || el.width;
+                const height = el.naturalHeight || el.height;
+                if (width < 100 || height < 100 || width > 2048 || height > 2048 ||
+                    box.width > 1024 || box.height > 1024) continue;
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = 64; canvas.height = 64;
+                    const ctx = canvas.getContext('2d', {willReadFrequently: true});
+                    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 64, 64);
+                    ctx.drawImage(el, 0, 0, 64, 64);
+                    const pixels = ctx.getImageData(0, 0, 64, 64).data;
+                    let dark = 0, light = 0, total = 0;
+                    for (let y = 4; y < 60; y++) for (let x = 4; x < 60; x++) {
+                        if (x >= 20 && x < 44 && y >= 20 && y < 44) continue;
+                        const i = (y * 64 + x) * 4;
+                        const level = (pixels[i] + pixels[i+1] + pixels[i+2]) / 3;
+                        total++; if (level < 80) dark++; if (level > 180) light++;
+                    }
+                    if (dark / total < .12 || light / total < .12) continue;
+                    const image = el.tagName === 'CANVAS' ? el.toDataURL('image/png') : el.currentSrc || el.src;
+                    if (image.startsWith('data:image/')) return image;
+                    // Remote images that passed canvas validation use a local PNG.
+                    const full = document.createElement('canvas');
+                    full.width = width; full.height = height;
+                    full.getContext('2d').drawImage(el, 0, 0);
+                    return full.toDataURL('image/png');
+                } catch (err) {
+                    // A decoded cross-origin QR may taint canvas. Let the owning
+                    // worker validate only this exact element's screenshot.
+                    if (err.name === 'SecurityError') screenshotIndices.push(index);
+                }
+            }
+            return screenshotIndices.length ? {screenshotIndices} : null;
+        }"""
         try:
-            # 抖音前端在二维码尚未生成时，#animate_qrcode_container 内部仅含居中抖音 LOGO 的 loading 占位图；
-            # 当二维码生成就绪后，会在容器内插入带有 data:image 的 img 元素。
-            qr_img = page.locator('#animate_qrcode_container img[src^="data:image"], #animate_qrcode_container img').first
-            qr_img.wait_for(state="visible", timeout=25_000)
+            ready = page.wait_for_function(probe, timeout=timeout, polling=100)
+            result = ready.json_value()
+            ready.dispose()
+            if isinstance(result, str):
+                return result
+            if isinstance(result, dict) and isinstance(result.get("screenshotIndices"), list):
+                for index in result["screenshotIndices"][:8]:
+                    if not isinstance(index, int) or not 0 <= index < 8:
+                        continue
+                    element = page.locator('#animate_qrcode_container img, #animate_qrcode_container canvas').nth(index)
+                    box = element.bounding_box()
+                    if not box or not 100 <= box["width"] <= 1024 or not 100 <= box["height"] <= 1024:
+                        continue
+                    shot = element.screenshot(timeout=1000)
+                    with Image.open(io.BytesIO(shot)) as image:
+                        rgba = image.convert("RGBA").resize((64, 64))
+                        white = Image.new("RGBA", rgba.size, "white")
+                        gray = Image.alpha_composite(white, rgba).convert("L")
+                        pixels = [gray.getpixel((x, y)) for y in range(4, 60) for x in range(4, 60)
+                                  if not (20 <= x < 44 and 20 <= y < 44)]
+                        if sum(p < 80 for p in pixels) / len(pixels) < .12 or sum(p > 180 for p in pixels) / len(pixels) < .12:
+                            continue
+                    return "data:image/png;base64," + base64.b64encode(shot).decode("ascii")
+            return None
+        except Exception:
+            return None
 
-            # 优先截取带外框与中心 LOGO 的完整二维码卡片（实测 12KB 左右，与抖音官方视觉完全一致）
-            c_loc = page.locator('#animate_qrcode_container').first
-            if c_loc.count() > 0:
-                shot_bytes = c_loc.screenshot()
-                # 真实的二维码容器截图在 10KB~15KB，而未就绪的 loading 占位图仅 2.1KB
-                if len(shot_bytes) > 5000:
-                    logger.info("已成功截取完整抖音二维码卡片 (bytes=%d)", len(shot_bytes))
-                    return f"data:image/png;base64,{base64.b64encode(shot_bytes).decode('ascii')}"
+    def _update_qrcode(self, page, timeout: float = 250) -> None:
+        image = self._extract_qrcode_from_page(page, timeout=timeout)
+        if self._logout_requested.is_set() or self._qr_refresh_requested.is_set():
+            return
+        if image:
+            self._qr_image_base64 = image
+            self._qr_error = None
+            self._qr_ready_event.set()
+        else:
+            self._qr_image_base64 = None
+            self._qr_ready_event.clear()
 
-            # 若截图因时序等原因未达阈值，直接提取 img 的 base64 src（纯净黑白二维码矩阵）
-            src = qr_img.get_attribute("src") or ""
-            if src.startswith("data:image"):
-                logger.info("从 img[src] 提取到原始 Base64 二维码 (len=%d)", len(src))
-                return src
-        except Exception as err:
-            logger.warning("等待 #animate_qrcode_container 二维码就绪超时或异常: %s", err)
-
-        # 2. 备选方案：轮询页面中任何正方形二维码元素
-        try:
-            for _ in range(10):
-                for el in page.locator('img[src^="data:image"], canvas').all():
-                    box = el.bounding_box()
-                    if box and 120 <= box["width"] <= 250 and 120 <= box["height"] <= 250:
-                        ratio = box["width"] / max(box["height"], 1)
-                        if 0.8 <= ratio <= 1.25:
-                            src = el.get_attribute("src") or ""
-                            if src.startswith("data:image"):
-                                logger.info("备选方案提取到正方形二维码图片: %s", box)
-                                return src
-                            shot_bytes = el.screenshot()
-                            if len(shot_bytes) > 5000:
-                                logger.info("备选方案完成正方形元素截图: %s", box)
-                                return f"data:image/png;base64,{base64.b64encode(shot_bytes).decode('ascii')}"
-                time.sleep(0.5)
-        except Exception as fallback_err:
-            logger.warning("备选二维码提取也失败: %s", fallback_err)
-
-        return None
+    def _wait_for_scan(self, context, page, timeout: float = 120.0) -> bool:
+        """All Playwright reads/refreshes stay on the owning worker thread."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._active_context is None or self._logout_requested.is_set():
+                return False
+            if any(c.get("name") in {"sessionid", "sid_guard"} for c in context.cookies()):
+                return True
+            if self._qr_refresh_requested.is_set():
+                self._qr_refresh_requested.clear()
+                button = page.locator(
+                    '#animate_qrcode_container button, #douyin_login_comp_scan_code button'
+                ).first
+                if button.is_visible():
+                    button.click(timeout=2000)
+                else:
+                    page.reload(wait_until="domcontentloaded", timeout=15000)
+            # Provider-side rotation must replace the API snapshot too. Short
+            # probes keep cancellation responsive even during a loading gap.
+            self._update_qrcode(page)
+            page.wait_for_timeout(1000)
+        if not self._logout_requested.is_set():
+            self._qr_image_base64 = None
+            self.status = "expired"
+            self.message = "登录二维码已过期，请刷新二维码"
+            self._qr_ready_event.set()
+        return False
 
     # ------------------------------------------------------------------
     # 登录 + 同步抓取（在同一个浏览器会话中完成）
@@ -476,12 +553,27 @@ class DouyinCollector:
         self.status = "pending"
         self.message = "请在登录弹窗中扫描二维码"
         self._snapshot = None
+        self._qr_image_base64 = None
+        self._qr_error = None
+        self._qr_ready_event.clear()
+        self._qr_refresh_requested.clear()
         self._login_task = asyncio.ensure_future(self._login_flow())
         return True, self.message
 
     def get_qrcode(self) -> Optional[str]:
         """获取当前准备好的抖音二维码 Base64 图片"""
         return self._qr_image_base64
+
+    async def wait_for_login_retirement(self, timeout: float = 3.0) -> bool:
+        """An expired worker may still be closing its persistent context."""
+        status = self.status
+        if status not in ("expired", "failed"):
+            return True
+        deadline = asyncio.get_running_loop().time() + timeout
+        while self._lock.locked() and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.05)
+        # A concurrent cancellation must not be undone by this old request.
+        return not self._lock.locked() and self.status == status
 
     async def wait_for_qrcode(self, timeout: float = 30.0) -> Optional[str]:
         """等待二维码就绪（如果在未启动状态则先触发启动）"""
@@ -521,26 +613,13 @@ class DouyinCollector:
         write_json(self.storage_state_path, context.storage_state())
 
     def refresh_qrcode(self) -> Optional[str]:
-        """刷新当前抖音二维码"""
-        if not self._active_page or self.status not in ("pending", "syncing"):
+        """Queue a refresh; sync Playwright must never run in the API thread."""
+        if not self._active_page or self.status != "pending" or self._logout_requested.is_set():
             return None
-        try:
-            refresh_btn = self._active_page.locator(
-                '#animate_qrcode_container button, #douyin_login_comp_scan_code button, [class*="refresh"], [class*="reload"]'
-            ).first
-            if refresh_btn.is_visible(timeout=1000):
-                refresh_btn.click()
-                time.sleep(1.0)
-            else:
-                self._active_page.reload(wait_until="domcontentloaded", timeout=15000)
-            time.sleep(1.5)
-            qr_b64 = self._extract_qrcode_from_page(self._active_page)
-            if qr_b64:
-                self._qr_image_base64 = qr_b64
-            return self._qr_image_base64
-        except Exception as exc:
-            logger.warning("刷新抖音二维码异常: %s", exc)
-            return None
+        self._qr_image_base64 = None
+        self._qr_ready_event.clear()
+        self._qr_refresh_requested.set()
+        return None
 
     def cancel_login(self) -> tuple[bool, str]:
         """取消未完成的扫码登录，安全关闭浏览器实例并回收资源"""
@@ -554,8 +633,9 @@ class DouyinCollector:
         # The worker owns this sync Playwright object. Signal it instead of
         # closing it from the FastAPI event-loop thread.
         self._logout_requested.set()
-        self._qr_ready_event.set()
+        self._qr_refresh_requested.clear()
         self._qr_image_base64 = None
+        self._qr_ready_event.set()
         self._active_page = None
         self._cdp_session = None
         self._window_id = None
@@ -581,10 +661,9 @@ class DouyinCollector:
         if not acquired:
             logger.warning("已有登录/抓取线程在运行，跳过本次触发")
             return
-        self._qr_image_base64 = None
-        self._qr_ready_event.clear()
-        self._qr_error = None
         try:
+            if self._logout_requested.is_set():
+                return
             with sync_playwright() as p:
                 self._active_playwright = p
                 kwargs = self._browser_launch_kwargs(headless=self._headless_mode)
@@ -622,7 +701,7 @@ class DouyinCollector:
                     # 尝试定位并截取二维码（精准定位 #animate_qrcode_container，杜绝顶部横幅误截）
                     try:
                         qr_b64 = self._extract_qrcode_from_page(page)
-                        if qr_b64:
+                        if qr_b64 and not self._logout_requested.is_set() and not self._qr_refresh_requested.is_set():
                             self._qr_image_base64 = qr_b64
                             logger.info("抖音登录二维码获取成功，已保存 Base64 图片 (len=%d)", len(self._qr_image_base64))
                         else:
@@ -631,27 +710,11 @@ class DouyinCollector:
                         logger.warning("提取抖音二维码异常 (用户可随时展开独立窗口): %s", qr_err)
                         self._qr_error = str(qr_err)
                     finally:
-                        self._qr_ready_event.set()
+                        if not self._qr_refresh_requested.is_set():
+                            self._qr_ready_event.set()
 
-                    found = False
-                    for _ in range(120):
-                        if self._active_context is None or self._logout_requested.is_set():
-                            return  # 外部取消
-                        try:
-                            cookies = context.cookies()
-                            has_login = any(
-                                c.get("name") in {"sessionid", "sid_guard"} for c in cookies
-                            )
-                            if has_login:
-                                found = True
-                                break
-                        except Exception:
-                            break
-                        time.sleep(1)
-
+                    found = self._wait_for_scan(context, page)
                     if not found:
-                        self.status = "failed"
-                        self.message = "登录超时（120秒）或浏览器已关闭，请重试"
                         return
 
                     if self._logout_requested.is_set():
@@ -668,6 +731,7 @@ class DouyinCollector:
 
                     # 2. 状态切换为 syncing
                     logger.info("扫码登录成功，立即开始抓取收藏夹...")
+                    self._qr_image_base64 = None
                     self.status = "syncing"
                     self.message = "扫码成功，正在同步收藏夹及视频列表..."
                     self._refresh_profile(page)
@@ -732,6 +796,7 @@ class DouyinCollector:
                 logger.info("登录流程在退出请求后结束")
                 return
             logger.exception("登录流程异常")
+            self._qr_image_base64 = None
             self.status = "failed"
             self.message = str(exc)[:500]
         finally:
@@ -1281,7 +1346,8 @@ class DouyinCollector:
         self._snapshot = None
         self._profile = {}
         self._qr_image_base64 = None
-        self._qr_ready_event.clear()
+        self._qr_refresh_requested.clear()
+        self._qr_ready_event.set()
         self._active_page = None
         self._cdp_session = None
         self._window_id = None

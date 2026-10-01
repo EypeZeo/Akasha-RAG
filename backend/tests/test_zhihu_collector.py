@@ -152,10 +152,16 @@ def test_fetch_json_rejects_a_success_status_with_html_content():
         ZhihuCollector._fetch_json(_HtmlPage(), "https://www.zhihu.com/api/v4/favlists")
 
 class _QrElement:
-    def __init__(self, *, visible=True, box=None, image_ready=True, payload=b'\x89PNG\r\n\x1a\nqr'):
+    def __init__(self, *, visible=True, box=None, image_ready=True, payload=None):
         self.visible = visible
         self.box = box or {'width': 120, 'height': 120}
         self.image_ready = image_ready
+        if payload is None:
+            import io
+            import qrcode
+            buffer = io.BytesIO()
+            qrcode.make('https://www.zhihu.com/test-login').save(buffer, format='PNG')
+            payload = buffer.getvalue()
         self.payload = payload
 
     def is_visible(self):

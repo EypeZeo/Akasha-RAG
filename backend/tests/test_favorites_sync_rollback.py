@@ -6,6 +6,7 @@ DATA-01 回归测试：同步中途异常必须回滚，不能提交半成品快
 "没有异常 → 提交" 的分支，把同步中途 flush 过的半成品数据一起提交。
 """
 import pytest
+from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -31,6 +32,9 @@ def db_and_client(tmp_path, monkeypatch):
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
     monkeypatch.setattr(session_module, "session_factory", factory)
+    # This test controls the Douyin/Bilibili writes. An added platform must
+    # never read the developer's real session or perform an upstream sync.
+    monkeypatch.setattr(favorites_service, "sync_from_zhihu", AsyncMock(side_effect=RuntimeError('Zhihu fixture unavailable')))
 
     with TestClient(app, headers={"X-Akasha-Client": "1"}) as c:
         yield c, factory

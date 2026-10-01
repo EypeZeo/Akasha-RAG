@@ -14,6 +14,7 @@ type BilibiliStatus = 'loading' | 'pending' | 'scanned' | 'success' | 'expired' 
 type ZhihuStatus = 'idle' | 'pending' | 'logged_in' | 'expired' | 'failed';
 
 const PLATFORM_ORDER: api.PlatformKind[] = ['douyin', 'bilibili', 'zhihu'];
+const MAX_AUTOMATIC_QR_RENEWALS = 3;
 
 function Spinner({ color = 'accent' }: { color?: 'accent' | 'pink' | 'blue' }) {
   const border = color === 'pink' ? 'border-pink-200 border-t-pink-600' : color === 'blue' ? 'border-blue-200 border-t-blue-600' : 'border-accent/20 border-t-accent';
@@ -25,6 +26,7 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
   const titleId = useId();
   const [platform, setPlatform] = useState<api.PlatformKind>(initialPlatform);
   const [platformsReady, setPlatformsReady] = useState(false);
+  const [switchingPlatform, setSwitchingPlatform] = useState(false);
   const [loggedInPlatforms, setLoggedInPlatforms] = useState<Set<api.PlatformKind>>(() => new Set());
   const [dyQrImg, setDyQrImg] = useState<string | null>(null);
   const [dyStatus, setDyStatus] = useState<DouyinStatus>('loading');
@@ -46,6 +48,10 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
   const mountedRef = useRef(false);
   const platformRef = useRef<api.PlatformKind>(initialPlatform);
   const generationRef = useRef(0);
+  const [loginGeneration, setLoginGeneration] = useState(0);
+  const renewalCountRef = useRef(0);
+  const closingRef = useRef(false);
+  const switchingRef = useRef(false);
   const tRef = useRef(t);
   const onSuccessRef = useRef(onSuccess);
   tRef.current = t;
@@ -71,6 +77,7 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
 
   const isCurrentLogin = useCallback((generation: number, expectedPlatform: api.PlatformKind) => (
     mountedRef.current
+    && !closingRef.current
     && generationRef.current === generation
     && platformRef.current === expectedPlatform
   ), []);
@@ -82,12 +89,31 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
     }, 900);
   }, [isCurrentLogin]);
 
+  const cancelAbandonedStart = useCallback((expectedPlatform: 'douyin' | 'zhihu') => {
+    // Do not cancel a newer retry for the same platform: its worker is shared.
+    if (!closingRef.current && mountedRef.current && platformRef.current === expectedPlatform) return;
+    const cancel = expectedPlatform === 'douyin' ? api.loginCancel : api.zhihuLoginCancel;
+    void cancel().catch((error) => console.warn('Abandoned login cancellation failed:', error));
+  }, []);
+
   const loadDouyin = useCallback(async (generation: number) => {
     if (!isCurrentLogin(generation, 'douyin')) return;
     setDyStatus('loading');
+    setDyQrImg(null);
+    setDyWindowOpened(false);
     setDyMessage(tRef.current('loggingIn'));
     try {
       const result = await api.douyinGenerateQr();
+      if (!isCurrentLogin(generation, 'douyin')) {
+        cancelAbandonedStart('douyin');
+        return;
+      }
+      if (result.data?.status === 'syncing' || result.data?.status === 'logged_in') {
+        setDyStatus(result.data.status === 'syncing' ? 'syncing' : 'success');
+        setDyMessage(tRef.current(result.data.status === 'syncing' ? 'loginSyncing' : 'loginSuccessDone'));
+        if (result.data.status === 'logged_in') scheduleSuccess(generation, 'douyin');
+        return;
+      }
       if (!result.success || !result.data?.qrcode_image_base64) {
         throw new Error('QR generation failed');
       }
@@ -101,15 +127,17 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
       setDyStatus('failed');
       setDyMessage(tRef.current('networkError'));
     }
-  }, [isCurrentLogin]);
+  }, [cancelAbandonedStart, isCurrentLogin, scheduleSuccess]);
 
   const loadBilibili = useCallback(async (generation: number) => {
     if (!isCurrentLogin(generation, 'bilibili')) return;
     setBiliStatus('loading');
+    setBiliQrKey(null);
+    setBiliQrImg(null);
     setBiliMessage(tRef.current('loggingIn'));
     try {
       const result = await api.bilibiliGenerateQr();
-      if (!result.success || !result.data) throw new Error('QR generation failed');
+      if (!result.success || !result.data?.qrcode_key || !result.data.qrcode_image_base64) throw new Error('QR generation failed');
       if (!isCurrentLogin(generation, 'bilibili')) return;
       setBiliQrKey(result.data.qrcode_key);
       setBiliQrImg(result.data.qrcode_image_base64);
@@ -131,7 +159,15 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
     setZhihuMessage(tRef.current('zhihuLoginOpening'));
     try {
       const result = await api.zhihuLoginStart();
-      if (!isCurrentLogin(generation, 'zhihu')) return;
+      if (!isCurrentLogin(generation, 'zhihu')) {
+        cancelAbandonedStart('zhihu');
+        return;
+      }
+      if (!result.success || result.status === 'failed' || result.status === 'expired') {
+        setZhihuStatus(result.status === 'expired' ? 'expired' : 'failed');
+        setZhihuMessage(result.message || tRef.current('loginFailed'));
+        return;
+      }
       if (result.status === 'logged_in') {
         setZhihuStatus('logged_in');
         setZhihuMessage(result.message || tRef.current('zhihuLoginSuccess'));
@@ -151,7 +187,19 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
       setZhihuPollingReady(false);
       setZhihuMessage(tRef.current('networkError'));
     }
-  }, [isCurrentLogin, scheduleSuccess]);
+  }, [cancelAbandonedStart, isCurrentLogin, scheduleSuccess]);
+
+  const restartLogin = useCallback((expectedPlatform: api.PlatformKind, automatic = false) => {
+    if (!mountedRef.current || closingRef.current || platformRef.current !== expectedPlatform) return;
+    if (automatic && renewalCountRef.current >= MAX_AUTOMATIC_QR_RENEWALS) return;
+    renewalCountRef.current = automatic ? renewalCountRef.current + 1 : 0;
+    invalidateLogin();
+    const generation = generationRef.current;
+    setLoginGeneration(generation);
+    if (expectedPlatform === 'douyin') void loadDouyin(generation);
+    else if (expectedPlatform === 'bilibili') void loadBilibili(generation);
+    else void loadZhihu(generation);
+  }, [invalidateLogin, loadBilibili, loadDouyin, loadZhihu]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -187,27 +235,24 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
   useEffect(() => {
     platformRef.current = platform;
     if (!platformsReady || loggedInPlatforms.has(platform)) return;
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
-    if (platform === 'douyin') void loadDouyin(generation);
-    else if (platform === 'bilibili') void loadBilibili(generation);
-    else void loadZhihu(generation);
-    return () => {
-      if (generationRef.current === generation) invalidateLogin();
-    };
-  }, [platform, platformsReady, loggedInPlatforms, invalidateLogin, loadBilibili, loadDouyin, loadZhihu]);
+    restartLogin(platform);
+    return invalidateLogin;
+  }, [platform, platformsReady, loggedInPlatforms, invalidateLogin, restartLogin]);
 
   useEffect(() => {
     if (!platformsReady || platform !== 'douyin' || (dyStatus !== 'pending' && dyStatus !== 'syncing')) return;
     const generation = generationRef.current;
     let inFlight = false;
+    let cancelled = false;
+    let consecutiveFailures = 0;
     dyPollRef.current = setInterval(async () => {
       if (inFlight || !isCurrentLogin(generation, 'douyin')) return;
       inFlight = true;
       try {
         const result = await api.loginStatus();
-        if (!isCurrentLogin(generation, 'douyin')) return;
-        if (result.qrcode_image_base64) setDyQrImg(result.qrcode_image_base64);
+        if (cancelled || !isCurrentLogin(generation, 'douyin')) return;
+        consecutiveFailures = 0;
+        if (result.status === 'pending') setDyQrImg(result.qrcode_image_base64 || null);
         if (result.status === 'syncing') {
           setDyStatus('syncing');
           setDyMessage(tRef.current('loginSyncing'));
@@ -218,32 +263,53 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
           scheduleSuccess(generation, 'douyin');
         } else if (result.status === 'failed') {
           clearPoll(dyPollRef);
-          setDyStatus('failed');
-          setDyMessage(tRef.current('loginFailed'));
+          setDyQrImg(null);
+          setDyStatus(dyStatus === 'syncing' ? 'success' : 'failed');
+          setDyMessage(tRef.current(dyStatus === 'syncing' ? 'loginSuccessDone' : 'loginFailed'));
+          if (dyStatus === 'syncing') scheduleSuccess(generation, 'douyin');
         } else if (result.status === 'expired') {
           clearPoll(dyPollRef);
-          setDyStatus('expired');
-          setDyMessage(tRef.current('qrExpiredClickRefresh'));
+          setDyQrImg(null);
+          if (dyStatus === 'syncing') {
+            setDyStatus('success');
+            setDyMessage(tRef.current('loginSuccessDone'));
+            scheduleSuccess(generation, 'douyin');
+          } else {
+            setDyStatus('expired');
+            setDyMessage(tRef.current('qrExpiredClickRefresh'));
+            restartLogin('douyin', true);
+          }
         }
       } catch (error) {
+        if (cancelled || !isCurrentLogin(generation, 'douyin')) return;
         console.warn('Douyin login status poll failed:', error);
+        if (++consecutiveFailures >= 3) {
+          clearPoll(dyPollRef);
+          setDyQrImg(null);
+          setDyStatus(dyStatus === 'syncing' ? 'success' : 'failed');
+          setDyMessage(tRef.current(dyStatus === 'syncing' ? 'loginSuccessDone' : 'networkError'));
+          if (dyStatus === 'syncing') scheduleSuccess(generation, 'douyin');
+        }
       } finally {
         inFlight = false;
       }
     }, 1500);
-    return () => clearPoll(dyPollRef);
-  }, [dyStatus, isCurrentLogin, platform, platformsReady, scheduleSuccess]);
+    return () => { cancelled = true; clearPoll(dyPollRef); };
+  }, [dyStatus, isCurrentLogin, loginGeneration, platform, platformsReady, restartLogin, scheduleSuccess]);
 
   useEffect(() => {
     if (!platformsReady || platform !== 'bilibili' || !biliQrKey || biliStatus === 'success' || biliStatus === 'expired' || biliStatus === 'failed') return;
     const generation = generationRef.current;
     let inFlight = false;
+    let cancelled = false;
+    let consecutiveFailures = 0;
     biliPollRef.current = setInterval(async () => {
       if (inFlight || !isCurrentLogin(generation, 'bilibili')) return;
       inFlight = true;
       try {
         const result = await api.bilibiliPollQr(biliQrKey);
-        if (!isCurrentLogin(generation, 'bilibili')) return;
+        if (cancelled || !isCurrentLogin(generation, 'bilibili')) return;
+        consecutiveFailures = 0;
         if (result.status === 'confirmed' || result.status === 'success') {
           clearPoll(biliPollRef);
           setBiliStatus('success');
@@ -254,30 +320,47 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
           setBiliMessage(tRef.current('bilibiliQrScanned'));
         } else if (result.status === 'expired') {
           clearPoll(biliPollRef);
+          setBiliQrImg(null);
           setBiliStatus('expired');
           setBiliMessage(tRef.current('qrExpiredClickRefresh'));
+          restartLogin('bilibili', true);
+        } else if (result.status === 'failed' || result.status === 'error' || !result.success) {
+          clearPoll(biliPollRef);
+          setBiliQrImg(null);
+          setBiliStatus('failed');
+          setBiliMessage(result.message || tRef.current('loginFailed'));
         }
       } catch (error) {
+        if (cancelled || !isCurrentLogin(generation, 'bilibili')) return;
         console.warn('Bilibili login status poll failed:', error);
+        if (++consecutiveFailures >= 3) {
+          clearPoll(biliPollRef);
+          setBiliQrImg(null);
+          setBiliStatus('failed');
+          setBiliMessage(tRef.current('networkError'));
+        }
       } finally {
         inFlight = false;
       }
     }, 1500);
-    return () => clearPoll(biliPollRef);
-  }, [biliQrKey, biliStatus, isCurrentLogin, platform, platformsReady, scheduleSuccess]);
+    return () => { cancelled = true; clearPoll(biliPollRef); };
+  }, [biliQrKey, biliStatus, isCurrentLogin, loginGeneration, platform, platformsReady, restartLogin, scheduleSuccess]);
 
   useEffect(() => {
     if (!platformsReady || platform !== 'zhihu' || !zhihuPollingReady || zhihuStatus !== 'pending') return;
     const generation = generationRef.current;
     let inFlight = false;
+    let cancelled = false;
+    let consecutiveFailures = 0;
     zhihuPollRef.current = setInterval(async () => {
       if (inFlight || !isCurrentLogin(generation, 'zhihu')) return;
       inFlight = true;
       try {
         const result = await api.zhihuLoginStatus();
-        if (!isCurrentLogin(generation, 'zhihu')) return;
+        if (cancelled || !isCurrentLogin(generation, 'zhihu')) return;
+        consecutiveFailures = 0;
         const qrImage = result.qrcode_image_base64 || null;
-        if (qrImage) setZhihuQrImg(qrImage);
+        setZhihuQrImg(qrImage);
         setZhihuMessage(qrImage ? (result.message || tRef.current('zhihuLoginWaiting')) : tRef.current('zhihuLoginOpening'));
         if (result.status === 'logged_in') {
           clearPoll(zhihuPollRef);
@@ -286,20 +369,33 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
           scheduleSuccess(generation, 'zhihu');
         } else if (result.status === 'expired' || result.status === 'failed') {
           clearPoll(zhihuPollRef);
+          setZhihuQrImg(null);
           setZhihuStatus(result.status);
           setZhihuPollingReady(false);
+          setZhihuMessage(result.message || tRef.current(result.status === 'expired' ? 'qrExpiredClickRefresh' : 'loginFailed'));
+          if (result.status === 'expired') restartLogin('zhihu', true);
         }
       } catch (error) {
+        if (cancelled || !isCurrentLogin(generation, 'zhihu')) return;
         console.warn('Zhihu login status poll failed:', error);
+        if (++consecutiveFailures >= 3) {
+          clearPoll(zhihuPollRef);
+          setZhihuQrImg(null);
+          setZhihuStatus('failed');
+          setZhihuPollingReady(false);
+          setZhihuMessage(tRef.current('networkError'));
+        }
       } finally {
         inFlight = false;
       }
     }, 1500);
-    return () => clearPoll(zhihuPollRef);
-  }, [isCurrentLogin, platform, platformsReady, scheduleSuccess, zhihuPollingReady, zhihuStatus]);
+    return () => { cancelled = true; clearPoll(zhihuPollRef); };
+  }, [isCurrentLogin, loginGeneration, platform, platformsReady, restartLogin, scheduleSuccess, zhihuPollingReady, zhihuStatus]);
 
   const switchPlatform = async (next: api.PlatformKind) => {
-    if (!platformsReady || next === platform || loggedInPlatforms.has(next)) return;
+    if (!platformsReady || closingRef.current || switchingRef.current || next === platform || loggedInPlatforms.has(next)) return;
+    switchingRef.current = true;
+    setSwitchingPlatform(true);
     const previousPlatform = platformRef.current;
     const previousDouyinStatus = dyStatus;
     const previousZhihuStatus = zhihuStatus;
@@ -310,13 +406,21 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
     if (previousPlatform === 'zhihu' && previousZhihuStatus === 'pending') {
       try { await api.zhihuLoginCancel(); } catch (error) { console.warn('Zhihu login cancel failed:', error); }
     }
-    platformRef.current = next;
-    setPlatform(next);
+    if (mountedRef.current && !closingRef.current) {
+      platformRef.current = next;
+      setPlatform(next);
+      setSwitchingPlatform(false);
+    }
+    switchingRef.current = false;
   };
 
   const handleClose = async () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
     const currentPlatform = platformRef.current;
-    const completed = dyStatus === 'syncing' || dyStatus === 'success' || biliStatus === 'success' || zhihuStatus === 'logged_in';
+    const completed = currentPlatform === 'douyin'
+      ? dyStatus === 'syncing' || dyStatus === 'success'
+      : currentPlatform === 'bilibili' ? biliStatus === 'success' : zhihuStatus === 'logged_in';
     invalidateLogin();
     if (currentPlatform === 'douyin' && (dyStatus === 'pending' || dyStatus === 'loading')) {
       try { await api.loginCancel(); } catch (error) { console.warn('Douyin login cancel failed:', error); }
@@ -358,7 +462,7 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
     <Dialog onClose={handleClose} labelledBy={titleId} className="bg-[var(--color-panel)] rounded-2xl p-7 w-full max-w-[420px] flex flex-col items-center gap-4 shadow-2xl border border-[var(--color-border)] animate-scale-up">
       <div className="w-full flex items-center bg-black/5 p-1 rounded-xl">
         {platformTabs.map((tab) => {
-          const disabled = !platformsReady || loggedInPlatforms.has(tab.id);
+          const disabled = !platformsReady || switchingPlatform || loggedInPlatforms.has(tab.id);
           return (
             <button
               key={tab.id}
@@ -384,14 +488,14 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
               <div className="flex flex-col items-center gap-3 text-center">
                 {dyQrImg && <img src={dyQrImg.trim().startsWith('data:') ? dyQrImg.trim() : `data:image/png;base64,${dyQrImg.trim()}`} alt="Douyin QR Code" className={`w-44 h-44 object-contain rounded-xl ${dyStatus === 'expired' ? 'blur-xs opacity-30' : ''}`} />}
                 {!dyQrImg && dyStatus !== 'failed' && dyStatus !== 'expired' && <Spinner />}
-                {dyStatus === 'failed' && <><span className="text-3xl">❌</span><span className="text-xs text-red-500">{dyMessage || t('loginFailed')}</span><button type="button" onClick={() => void loadDouyin(generationRef.current)} className="text-xs text-red-600 underline cursor-pointer">{t('retry')}</button></>}
-                {dyStatus === 'expired' && <button type="button" onClick={() => void loadDouyin(generationRef.current)} className="text-xs text-accent underline cursor-pointer">{t('qrExpiredClickRefresh')}</button>}
+                {dyStatus === 'failed' && <><span className="text-3xl">❌</span><span className="text-xs text-red-500">{dyMessage || t('loginFailed')}</span><button type="button" disabled={switchingPlatform} onClick={() => restartLogin('douyin')} className="text-xs text-red-600 underline cursor-pointer">{t('retry')}</button></>}
+                {dyStatus === 'expired' && <button type="button" disabled={switchingPlatform} onClick={() => restartLogin('douyin')} className="text-xs text-accent underline cursor-pointer">{t('qrExpiredClickRefresh')}</button>}
               </div>
             )}
             {platform === 'bilibili' && (
               <div className="relative flex items-center justify-center w-full h-full">
-                {biliQrImg ? <img src={biliQrImg.trim().startsWith('data:') ? biliQrImg.trim() : `data:image/png;base64,${biliQrImg.trim()}`} alt="Bilibili QR Code" className="w-44 h-44 object-contain rounded-xl" /> : <Spinner color="pink" />}
-                {(biliStatus === 'failed' || biliStatus === 'expired') && <button type="button" onClick={() => void loadBilibili(generationRef.current)} className="absolute bottom-2 text-xs text-red-600 underline cursor-pointer">{t('retry')}</button>}
+                {biliQrImg ? <img src={biliQrImg.trim().startsWith('data:') ? biliQrImg.trim() : `data:image/png;base64,${biliQrImg.trim()}`} alt="Bilibili QR Code" className="w-44 h-44 object-contain rounded-xl" /> : biliStatus === 'loading' ? <Spinner color="pink" /> : <span className="text-3xl">❌</span>}
+                {(biliStatus === 'failed' || biliStatus === 'expired') && <button type="button" disabled={switchingPlatform} onClick={() => restartLogin('bilibili')} className="absolute bottom-2 text-xs text-red-600 underline cursor-pointer">{t('retry')}</button>}
               </div>
             )}
             {platform === 'zhihu' && (
@@ -407,11 +511,13 @@ export default function LoginModal({ onClose, onSuccess, initialPlatform = 'douy
                 <span className="text-xs font-semibold text-blue-700">
                   {zhihuStatus === 'failed'
                       ? (zhihuMessage || t('loginFailed'))
+                      : zhihuStatus === 'expired'
+                        ? t('qrExpiredClickRefresh')
                       : zhihuQrImg
                         ? t('zhihuLoginWaiting')
                         : t('zhihuLoginOpening')}
                 </span>
-                {(zhihuStatus === 'expired' || zhihuStatus === 'failed') && <button type="button" onClick={() => void loadZhihu(generationRef.current)} className="text-xs text-blue-700 underline cursor-pointer">{t('retry')}</button>}
+                {(zhihuStatus === 'expired' || zhihuStatus === 'failed') && <button type="button" disabled={switchingPlatform} onClick={() => restartLogin('zhihu')} className="text-xs text-blue-700 underline cursor-pointer">{t('retry')}</button>}
               </div>
             )}
           </div>
