@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.2.0](https://github.com/EypeZeo/Akasha-RAG/compare/v1.1.1...v1.2.0) (2026-10-01)
+
+
+### Features
+
+* **platforms:** add Zhihu integration and harden ingestion ([#71](https://github.com/EypeZeo/Akasha-RAG/issues/71)) ([6394d38](https://github.com/EypeZeo/Akasha-RAG/commit/6394d3849b8188a1db48a281571c52c9e80df661))
+
+
+### Bug Fixes
+
+* **auth:** capture Douyin account avatars and simplify completed login UI ([#80](https://github.com/EypeZeo/Akasha-RAG/issues/80)) ([d007499](https://github.com/EypeZeo/Akasha-RAG/commit/d007499e7040d6a89961e4cd7499c4c7384d891b))
+* **auth:** capture Zhihu nicknames and renew expired QR codes ([#81](https://github.com/EypeZeo/Akasha-RAG/issues/81)) ([c571cd0](https://github.com/EypeZeo/Akasha-RAG/commit/c571cd0d1d1bbe23a229b10bae4938eb707675de))
+* **developer:** recover monitoring and localize panel ([#82](https://github.com/EypeZeo/Akasha-RAG/issues/82)) ([1929807](https://github.com/EypeZeo/Akasha-RAG/commit/192980778af16f6a6e3a88030200156a8ff2538a))
+* harden local API and background task resource lifecycles ([#79](https://github.com/EypeZeo/Akasha-RAG/issues/79)) ([fec43d9](https://github.com/EypeZeo/Akasha-RAG/commit/fec43d937657af22a5af69388c330733f01902f7))
+* **ingestion:** scope action counts by platform ([#77](https://github.com/EypeZeo/Akasha-RAG/issues/77)) ([a2d5857](https://github.com/EypeZeo/Akasha-RAG/commit/a2d5857cba93d4d38cdf6839cd9fcdf9d717ddff))
+* **zhihu:** capture cross-origin QR canvas ([#73](https://github.com/EypeZeo/Akasha-RAG/issues/73)) ([45c0a1e](https://github.com/EypeZeo/Akasha-RAG/commit/45c0a1e9691439e665e5d5c1cf99e6f94d38a056))
+* **zhihu:** label video favorites accurately ([#78](https://github.com/EypeZeo/Akasha-RAG/issues/78)) ([0eccaea](https://github.com/EypeZeo/Akasha-RAG/commit/0eccaeae1b29bca58a79a1eaa5bc8ca062c7985b))
+* **zhihu:** preserve local session during tests ([#75](https://github.com/EypeZeo/Akasha-RAG/issues/75)) ([226d7b4](https://github.com/EypeZeo/Akasha-RAG/commit/226d7b404f9f4d4fcccf866ea303404d403e6634))
+* **zhihu:** read favorites through authenticated page ([#74](https://github.com/EypeZeo/Akasha-RAG/issues/74)) ([0dd7443](https://github.com/EypeZeo/Akasha-RAG/commit/0dd7443c53c0b9e46f68d206d8b0a41f58b6059f))
+* **zhihu:** recover expired sessions and clarify QR loading ([#76](https://github.com/EypeZeo/Akasha-RAG/issues/76)) ([68f4c5c](https://github.com/EypeZeo/Akasha-RAG/commit/68f4c5cf1500f21766a0844aa9f6bb57dda4534f))
+
 ## [1.1.1](https://github.com/EypeZeo/Akasha-RAG/compare/v1.1.0...v1.1.1) (2026-09-28)
 
 ### ✨ 新功能 / Features
@@ -116,4 +137,3 @@
 ## [1.0.1](https://github.com/EypeZeo/Akasha-RAG/compare/v1.0.0...v1.0.1) (2026-09-12)
 
 （之前的版本记录）
-
