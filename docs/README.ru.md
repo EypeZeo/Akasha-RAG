@@ -16,20 +16,31 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-Превратите избранное из Douyin (китайский TikTok) и Bilibili в единую личную базу знаний с поиском и диалогом.
+Превратите избранное из Douyin (китайский TikTok), Bilibili и Zhihu в единую личную базу знаний с поиском и диалогом.
+
+## Поддерживаемые платформы
+
+| Платформа | Поддерживаемый контент в избранном |
+| --- | --- |
+| Douyin | Короткие видео и публикации с изображениями и текстом |
+| Bilibili | Видео |
+| Zhihu | Видео и текстово-графический контент, включая статьи и ответы |
 
 ```mermaid
 flowchart LR
     subgraph col["Сбор"]
         DY[Избранное Douyin]
         BILI[Избранное Bilibili]
+        ZH[Избранное Zhihu]
     end
     DY --> DL[Скачивание аудио<br/>yt-dlp]
     BILI --> DL
     DY --> IMG[Заметки-картинки<br/>Qwen-VL Vision]
+    ZH --> TEXT[Текст страницы<br/>статьи / ответы / описания видео]
     DL --> ASR[Транскрипция<br/>DashScope ASR]
     ASR --> CHUNK[Нарезка]
     IMG --> CHUNK
+    TEXT --> CHUNK
     CHUNK --> EMBED[Эмбеддинги]
     EMBED --> VDB[(ChromaDB)]
     VDB --> CHAT[RAG-чат]
@@ -98,7 +109,7 @@ start.bat
 
 ## Порядок работы
 
-1. «Вход по QR-коду» → браузер открывает страницу входа Douyin или Bilibili → отсканируйте телефоном (каждая платформа входит независимо)
+1. «Вход по QR-коду» → выберите Douyin, Bilibili или Zhihu и завершите предложенный вход (каждая платформа входит независимо)
 2. «Синхронизация» — подтянуть избранное (повторный клик принудительно пересобирает и показывает число добавленных/удалённых)
 3. «Загрузка» → бэкенд скачивает аудио или извлекает текст с картинок → транскрибирует → строит эмбеддинги (прогресс в реальном времени)
 4. Задавайте вопросы в панели чата; «Экспорт» формирует Word/Excel/Markdown/PPT/PDF из загруженного содержимого
@@ -140,6 +151,7 @@ backend/
 │  └─ services/
 │     ├─ douyin_collector.py      вход через Playwright + сбор избранного (Douyin)
 │     ├─ bilibili/                вход + сбор избранного Bilibili
+│     ├─ zhihu_collector.py       QR-вход Zhihu + сбор избранного
 │     ├─ douyin_media_resolver.py откат разрешения медиа через браузер
 │     ├─ media_service.py         скачивание yt-dlp + транскод ffmpeg + очистка кэша
 │     ├─ asr_service.py / asr_worker.py   DashScope ASR в изолированном подпроцессе
@@ -172,6 +184,7 @@ version.txt                        единственный источник в�
 |-------|------|-----------|
 | POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | Вход по QR (Douyin) |
 | POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | Вход по QR (Bilibili) |
+| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | Вход по QR (Zhihu) |
 | POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | Избранное |
 | POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | Загрузка + прогресс |
 | GET  | `/api/knowledge/stats` | Статистика базы знаний |

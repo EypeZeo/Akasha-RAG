@@ -16,20 +16,31 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-Verwandle deine Douyin- (das chinesische TikTok) und Bilibili-Favoriten in eine einzige durchsuchbare, dialogfähige persönliche Wissensdatenbank.
+Verwandle deine Douyin- (das chinesische TikTok), Bilibili- und Zhihu-Favoriten in eine einzige durchsuchbare, dialogfähige persönliche Wissensdatenbank.
+
+## Unterstützte Plattformen
+
+| Plattform | Unterstützte Favoriteninhalte |
+| --- | --- |
+| Douyin | Kurzvideos und Bild-Text-Beiträge |
+| Bilibili | Videos |
+| Zhihu | Videos sowie Text- und Bildinhalte, einschließlich Artikeln und Antworten |
 
 ```mermaid
 flowchart LR
     subgraph col["Erfassung"]
         DY[Douyin-Favoriten]
         BILI[Bilibili-Favoriten]
+        ZH[Zhihu-Favoriten]
     end
     DY --> DL[Audio-Download<br/>yt-dlp]
     BILI --> DL
     DY --> IMG[Bildnotizen<br/>Qwen-VL Vision]
+    ZH --> TEXT[Seitentext<br/>Artikel / Antworten / Videobeschreibungen]
     DL --> ASR[Transkription<br/>DashScope ASR]
     ASR --> CHUNK[Chunking]
     IMG --> CHUNK
+    TEXT --> CHUNK
     CHUNK --> EMBED[Embeddings]
     EMBED --> VDB[(ChromaDB)]
     VDB --> CHAT[RAG-Chat]
@@ -98,7 +109,7 @@ in `frontend` `npm run dev`; dann http://localhost:5173 öffnen.
 
 ## Ablauf
 
-1. „Per QR-Code anmelden" → ein Browser öffnet die Douyin- oder Bilibili-Anmeldeseite → mit dem Handy scannen (jede Plattform meldet sich unabhängig an)
+1. „Per QR-Code anmelden" → Douyin, Bilibili oder Zhihu auswählen und den angezeigten Anmeldevorgang abschließen (jede Plattform meldet sich unabhängig an)
 2. „Synchronisieren", um die Favoriten zu laden (erneuter Klick erzwingt eine neue Erfassung und meldet Anzahl der Hinzugefügten/Entfernten)
 3. „Einlesen" → das Backend lädt Audio oder extrahiert Bildtext → transkribiert → erzeugt Embeddings (Live-Fortschritt)
 4. Fragen im Chat-Panel stellen; „Exportieren" erzeugt Word/Excel/Markdown/PPT/PDF aus den eingelesenen Inhalten
@@ -140,6 +151,7 @@ backend/
 │  └─ services/
 │     ├─ douyin_collector.py      Playwright-Anmeldung + Favoriten-Scrape (Douyin)
 │     ├─ bilibili/                Bilibili-Anmeldung + Favoriten-Scrape
+│     ├─ zhihu_collector.py       Zhihu-QR-Anmeldung + Favoriten-Scrape
 │     ├─ douyin_media_resolver.py Browser-Rückfall zur Medienauflösung
 │     ├─ media_service.py         yt-dlp-Download + ffmpeg-Transcode + Cache-Bereinigung
 │     ├─ asr_service.py / asr_worker.py   subprozess-isolierte DashScope-ASR
@@ -172,6 +184,7 @@ version.txt                        einzige Quelle der Version (von release-pleas
 |---------|------|-------|
 | POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | Douyin QR-Anmeldung |
 | POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | Bilibili QR-Anmeldung |
+| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | Zhihu QR-Anmeldung |
 | POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | Favoriten |
 | POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | Einlesen + Fortschritt |
 | GET  | `/api/knowledge/stats` | Statistik der Wissensdatenbank |

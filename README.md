@@ -16,20 +16,31 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-把你的抖音 / 哔哩哔哩收藏夹，一键变成一个可以搜索、可以对话的私人知识库。
+把你的抖音、哔哩哔哩和知乎收藏夹，一键变成一个可以搜索、可以对话的私人知识库。
+
+## 已支持的平台
+
+| 平台 | 支持的收藏内容 |
+| --- | --- |
+| 抖音 | 短视频、图文 |
+| 哔哩哔哩 | 视频 |
+| 知乎 | 视频、图文内容（文章、回答等） |
 
 ```mermaid
 flowchart LR
     subgraph col["采集"]
         DY[抖音收藏夹]
         BILI[哔哩哔哩收藏夹]
+        ZH[知乎收藏夹]
     end
     DY --> DL[下载音频<br/>yt-dlp]
     BILI --> DL
     DY --> IMG[图文笔记<br/>Qwen-VL 视觉提取]
+    ZH --> TEXT[网页正文<br/>文章 / 回答 / 视频说明]
     DL --> ASR[语音转写<br/>DashScope ASR]
     ASR --> CHUNK[文本切块]
     IMG --> CHUNK
+    TEXT --> CHUNK
     CHUNK --> EMBED[向量化<br/>Embedding]
     EMBED --> VDB[(ChromaDB)]
     VDB --> CHAT[RAG 对话]
@@ -103,7 +114,7 @@ start.bat
 
 ## 使用流程
 
-1. 「扫码登录」→ 浏览器弹出抖音或哔哩哔哩的登录页 → 手机扫码即可（两个平台分别登录，互不影响）
+1. 「扫码登录」→ 选择抖音、哔哩哔哩或知乎并按提示完成登录 → 各平台分别登录，互不影响
 2. 「同步」拉取收藏夹（已经同步过的话，再点一次会重新抓取一遍，并告诉你这次新增/减少了多少条）
 3. 「一键入库」→ 后台自动下载音频或提取图文内容 → 转写成文字 → 向量化（进度实时显示）
 4. 右侧对话区直接提问；「导出」可以把已经入库的内容批量导出成 Word/Excel/Markdown/PPT/PDF
@@ -144,6 +155,7 @@ backend/
 │  └─ services/
 │     ├─ douyin_collector.py      Playwright 登录 + 收藏夹抓取（抖音）
 │     ├─ bilibili/                哔哩哔哩登录 + 收藏夹抓取
+│     ├─ zhihu_collector.py       知乎扫码登录 + 收藏夹抓取
 │     ├─ douyin_media_resolver.py 浏览器兜底解析媒体地址
 │     ├─ media_service.py         yt-dlp 音频下载 + ffmpeg 转码 + 缓存清理
 │     ├─ asr_service.py / asr_worker.py   子进程隔离的 DashScope 语音转写
@@ -176,6 +188,7 @@ version.txt                        版本号单一来源（release-please 维护
 |------|------|------|
 | POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | 抖音扫码登录 |
 | POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | 哔哩哔哩扫码登录 |
+| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | 知乎扫码登录 |
 | POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | 收藏夹 |
 | POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | 一键入库 + 进度 |
 | GET  | `/api/knowledge/stats` | 知识库统计 |

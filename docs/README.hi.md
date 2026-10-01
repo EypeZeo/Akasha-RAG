@@ -16,20 +16,31 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-अपने Douyin (चीन का TikTok) और Bilibili पसंदीदा को एक ही खोजने-योग्य, बातचीत-योग्य निजी नॉलेज बेस में बदलें।
+अपने Douyin (चीन का TikTok), Bilibili और Zhihu पसंदीदा को एक ही खोजने-योग्य, बातचीत-योग्य निजी नॉलेज बेस में बदलें।
+
+## समर्थित प्लेटफ़ॉर्म
+
+| प्लेटफ़ॉर्म | समर्थित पसंदीदा सामग्री |
+| --- | --- |
+| Douyin | छोटे वीडियो और चित्र-टेक्स्ट पोस्ट |
+| Bilibili | वीडियो |
+| Zhihu | वीडियो और लेखों व उत्तरों सहित टेक्स्ट/चित्र सामग्री |
 
 ```mermaid
 flowchart LR
     subgraph col["संग्रह"]
         DY[Douyin पसंदीदा]
         BILI[Bilibili पसंदीदा]
+        ZH[Zhihu पसंदीदा]
     end
     DY --> DL[ऑडियो डाउनलोड<br/>yt-dlp]
     BILI --> DL
     DY --> IMG[इमेज नोट<br/>Qwen-VL विज़न]
+    ZH --> TEXT[पेज टेक्स्ट<br/>लेख / उत्तर / वीडियो विवरण]
     DL --> ASR[ट्रांसक्रिप्शन<br/>DashScope ASR]
     ASR --> CHUNK[चंकिंग]
     IMG --> CHUNK
+    TEXT --> CHUNK
     CHUNK --> EMBED[एम्बेडिंग]
     EMBED --> VDB[(ChromaDB)]
     VDB --> CHAT[RAG चैट]
@@ -98,7 +109,7 @@ start.bat
 
 ## कार्यप्रवाह
 
-1. "QR से लॉगिन" → ब्राउज़र में Douyin या Bilibili का लॉगिन पेज खुलता है → अपने फ़ोन से स्कैन करें (हर प्लेटफ़ॉर्म अलग-अलग लॉगिन होता है)
+1. "QR से लॉगिन" → Douyin, Bilibili या Zhihu चुनें और बताए गए लॉगिन चरण पूरे करें (हर प्लेटफ़ॉर्म अलग-अलग लॉगिन होता है)
 2. "सिंक" से पसंदीदा लाएँ (दोबारा क्लिक करने पर नए सिरे से स्क्रैप होता है और जोड़े/हटाए गए की संख्या दिखती है)
 3. "इनजेस्ट" → बैकएंड ऑडियो डाउनलोड करता है या इमेज टेक्स्ट निकालता है → ट्रांसक्राइब → एम्बेड (लाइव प्रगति)
 4. चैट पैनल में प्रश्न पूछें; "एक्सपोर्ट" इनजेस्ट की गई सामग्री से Word/Excel/Markdown/PPT/PDF बनाता है
@@ -140,6 +151,7 @@ backend/
 │  └─ services/
 │     ├─ douyin_collector.py      Playwright लॉगिन + पसंदीदा स्क्रैप (Douyin)
 │     ├─ bilibili/                Bilibili लॉगिन + पसंदीदा स्क्रैप
+│     ├─ zhihu_collector.py       Zhihu QR लॉगिन + पसंदीदा स्क्रैप
 │     ├─ douyin_media_resolver.py ब्राउज़र फ़ॉलबैक मीडिया रिज़ॉल्यूशन
 │     ├─ media_service.py         yt-dlp डाउनलोड + ffmpeg ट्रांसकोड + कैश सफ़ाई
 │     ├─ asr_service.py / asr_worker.py   सबप्रोसेस-पृथक DashScope ASR
@@ -172,6 +184,7 @@ version.txt                        संस्करण का एकल स्
 |------|-----|---------|
 | POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | Douyin QR लॉगिन |
 | POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | Bilibili QR लॉगिन |
+| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | Zhihu QR लॉगिन |
 | POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | पसंदीदा |
 | POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | इनजेस्ट + प्रगति |
 | GET  | `/api/knowledge/stats` | नॉलेज बेस आँकड़े |
