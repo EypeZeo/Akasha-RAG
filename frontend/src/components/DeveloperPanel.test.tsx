@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import DeveloperPanel from './DeveloperPanel';
 import { StrictMode } from 'react';
@@ -400,8 +400,21 @@ describe('DeveloperPanel request boundaries', () => {
     render(<DeveloperPanel />);
     await screen.findByRole('heading', { name: '系统资源' });
 
-    const getCalls = fetchMock.mock.calls.filter(call => !call[1]?.method || call[1].method === 'GET');
-    expect(getCalls.length).toBeGreaterThanOrEqual(4);
+    // The heading is rendered as soon as developer mode resolves.  Wait for
+    // the separate effect that starts all four diagnostics requests instead
+    // of assuming that it has run by then.
+    await waitFor(() => {
+      const metricCalls = fetchMock.mock.calls.filter(([url]) =>
+        String(url).startsWith('/api/system/diagnostics/'),
+      );
+      expect(metricCalls).toHaveLength(4);
+    });
+
+    const getCalls = fetchMock.mock.calls.filter(call =>
+      String(call[0]).startsWith('/api/system/diagnostics/')
+      && (!call[1]?.method || call[1].method === 'GET'),
+    );
+    expect(getCalls).toHaveLength(4);
     for (const call of getCalls) {
       expect(call[1]?.headers).toBeDefined();
       expect(call[1]?.headers['Content-Type']).toBeUndefined();
