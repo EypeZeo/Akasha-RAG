@@ -16,20 +16,31 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-더우인(중국판 TikTok)과 빌리빌리 즐겨찾기를, 검색하고 대화할 수 있는 하나의 개인 지식 베이스로 바꿉니다.
+더우인(중국판 TikTok), 빌리빌리, 즈후 즐겨찾기를 검색하고 대화할 수 있는 하나의 개인 지식 베이스로 바꿉니다.
+
+## 지원 플랫폼
+
+| 플랫폼 | 지원하는 즐겨찾기 콘텐츠 |
+| --- | --- |
+| 더우인 | 짧은 동영상, 이미지·텍스트 게시물 |
+| 빌리빌리 | 동영상 |
+| 즈후 | 동영상, 글·이미지 콘텐츠(문서, 답변 등) |
 
 ```mermaid
 flowchart LR
     subgraph col["수집"]
         DY[더우인 즐겨찾기]
         BILI[빌리빌리 즐겨찾기]
+        ZH[즈후 즐겨찾기]
     end
     DY --> DL[오디오 다운로드<br/>yt-dlp]
     BILI --> DL
     DY --> IMG[이미지 노트<br/>Qwen-VL 비전]
+    ZH --> TEXT[페이지 본문<br/>문서 / 답변 / 동영상 설명]
     DL --> ASR[전사<br/>DashScope ASR]
     ASR --> CHUNK[청킹]
     IMG --> CHUNK
+    TEXT --> CHUNK
     CHUNK --> EMBED[임베딩]
     EMBED --> VDB[(ChromaDB)]
     VDB --> CHAT[RAG 대화]
@@ -98,7 +109,7 @@ start.bat
 
 ## 사용 흐름
 
-1. "QR 로그인" → 브라우저에서 더우인 또는 빌리빌리 로그인 페이지가 열림 → 휴대폰으로 스캔 (각 플랫폼은 독립적으로 로그인)
+1. "QR 로그인" → 더우인, 빌리빌리 또는 즈후를 선택하고 안내에 따라 로그인 완료 (각 플랫폼은 독립적으로 로그인)
 2. "동기화" 로 즐겨찾기를 가져옵니다 (이미 동기화했어도 다시 누르면 강제로 재수집하고 추가/삭제 개수를 표시)
 3. "입고" → 백엔드가 오디오 다운로드 또는 이미지 텍스트 추출 → 전사 → 임베딩 (진행률 실시간 표시)
 4. 오른쪽 대화 패널에서 질문; "내보내기" 로 입고된 내용을 Word/Excel/Markdown/PPT/PDF 로 생성
@@ -140,6 +151,7 @@ backend/
 │  └─ services/
 │     ├─ douyin_collector.py      Playwright 로그인 + 즐겨찾기 수집 (더우인)
 │     ├─ bilibili/                빌리빌리 로그인 + 즐겨찾기 수집
+│     ├─ zhihu_collector.py       즈후 QR 로그인 + 즐겨찾기 수집
 │     ├─ douyin_media_resolver.py 브라우저 폴백 미디어 해석
 │     ├─ media_service.py         yt-dlp 다운로드 + ffmpeg 변환 + 캐시 정리
 │     ├─ asr_service.py / asr_worker.py   서브프로세스로 분리된 DashScope ASR
@@ -172,6 +184,7 @@ version.txt                        버전 단일 출처 (release-please 가 관�
 |--------|------|------|
 | POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | 더우인 QR 로그인 |
 | POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | 빌리빌리 QR 로그인 |
+| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | 즈후 QR 로그인 |
 | POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | 즐겨찾기 |
 | POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | 입고 + 진행률 |
 | GET  | `/api/knowledge/stats` | 지식 베이스 통계 |

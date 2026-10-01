@@ -16,20 +16,31 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-Douyin（中国版 TikTok）と哔哩哔哩のお気に入りを、まとめて検索・対話できる個人ナレッジベースに変えます。
+Douyin（中国版 TikTok）、哔哩哔哩、Zhihu のお気に入りを、まとめて検索・対話できる個人ナレッジベースに変えます。
+
+## 対応プラットフォーム
+
+| プラットフォーム | 対応するお気に入りコンテンツ |
+| --- | --- |
+| Douyin | 短編動画、画像・テキスト投稿 |
+| 哔哩哔哩 | 動画 |
+| Zhihu | 動画、記事や回答などのテキスト・画像コンテンツ |
 
 ```mermaid
 flowchart LR
     subgraph col["収集"]
         DY[Douyin お気に入り]
         BILI[哔哩哔哩 お気に入り]
+        ZH[Zhihu お気に入り]
     end
     DY --> DL[音声ダウンロード<br/>yt-dlp]
     BILI --> DL
     DY --> IMG[画像ノート<br/>Qwen-VL 視覚抽出]
+    ZH --> TEXT[ページ本文<br/>記事 / 回答 / 動画説明]
     DL --> ASR[文字起こし<br/>DashScope ASR]
     ASR --> CHUNK[チャンク分割]
     IMG --> CHUNK
+    TEXT --> CHUNK
     CHUNK --> EMBED[埋め込み]
     EMBED --> VDB[(ChromaDB)]
     VDB --> CHAT[RAG 対話]
@@ -97,7 +108,7 @@ start.bat
 
 ## 使い方
 
-1. 「QR ログイン」→ ブラウザで Douyin または哔哩哔哩のログインページが開く → スマホでスキャン（各プラットフォームは個別にログインします）
+1. 「QR ログイン」→ Douyin、哔哩哔哩、または Zhihu を選び、案内に従ってログイン（各プラットフォームは個別にログインします）
 2. 「同期」でお気に入りを取得（同期済みでも再クリックすると強制的に再取得し、追加/削除件数を表示）
 3. 「取り込み」→ バックエンドが音声取得または画像テキスト抽出 → 文字起こし → 埋め込み（進捗をリアルタイム表示）
 4. 右側の対話パネルで質問。「エクスポート」で取り込み済みの内容を Word/Excel/Markdown/PPT/PDF 出力
@@ -139,6 +150,7 @@ backend/
 │  └─ services/
 │     ├─ douyin_collector.py      Playwright ログイン + お気に入り取得（Douyin）
 │     ├─ bilibili/                哔哩哔哩のログイン + お気に入り取得
+│     ├─ zhihu_collector.py       Zhihu QR ログイン + お気に入り取得
 │     ├─ douyin_media_resolver.py ブラウザでのフォールバック解決
 │     ├─ media_service.py         yt-dlp ダウンロード + ffmpeg 変換 + キャッシュ整理
 │     ├─ asr_service.py / asr_worker.py   サブプロセス分離の DashScope ASR
@@ -171,6 +183,7 @@ version.txt                        バージョンの単一ソース（release-p
 |----------|------|------|
 | POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | Douyin QR ログイン |
 | POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | 哔哩哔哩 QR ログイン |
+| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | Zhihu QR ログイン |
 | POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | お気に入り |
 | POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | 取り込み + 進捗 |
 | GET  | `/api/knowledge/stats` | ナレッジベース統計 |

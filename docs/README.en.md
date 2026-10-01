@@ -16,20 +16,31 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-Turn your Douyin (TikTok China) and Bilibili favorites into one searchable, chattable personal knowledge base.
+Turn your Douyin (TikTok China), Bilibili, and Zhihu favorites into one searchable, chattable personal knowledge base.
+
+## Supported platforms
+
+| Platform | Supported favorite content |
+| --- | --- |
+| Douyin | Short videos and image-text posts |
+| Bilibili | Videos |
+| Zhihu | Videos and text/image content, including articles and answers |
 
 ```mermaid
 flowchart LR
     subgraph col["Collect"]
         DY[Douyin favorites]
         BILI[Bilibili favorites]
+        ZH[Zhihu favorites]
     end
     DY --> DL[Download audio<br/>yt-dlp]
     BILI --> DL
     DY --> IMG[Image notes<br/>Qwen-VL vision]
+    ZH --> TEXT[Page text<br/>articles / answers / video descriptions]
     DL --> ASR[Transcription<br/>DashScope ASR]
     ASR --> CHUNK[Chunking]
     IMG --> CHUNK
+    TEXT --> CHUNK
     CHUNK --> EMBED[Embeddings]
     EMBED --> VDB[(ChromaDB)]
     VDB --> CHAT[RAG chat]
@@ -97,7 +108,7 @@ in `frontend`, `npm run dev`; then open http://localhost:5173 .
 
 ## Workflow
 
-1. "Scan to log in" → a browser opens the Douyin or Bilibili login page → scan with your phone (each platform logs in independently)
+1. "Scan to log in" → choose Douyin, Bilibili, or Zhihu and complete the prompted login flow (each platform logs in independently)
 2. "Sync" to pull your favorites (clicking it again forces a fresh scrape and reports how many were added/removed)
 3. "Ingest" → the backend downloads audio or extracts image text → transcribes → embeds (live progress)
 4. Ask questions in the chat panel; "Export" produces Word/Excel/Markdown/PPT/PDF from ingested content
@@ -139,6 +150,7 @@ backend/
 │  └─ services/
 │     ├─ douyin_collector.py      Playwright login + favorites scrape (Douyin)
 │     ├─ bilibili/                Bilibili login + favorites scrape
+│     ├─ zhihu_collector.py       Zhihu QR login + favorites scrape
 │     ├─ douyin_media_resolver.py browser fallback media resolution
 │     ├─ media_service.py         yt-dlp download + ffmpeg transcode + cache cleanup
 │     ├─ asr_service.py / asr_worker.py   subprocess-isolated DashScope ASR
@@ -171,6 +183,7 @@ version.txt                        single source of truth for the version (maint
 |--------|------|---------|
 | POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | Douyin scan login |
 | POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | Bilibili scan login |
+| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | Zhihu QR login |
 | POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | Favorites |
 | POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | Ingest + progress |
 | GET  | `/api/knowledge/stats` | Knowledge-base stats |

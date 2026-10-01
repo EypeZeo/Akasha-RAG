@@ -16,20 +16,31 @@
 ![ChromaDB](https://img.shields.io/badge/ChromaDB-FF6B6B?logo=chromatic&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?logo=playwright&logoColor=white)
 
-Transformez vos favoris Douyin (le TikTok chinois) et Bilibili en une seule base de connaissances personnelle, interrogeable et conversationnelle.
+Transformez vos favoris Douyin (le TikTok chinois), Bilibili et Zhihu en une seule base de connaissances personnelle, interrogeable et conversationnelle.
+
+## Plateformes prises en charge
+
+| Plateforme | Contenu de favoris pris en charge |
+| --- | --- |
+| Douyin | Courtes vidéos et publications image-texte |
+| Bilibili | Vidéos |
+| Zhihu | Vidéos et contenu texte/image, dont articles et réponses |
 
 ```mermaid
 flowchart LR
     subgraph col["Collecte"]
         DY[Favoris Douyin]
         BILI[Favoris Bilibili]
+        ZH[Favoris Zhihu]
     end
     DY --> DL[Téléchargement audio<br/>yt-dlp]
     BILI --> DL
     DY --> IMG[Notes en image<br/>Vision Qwen-VL]
+    ZH --> TEXT[Texte de page<br/>articles / réponses / descriptions vidéo]
     DL --> ASR[Transcription<br/>ASR DashScope]
     ASR --> CHUNK[Découpage]
     IMG --> CHUNK
+    TEXT --> CHUNK
     CHUNK --> EMBED[Embeddings]
     EMBED --> VDB[(ChromaDB)]
     VDB --> CHAT[Chat RAG]
@@ -98,7 +109,7 @@ dans `frontend`, `npm run dev` ; puis ouvrez http://localhost:5173 .
 
 ## Déroulement
 
-1. « Se connecter par QR code » → un navigateur ouvre la page de connexion Douyin ou Bilibili → scannez avec votre téléphone (chaque plateforme se connecte indépendamment)
+1. « Se connecter par QR code » → choisissez Douyin, Bilibili ou Zhihu et terminez la connexion demandée (chaque plateforme se connecte indépendamment)
 2. « Synchroniser » pour récupérer vos favoris (un nouveau clic force une nouvelle collecte et indique le nombre d'ajouts/suppressions)
 3. « Ingérer » → le backend télécharge l'audio ou extrait le texte des images → transcrit → génère les embeddings (progression en direct)
 4. Posez vos questions dans le panneau de chat ; « Exporter » produit du Word/Excel/Markdown/PPT/PDF à partir du contenu ingéré
@@ -140,6 +151,7 @@ backend/
 │  └─ services/
 │     ├─ douyin_collector.py      connexion Playwright + collecte des favoris (Douyin)
 │     ├─ bilibili/                connexion + collecte des favoris Bilibili
+│     ├─ zhihu_collector.py       connexion QR Zhihu + collecte des favoris
 │     ├─ douyin_media_resolver.py résolution média de repli via navigateur
 │     ├─ media_service.py         téléchargement yt-dlp + transcodage ffmpeg + nettoyage du cache
 │     ├─ asr_service.py / asr_worker.py   ASR DashScope isolé en sous-processus
@@ -172,6 +184,7 @@ version.txt                        source unique de la version (gérée par rele
 |---------|--------|------|
 | POST | `/api/auth/douyin/login/start` · `/status` · `/logout` | Connexion par QR Douyin |
 | POST | `/api/auth/bilibili/login/start` · `/status` · `/logout` | Connexion par QR Bilibili |
+| POST / GET | `/api/auth/zhihu/login/start` · GET `/status` · POST `/cancel` · `/logout` | Connexion par QR Zhihu |
 | POST | `/api/favorites/sync` · GET `/collections` · `/collections/{id}/videos` | Favoris |
 | POST | `/api/knowledge/sync` · GET `/sync/{task_id}` | Ingestion + progression |
 | GET  | `/api/knowledge/stats` | Statistiques de la base |
