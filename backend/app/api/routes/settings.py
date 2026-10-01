@@ -154,27 +154,21 @@ class DeveloperModeRequest(BaseModel):
 
 @router.get("/developer-mode")
 async def get_developer_mode():
-    """获取开发者模式状态"""
-    from app.core.config import settings
+    """获取开发者模式状态（优先读取本地持久化配置）"""
     return {
         "success": True,
-        "enabled": settings.developer_mode,
+        "enabled": settings_store.get_developer_mode(),
     }
 
 
 @router.post("/developer-mode")
 async def set_developer_mode(body: DeveloperModeRequest):
     """
-    设置开发者模式（运行时动态切换）
-    
-    注意：此设置不持久化，重启后恢复为环境变量配置。
-    如需永久启用，请在 .env 中设置 DEVELOPER_MODE=true
+    设置开发者模式（持久化保存至本地存储）
     """
-    from app.core.config import settings
-    settings.developer_mode = body.enabled
+    settings_store.set_developer_mode(body.enabled)
     return {
         "success": True,
-        "enabled": settings.developer_mode,
-        "message": "开发者模式已{}（重启后恢复为环境变量配置）".format("启用" if body.enabled else "禁用"),
+        "enabled": body.enabled,
+        "message": f"开发者模式已{'启用' if body.enabled else '禁用'}",
     }
-

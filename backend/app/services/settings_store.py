@@ -40,6 +40,7 @@ class ApiSettings(BaseModel):
     dashscope_api_key: str = ""
     chat_providers: list[ChatProvider] = Field(default_factory=list)
     active_chat_provider_id: Optional[str] = None
+    developer_mode: Optional[bool] = None
 
 
 def _store_path() -> Path:
@@ -219,3 +220,21 @@ def config_status() -> dict:
     ingest_ready = not is_placeholder_api_key(get_dashscope_key())
 
     return {"chat_ready": chat_ready, "ingest_ready": ingest_ready}
+
+
+def get_developer_mode() -> bool:
+    """获取开发者模式启用状态，优先使用本地保存的配置，未保存过则回退到环境变量默认值。"""
+    with _LOCK:
+        stored = _read().developer_mode
+    if stored is not None:
+        return stored
+    return settings.developer_mode
+
+
+def set_developer_mode(enabled: bool) -> None:
+    """设置开发者模式状态并持久化至本地存储文件，同时更新当前进程内存单例。"""
+    with _LOCK:
+        data = _read()
+        data.developer_mode = enabled
+        _write(data)
+    settings.developer_mode = enabled

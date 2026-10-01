@@ -39,6 +39,10 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("正在启动 Akasha-RAG 后端服务...")
 
+    # 加载本地持久化的开发者模式配置
+    from app.services.settings_store import get_developer_mode
+    settings.developer_mode = get_developer_mode()
+
     # 创建存储目录
     storage_dirs = [
         settings.chroma_persist_dir,
