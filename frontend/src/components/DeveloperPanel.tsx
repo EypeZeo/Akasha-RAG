@@ -147,7 +147,7 @@ export default function DeveloperPanel({ active = true }: DeveloperPanelProps = 
       toggleControllerRef.current?.abort();
       toggleControllerRef.current = null;
     };
-  }, []);
+  }, [t]);
 
   const cancelInFlight = useCallback(() => {
     const batch = inFlightRef.current;
