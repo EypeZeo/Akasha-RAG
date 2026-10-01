@@ -320,7 +320,7 @@ export default function Workspace({ onLogout, onAccountsChanged, theme, onThemeC
             hidden={activeTab !== 'developer'}
             className="absolute inset-0"
           >
-            <DeveloperPanel />
+            <DeveloperPanel active={activeTab === 'developer'} />
           </div>
         </div>
       </div>

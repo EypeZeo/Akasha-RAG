@@ -85,3 +85,21 @@ def test_read_returns_a_deep_copy_callers_cannot_taint_the_cache(store_path, mon
     second = settings_store._read()
 
     assert second.dashscope_api_key == "sk-abc"
+
+
+def test_developer_mode_persistence_and_fallback(store_path, monkeypatch):
+    monkeypatch.setattr(settings_store.settings, "developer_mode", False)
+    store_path.write_text("{}", encoding="utf-8")
+
+    # Initial state falls back to settings.developer_mode
+    assert settings_store.get_developer_mode() is False
+
+    # Persisting True updates memory and file
+    settings_store.set_developer_mode(True)
+    assert settings_store.get_developer_mode() is True
+    assert settings_store.settings.developer_mode is True
+
+    # Persisting False updates memory and file
+    settings_store.set_developer_mode(False)
+    assert settings_store.get_developer_mode() is False
+    assert settings_store.settings.developer_mode is False

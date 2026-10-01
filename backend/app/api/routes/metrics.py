@@ -21,12 +21,20 @@ from app.db.session import get_db
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/metrics", tags=["metrics"], dependencies=[Depends(require_local_client)])
+# Desktop diagnostics are local resource reads, not telemetry. Some browser
+# filters replace /metrics/* with a 499 transparent image before it reaches us.
+# Keep the documented API and expose an internal alias for the bundled panel.
+diagnostics_router = APIRouter(
+    prefix="/system/diagnostics", include_in_schema=False,
+    dependencies=[Depends(require_local_client)],
+)
 
 # 启动时间（用于计算运行时长）
 _START_TIME = time.time()
 
 
 @router.get("/system")
+@diagnostics_router.get("/system")
 def get_system_metrics() -> dict[str, Any]:
     """
     获取系统资源指标
@@ -38,9 +46,10 @@ def get_system_metrics() -> dict[str, Any]:
     
     process = psutil.Process(os.getpid())
     
-    # CPU 使用率（进程级 + 系统级）
+    # A fresh Process object needs a sampling interval; its first nonblocking
+    # read is always zero. This synchronous route runs in FastAPI's thread pool.
     cpu_percent = process.cpu_percent(interval=0.1)
-    system_cpu_percent = psutil.cpu_percent(interval=0.1)
+    system_cpu_percent = psutil.cpu_percent(interval=None)
     
     # 内存使用（进程级 + 系统级）
     memory_info = process.memory_info()
@@ -78,6 +87,7 @@ def get_system_metrics() -> dict[str, Any]:
 
 
 @router.get("/network")
+@diagnostics_router.get("/network")
 def get_network_metrics() -> dict[str, Any]:
     """
     获取网络状态指标
@@ -122,6 +132,7 @@ def get_network_metrics() -> dict[str, Any]:
 
 
 @router.get("/cache")
+@diagnostics_router.get("/cache")
 def get_cache_metrics() -> dict[str, Any]:
     """
     获取缓存统计
@@ -195,6 +206,7 @@ def get_cache_metrics() -> dict[str, Any]:
 
 
 @router.get("/database")
+@diagnostics_router.get("/database")
 def get_database_metrics(session: Session = Depends(get_db)) -> dict[str, Any]:
     """
     获取数据库统计
