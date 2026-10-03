@@ -4,13 +4,17 @@
 提供收藏夹同步、列表查询、视频列表等接口。
 """
 import logging
+import traceback
 from typing import Literal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.services.bilibili.client import bilibili_client
 from app.services.collection_scope import AmbiguousCollectionError
+from app.services.douyin_collector import collector
 from app.services.favorites_service import favorites_service
 from app.services.platform_registry import PlatformFilter, supported_platforms
 from app.services.zhihu_collector import zhihu_collector
@@ -18,6 +22,29 @@ from app.services.zhihu_collector import zhihu_collector
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/favorites", tags=["收藏夹"])
+
+
+async def _all_sync_login_error(platform: str) -> str | None:
+    """Return a user-facing reason to skip an unauthenticated platform.
+
+    ``platform=all`` must not start a collector for a platform that was logged
+    out in another panel.  Apart from wasting network work, a collector can
+    flush partial state before reporting its authentication failure.
+    """
+    from app.services.worker import worker
+
+    if worker.is_platform_blocked(platform):
+        return "该平台已退出登录，请重新登录后再同步"
+    if platform == "douyin":
+        status, _ = collector.get_status()
+        return None if status in {"logged_in", "syncing"} else "抖音未登录，请先完成登录"
+    if platform == "bilibili":
+        status = await bilibili_client.get_auth_status()
+        return None if status.is_logged_in else "哔哩哔哩未登录，请先完成登录"
+    if platform == "zhihu":
+        status = zhihu_collector.get_status()
+        return None if status.get("status") in {"logged_in", "syncing"} else "知乎未登录，请先完成登录"
+    return "不支持的平台"
 
 
 @router.post("/sync")
@@ -80,32 +107,37 @@ async def sync_favorites(
             results = []
             r1, r2, r3 = None, None, None
             platform_results: dict[str, dict] = {}
-            try:
-                r1 = await favorites_service.sync_from_douyin(db)
-                results.append(r1)
-                platform_results["douyin"] = {"success": True}
-            except Exception as e:
+            douyin_error = await _all_sync_login_error("douyin")
+            if douyin_error:
+                platform_results["douyin"] = {"success": False, "message": douyin_error}
+            else:
+                try:
+                    r1 = await favorites_service.sync_from_douyin(db)
+                    results.append(r1)
+                    platform_results["douyin"] = {"success": True}
+                except Exception as e:
                 # 两个平台共用同一个 db session/事务。save_snapshot_to_db()
                 # 可能已经 flush() 了部分尚未提交的写入才抛异常；这里必须
                 # 立刻 rollback，否则这些半成品会挂在事务里，被下面 B 站
                 # 同步成功后自己的 db.commit() 一并提交上去。
-                db.rollback()
-                logger.warning("全部同步时抖音失败: %s", e)
-                platform_results["douyin"] = {"success": False, "message": str(e)}
-            try:
-                r2 = await favorites_service.sync_from_bilibili(db)
-                results.append(r2)
-                platform_results["bilibili"] = {"success": True}
-            except Exception as e:
-                db.rollback()
-                logger.warning("全部同步时B站失败: %s", e)
-                platform_results["bilibili"] = {"success": False, "message": str(e)}
-            zhihu_status = zhihu_collector.get_status()
-            if zhihu_status.get("status") not in {"logged_in", "syncing"}:
-                # Do not turn an intentionally unconfigured platform into a
-                # collector exception on every "sync all" click.  The caller
-                # receives a precise per-platform result and can open login.
-                platform_results["zhihu"] = {"success": False, "message": "知乎未登录，请先完成登录"}
+                    db.rollback()
+                    logger.warning("全部同步时抖音失败: %s", e)
+                    platform_results["douyin"] = {"success": False, "message": str(e)}
+            bilibili_error = await _all_sync_login_error("bilibili")
+            if bilibili_error:
+                platform_results["bilibili"] = {"success": False, "message": bilibili_error}
+            else:
+                try:
+                    r2 = await favorites_service.sync_from_bilibili(db)
+                    results.append(r2)
+                    platform_results["bilibili"] = {"success": True}
+                except Exception as e:
+                    db.rollback()
+                    logger.warning("全部同步时B站失败: %s", e)
+                    platform_results["bilibili"] = {"success": False, "message": str(e)}
+            zhihu_error = await _all_sync_login_error("zhihu")
+            if zhihu_error:
+                platform_results["zhihu"] = {"success": False, "message": zhihu_error}
             else:
                 try:
                     r3 = await favorites_service.sync_from_zhihu(db)
@@ -180,8 +212,6 @@ async def sync_favorites(
                 "summary_message": summary_msg,
             }
     except Exception as exc:
-        import traceback
-        import httpx
         # DATA-01: sync_from_douyin/sync_from_bilibili may have already
         # flush()ed partial collection/content/relation changes into this
         # session before failing. Because this except swallows the error and
