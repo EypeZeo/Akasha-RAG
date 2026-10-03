@@ -5,14 +5,16 @@ DATA-01 回归测试：同步中途异常必须回滚，不能提交半成品快
 由于异常被吞掉、从未传到 `get_db`，`get_db` 的 try/except/else 会走到
 "没有异常 → 提交" 的分支，把同步中途 flush 过的半成品数据一起提交。
 """
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
-from app.db.base import Base
+from app.api.routes import favorites as favorites_route
 from app.db import session as session_module
+from app.db.base import Base
 from app.main import app
 from app.models.entities import ContentItem
 from app.services.favorites_service import favorites_service
@@ -78,6 +80,9 @@ def test_all_platform_sync_does_not_leak_failed_platforms_partial_write(db_and_c
     client, factory = db_and_client
     monkeypatch.setattr(favorites_service, "sync_from_douyin", _flush_then_blow_up)
     monkeypatch.setattr(favorites_service, "sync_from_bilibili", _bilibili_success)
+    async def ready(_platform):
+        return None
+    monkeypatch.setattr(favorites_route, "_all_sync_login_error", ready)
 
     resp = client.post("/api/favorites/sync", params={"platform": "all"})
 
@@ -107,6 +112,9 @@ def test_all_platform_sync_reports_full_failure_when_both_platforms_fail(db_and_
     client, factory = db_and_client
     monkeypatch.setattr(favorites_service, "sync_from_douyin", _flush_then_blow_up)
     monkeypatch.setattr(favorites_service, "sync_from_bilibili", _blow_up_no_flush)
+    async def ready(_platform):
+        return None
+    monkeypatch.setattr(favorites_route, "_all_sync_login_error", ready)
 
     resp = client.post("/api/favorites/sync", params={"platform": "all"})
 
