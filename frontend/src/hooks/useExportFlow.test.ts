@@ -125,7 +125,7 @@ describe('useExportFlow', () => {
     expect(api.getExportProgress).toHaveBeenCalledWith('task-3', expect.any(AbortSignal));
   });
 
-  it('only triggers one real download per task id even if called repeatedly', () => {
+  it('allows explicit downloads to retry the same task', () => {
     const { result } = renderHook(() => useExportFlow(t));
     const clickSpy = vi.fn();
     const originalCreateElement = document.createElement.bind(document);
@@ -140,7 +140,7 @@ describe('useExportFlow', () => {
       result.current.triggerBrowserDownload('task-4');
     });
 
-    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(2);
     createElementSpy.mockRestore();
   });
 
@@ -177,7 +177,17 @@ describe('useExportFlow', () => {
       result.current.triggerBrowserDownload('restored');
       result.current.triggerBrowserDownload('restored');
     });
-    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('auto-downloads once but still allows retry after the initial download was cancelled', async () => {
+    vi.mocked(api.getExportProgress).mockResolvedValue({ success: true, status: 'done', progress: 1, total: 1 });
+    const clickSpy = spyOnDownloads();
+    const { result } = renderHook(() => useExportFlow(t));
+    act(() => result.current.startExportPolling('retry-download', 'browser'));
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    act(() => result.current.triggerBrowserDownload('retry-download'));
+    expect(clickSpy).toHaveBeenCalledTimes(2);
   });
 
   it('a response that outlives its task cannot overwrite the next task, download, or stop its polling', async () => {

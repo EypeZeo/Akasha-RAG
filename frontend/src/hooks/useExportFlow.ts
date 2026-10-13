@@ -38,8 +38,6 @@ export function useExportFlow(t: TFunction) {
   }, []);
 
   const triggerBrowserDownload = useCallback((taskId: string) => {
-    if (exportDownloadedRef.current === taskId) return;
-    exportDownloadedRef.current = taskId;
     const a = document.createElement('a');
     a.href = api.exportDownloadUrl(taskId);
     a.download = '';
@@ -82,7 +80,10 @@ export function useExportFlow(t: TFunction) {
       });
       if (p.status === 'done' || p.status === 'failed') {
         stopExportPoll();
-        if (p.status === 'done' && mode === 'browser' && autoDownload) triggerBrowserDownload(taskId);
+        if (p.status === 'done' && mode === 'browser' && autoDownload && exportDownloadedRef.current !== taskId) {
+          exportDownloadedRef.current = taskId;
+          triggerBrowserDownload(taskId);
+        }
         if (p.status === 'failed') console.error('Export failed:', p.message);
       }
     } catch { /* 网络抖动，下次再试 */ }
@@ -137,8 +138,8 @@ export function useExportFlow(t: TFunction) {
     }
     if (saved?.id) {
       const generation = ++generationRef.current;
-      // Restored browser tasks never auto-download. Keep the download marker
-      // clear so the explicit Download button still works exactly once.
+      // Restored browser tasks never auto-download. Explicit downloads remain
+      // available, including retries after a cancelled browser download.
       exportDownloadedRef.current = null;
       pollExportOnce(saved.id, saved.mode, generation, false);
       exportPollRef.current = setInterval(() => pollExportOnce(saved!.id, saved!.mode, generation, false), 1500);

@@ -78,6 +78,15 @@ class FavoritesService:
     """
 
     def save_snapshot_to_db(self, db: Session, snapshot: FavoriteScrapeSnapshot) -> dict:
+        """Publish a snapshot only while ingestion cannot claim or write rows."""
+        from app.services.worker import worker
+
+        with worker.submission_guard():
+            if worker.has_active_tasks():
+                raise RuntimeError("入库任务仍在执行或排队，请等待任务结束后同步收藏夹")
+            return self._save_snapshot_to_db(db, snapshot)
+
+    def _save_snapshot_to_db(self, db: Session, snapshot: FavoriteScrapeSnapshot) -> dict:
         """
         将抓取的收藏夹快照持久化到本地数据库中并完成差异对齐
 
@@ -159,7 +168,7 @@ class FavoritesService:
         snapshot = await collector.fetch_snapshot(
             max_collections=100, max_videos_per_collection=500, force=force
         )
-        return self.save_snapshot_to_db(db, snapshot)
+        return await asyncio.to_thread(self.save_snapshot_to_db, db, snapshot)
 
     async def sync_from_bilibili(self, db: Session) -> dict:
         """
@@ -353,12 +362,12 @@ class FavoritesService:
             is_complete=True,
             invalid_count=total_invalid_count,
         )
-        return self.save_snapshot_to_db(db, snapshot)
+        return await asyncio.to_thread(self.save_snapshot_to_db, db, snapshot)
 
     async def sync_from_zhihu(self, db: Session) -> dict:
         """Read the single local Zhihu session and persist its article snapshot."""
         snapshot = await asyncio.to_thread(zhihu_collector.sync_favorites_sync)
-        return self.save_snapshot_to_db(db, snapshot)
+        return await asyncio.to_thread(self.save_snapshot_to_db, db, snapshot)
 
     def _sync_collections(
         self,

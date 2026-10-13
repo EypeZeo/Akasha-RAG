@@ -106,7 +106,7 @@ export default function SourcesPanel({
   const [showBuildConfirm, setShowBuildConfirm] = useState(false);
   // 打开确认弹窗那一刻的作用域快照：弹窗开着期间选中项/平台再变，也不影响这次入库/导出的目标。
   const [buildScope, setBuildScope] = useState<ActionScope | null>(null);
-  const [exportScope, setExportScope] = useState<(ActionScope & { doneCount: number }) | null>(null);
+  const [exportScope, setExportScope] = useState<ActionScope | null>(null);
   const [actionStatusData, setActionStatusData] = useState<{ key: string; counts: Record<string, number> } | null>(null);
   const mountedRef = useRef(true);
   const [buildInitialType, setBuildInitialType] = useState<'all' | 'video' | 'note'>('all');
@@ -497,6 +497,7 @@ export default function SourcesPanel({
     buildProgress,
     buildTotal,
     buildMessage,
+    buildError,
     buildTaskId,
     cancelling,
     startBuildPolling,
@@ -796,7 +797,7 @@ export default function SourcesPanel({
 
   const openScopedExport = () => {
     if (!actionScope) return;
-    setExportScope({ ...actionScope, doneCount: actionDoneCount });
+    setExportScope({ ...actionScope });
     openExportModal();
   };
 
@@ -1325,6 +1326,7 @@ export default function SourcesPanel({
 
         {/* Build & Clear Section */}
         <div className="flex flex-col gap-2.5">
+          {buildError && <p role="alert" className="text-[11px] text-red-600">{t('ingestFailed')}</p>}
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-semibold text-[var(--color-ink-soft)]">📥 {building ? t('ingesting') : (isSubmitting ? t('ingestSubmitting') : t('kbStatus'))}</h3>
             {actionDoneCount > 0 && !building && !isSubmitting && (
@@ -1532,7 +1534,7 @@ export default function SourcesPanel({
           collectionId={exportScope.id}
           collectionTitle={exportScope.title}
           platform={exportScope.platform}
-          doneCount={exportScope.doneCount}
+          doneCount={doneCount}
           onClose={closeExportModal}
           onExportStarted={(taskId, mode) => startExportPolling(taskId, mode)}
         />

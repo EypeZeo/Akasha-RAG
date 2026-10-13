@@ -46,6 +46,28 @@ afterEach(() => {
 });
 
 describe('useBuildFlow', () => {
+  it('keeps a localized failure visible after polling finishes and clears it on retry', async () => {
+    vi.useFakeTimers();
+    vi.mocked(api.getSyncProgress).mockResolvedValue({
+      success: true, status: 'failed', progress: 2, total: 3, message: 'Provider-specific internal failure',
+    });
+    const onBuildComplete = vi.fn();
+    const { result } = renderHook(() => useBuildFlow(t, onBuildComplete));
+    await act(async () => {
+      result.current.startBuildPolling('failed-task', 'video');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.buildMessage).toBe('ingestFailed');
+    expect(result.current.buildError).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(900); });
+    expect(result.current.building).toBe(false);
+    expect(result.current.buildError).toBe(true);
+    expect(onBuildComplete).toHaveBeenCalledTimes(1);
+    vi.mocked(api.getSyncProgress).mockResolvedValue({ success: true, status: 'running', progress: 0, total: 1 });
+    act(() => result.current.startBuildPolling('retry-task', 'video'));
+    expect(result.current.buildError).toBe(false);
+  });
+
   it('aborts a hung progress request, retries, and ignores its late response', async () => {
     vi.useFakeTimers();
     const hung = deferred<SyncProgressResponse>();

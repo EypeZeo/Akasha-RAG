@@ -10,6 +10,7 @@ interface Props {
   onExportStarted: (taskId: string, mode: 'local' | 'browser') => void;
   collectionId: string;
   collectionTitle: string;
+  /** Number of ingested records across all platforms, for the all-library option. */
   doneCount: number;
   /** 这个收藏夹所属的平台（"全部收藏"行则是当前平台视图）；随 collectionId 一起构成导出范围。 */
   platform?: string;

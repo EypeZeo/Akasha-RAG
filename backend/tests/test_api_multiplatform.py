@@ -272,6 +272,32 @@ async def test_douyin_qrcode_endpoints(client):
         assert resp_win.json()["success"] is True
 
 
+def test_all_sync_continues_when_a_platform_login_check_raises(client):
+    from app.services.favorites_service import favorites_service
+    from app.services.worker import worker
+
+    for platform in ("douyin", "bilibili", "zhihu"):
+        worker.unblock_platform(platform)
+    with patch("app.api.routes.favorites.collector.get_status", side_effect=OSError("damaged state")), \
+         patch("app.api.routes.favorites.bilibili_client.get_auth_status", AsyncMock(return_value=MagicMock(is_logged_in=True))), \
+         patch("app.api.routes.favorites.zhihu_collector.get_status", return_value={"status": "waiting"}), \
+         patch.object(favorites_service, "sync_from_douyin", AsyncMock()) as douyin_sync, \
+         patch.object(favorites_service, "sync_from_bilibili", AsyncMock(return_value={"videos_total": 2})) as bili_sync, \
+         patch.object(favorites_service, "sync_from_zhihu", AsyncMock()) as zhihu_sync:
+        response = client.post("/api/favorites/sync?platform=all")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["success"] is True
+    assert body["partial"] is True
+    assert body["videos_total"] == 2
+    assert body["platform_results"]["douyin"]["success"] is False
+    assert body["platform_results"]["bilibili"]["success"] is True
+    bili_sync.assert_awaited_once()
+    douyin_sync.assert_not_awaited()
+    zhihu_sync.assert_not_awaited()
+
+
 def test_sync_favorites_handles_connect_timeout_gracefully(client):
     """验证遇到 ConnectTimeout 异常时返回友好的中文提示而非 ConnectTimeout: """
     import httpx

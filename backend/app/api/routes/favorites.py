@@ -33,17 +33,23 @@ async def _all_sync_login_error(platform: str) -> str | None:
     """
     from app.services.worker import worker
 
-    if worker.is_platform_blocked(platform):
-        return "该平台已退出登录，请重新登录后再同步"
-    if platform == "douyin":
-        status, _ = collector.get_status()
-        return None if status in {"logged_in", "syncing"} else "抖音未登录，请先完成登录"
-    if platform == "bilibili":
-        status = await bilibili_client.get_auth_status()
-        return None if status.is_logged_in else "哔哩哔哩未登录，请先完成登录"
-    if platform == "zhihu":
-        status = zhihu_collector.get_status()
-        return None if status.get("status") in {"logged_in", "syncing"} else "知乎未登录，请先完成登录"
+    try:
+        if worker.is_platform_blocked(platform):
+            return "该平台已退出登录，请重新登录后再同步"
+        if platform == "douyin":
+            status, _ = collector.get_status()
+            return None if status in {"logged_in", "syncing"} else "抖音未登录，请先完成登录"
+        if platform == "bilibili":
+            status = await bilibili_client.get_auth_status()
+            return None if status.is_logged_in else "哔哩哔哩未登录，请先完成登录"
+        if platform == "zhihu":
+            status = zhihu_collector.get_status()
+            return None if status.get("status") in {"logged_in", "syncing"} else "知乎未登录，请先完成登录"
+    except Exception:
+        # A damaged local session must not prevent the other platforms from
+        # syncing, or hide their already committed successful results.
+        logger.exception("读取平台 %s 登录状态失败", platform)
+        return "读取平台登录状态失败，请重新登录后再同步"
     return "不支持的平台"
 
 

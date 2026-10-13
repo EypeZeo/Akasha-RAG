@@ -373,3 +373,38 @@ def test_worker_records_pipeline_exception_as_failed():
     finally:
         worker.stop()
         worker._thread.join(timeout=2)
+
+
+def test_cancel_during_embedding_keeps_maintenance_blocked_until_consumer_exits(pipeline, monkeypatch):
+    from app.api.routes import knowledge as route
+
+    monkeypatch.setattr(route, "worker", pipeline.progress)
+    pipeline.add(transcript="这是一份已经保存的有效转写正文，用于测试取消时的迟到向量结果。")
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow_embed(chunks):
+        entered.set()
+        assert release.wait(5)
+        return [[0.1, 0.2] for _ in chunks]
+
+    pipeline.embedding.side_effect = slow_embed
+    pipeline.progress.submit("embedding-cancel", pipeline.service._run_sync, ["1001"])
+    pipeline.progress.start()
+    try:
+        assert entered.wait(5)
+        assert pipeline.progress.cancel("embedding-cancel")
+        assert pipeline.progress.has_active_tasks()
+        with pipeline.factory() as db:
+            result = route._clear_all_knowledge_sync(db, route.ClearAllRequest())
+        assert result["success"] is False
+        release.set()
+        pipeline.progress._queue.join()
+        assert pipeline.progress.get_progress("embedding-cancel")["status"] == "cancelled"
+        assert not pipeline.progress.has_active_tasks()
+        assert pipeline.cached().status == "pending"
+        pipeline.chroma.upsert_video_chunks.assert_not_called()
+    finally:
+        release.set()
+        pipeline.progress.stop()
+        pipeline.progress._thread.join(timeout=5)

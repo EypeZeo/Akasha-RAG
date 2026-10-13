@@ -12,6 +12,7 @@ export function useBuildFlow(t: TFunction, onBuildComplete: () => void) {
   const [buildProgress, setBuildProgress] = useState(0);
   const [buildTotal, setBuildTotal] = useState(0);
   const [buildMessage, setBuildMessage] = useState('');
+  const [buildError, setBuildError] = useState(false);
   const [buildTaskId, setBuildTaskId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const buildPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -91,6 +92,7 @@ export function useBuildFlow(t: TFunction, onBuildComplete: () => void) {
     activeRef.current = true;
     buildMissesRef.current = 0;
     setBuilding(true);
+    setBuildError(false);
     setBuildTaskId(taskId);
     if (!restoring) setBuildProgress(0);
     setBuildMessage(restoring ? t('ingestRestoring') : t('ingestStarting', { type: typeLabel }));
@@ -130,6 +132,9 @@ export function useBuildFlow(t: TFunction, onBuildComplete: () => void) {
           setBuildMessage(t('ingestCompleted', { type: typeLabel }));
         } else if (p.status === 'cancelled') {
           setBuildMessage(t('ingestCancelled'));
+        } else {
+          setBuildError(true);
+          setBuildMessage(t('ingestFailed'));
         }
         terminalTimeoutRef.current = setTimeout(() => {
           terminalTimeoutRef.current = null;
@@ -213,6 +218,7 @@ export function useBuildFlow(t: TFunction, onBuildComplete: () => void) {
     buildProgress,
     buildTotal,
     buildMessage,
+    buildError,
     buildTaskId,
     cancelling,
     startBuildPolling,

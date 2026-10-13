@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app._version import get_version
 from app.db.base import Base
@@ -20,10 +21,14 @@ from app.services.favorites_service import ALL_COLLECTION_ID, favorites_service
 
 
 @pytest.fixture
-def db():
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False})
+def db(monkeypatch):
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool,
+    )
     Base.metadata.create_all(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
+    from app.db import session as session_module
+    monkeypatch.setattr(session_module, "session_factory", factory)
     with factory() as session:
         yield session
     engine.dispose()
