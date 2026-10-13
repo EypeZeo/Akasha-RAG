@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.1](https://github.com/EypeZeo/Akasha-RAG/compare/v1.2.0...v1.2.1) (2026-10-13)
+
+
+### Bug Fixes
+
+* harden ingestion lifecycle and release installation ([#87](https://github.com/EypeZeo/Akasha-RAG/issues/87)) ([6eab946](https://github.com/EypeZeo/Akasha-RAG/commit/6eab94690add0248240c6c93596115a11b25d428))
+* **sync:** skip unauthenticated platforms in all sync ([#85](https://github.com/EypeZeo/Akasha-RAG/issues/85)) ([3d85449](https://github.com/EypeZeo/Akasha-RAG/commit/3d85449410d94d6054bf2ef82119b746e409f104))
+
 ## [1.2.0](https://github.com/EypeZeo/Akasha-RAG/compare/v1.1.1...v1.2.0) (2026-10-01)
 
 
