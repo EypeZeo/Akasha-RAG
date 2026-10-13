@@ -150,6 +150,7 @@ def test_all_sync_skips_zhihu_when_the_local_session_is_missing(client):
     with patch("app.services.favorites_service.favorites_service.sync_from_douyin", AsyncMock(return_value=douyin_result)), \
          patch("app.services.favorites_service.favorites_service.sync_from_bilibili", AsyncMock(return_value=bilibili_result)), \
          patch("app.services.favorites_service.favorites_service.sync_from_zhihu", AsyncMock()) as sync_zhihu, \
+         patch("app.api.routes.favorites._all_sync_login_error", AsyncMock(side_effect=[None, None, "知乎未登录，请先完成登录"])), \
          patch("app.api.routes.favorites.zhihu_collector.get_status", return_value={"status": "idle"}):
         response = client.post("/api/favorites/sync?platform=all")
 
@@ -159,6 +160,27 @@ def test_all_sync_skips_zhihu_when_the_local_session_is_missing(client):
     assert body["partial"] is True
     assert body["platform_results"]["zhihu"] == {"success": False, "message": "知乎未登录，请先完成登录"}
     sync_zhihu.assert_not_awaited()
+
+
+def test_all_sync_skips_all_unauthenticated_platforms_before_collecting(client):
+    with patch("app.services.favorites_service.favorites_service.sync_from_douyin", AsyncMock()) as douyin, \
+         patch("app.services.favorites_service.favorites_service.sync_from_bilibili", AsyncMock()) as bilibili, \
+         patch("app.services.favorites_service.favorites_service.sync_from_zhihu", AsyncMock()) as zhihu, \
+         patch("app.api.routes.favorites._all_sync_login_error", AsyncMock(side_effect=[
+             "抖音未登录，请先完成登录",
+             "哔哩哔哩未登录，请先完成登录",
+             "知乎未登录，请先完成登录",
+         ])):
+        response = client.post("/api/favorites/sync?platform=all")
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["success"] is False
+    assert body["partial"] is True
+    assert all(not result["success"] for result in body["platform_results"].values())
+    douyin.assert_not_awaited()
+    bilibili.assert_not_awaited()
+    zhihu.assert_not_awaited()
 
 
 def test_collection_status_counts_keeps_the_synthetic_all_row_platform_scoped(client):
