@@ -13,6 +13,27 @@ def make_service(collection):
     return svc
 
 
+def test_collection_does_not_enable_implicit_embedding_models():
+    svc = object.__new__(ChromaService)
+    svc._client = Mock()
+    svc._create_collection("zhihu")
+    kwargs = svc._client.get_or_create_collection.call_args.kwargs
+    assert "embedding_function" in kwargs
+    assert kwargs["embedding_function"] is None
+
+
+def test_local_persistent_collection_roundtrip_uses_supplied_vectors(tmp_path, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "chroma_persist_dir", str(tmp_path / "vectors"))
+    svc = ChromaService()
+    svc.upsert_video_chunks("123", "title", ["body"], [[1.0, 0.0]], platform="zhihu")
+    reopened = ChromaService()
+    results = reopened.search([1.0, 0.0], top_k=1, platform="zhihu")
+    assert len(results) == 1
+    assert results[0]["platform_item_id"] == "123"
+
+
 def test_douyin_legacy_chunk_id_format():
     """验证抖音单集/默认仍然沿用 remote_id:idx 兼容格式"""
     collection = SimpleNamespace(

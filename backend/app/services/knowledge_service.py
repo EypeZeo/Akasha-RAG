@@ -575,6 +575,8 @@ class KnowledgeService:
                     # Each Bilibili page has independent vector IDs/metadata,
                     # preserving P-specific provenance and avoiding P1-only RAG.
                     for part, part_text in part_transcripts:
+                        if bail_if_cancelled(content_ref, claimed, item_platform):
+                            return
                         chunks = build_fixed_chunks(part_text)
                         if not chunks:
                             raise RuntimeError(f"P{part.part_index} 正文切块为空")
@@ -584,6 +586,8 @@ class KnowledgeService:
                         if header not in chunks:
                             chunks = [header] + chunks
                         embeddings = embedding_client.embed_texts(chunks)
+                        if bail_if_cancelled(content_ref, claimed, item_platform):
+                            return
                         if len(embeddings) != len(chunks) or any(not vector for vector in embeddings):
                             raise RuntimeError("Embedding 返回的向量数量或内容与正文切块不匹配")
                         chroma.upsert_video_chunks(
@@ -591,6 +595,8 @@ class KnowledgeService:
                             platform=item_platform, content_item_id=item.content_item_id,
                             canonical_url=canonical_url, part_id=int(part.id), part_index=part.part_index,
                         )
+                    if bail_if_cancelled(content_ref, claimed, item_platform):
+                        return
                     save_state(content_ref, status="done", error_message="", processed_at=datetime.now(timezone.utc))
                     logger.info("入库成功 (B站多P): %s (%d parts)", platform_item_id, len(part_transcripts))
                     return
@@ -608,6 +614,8 @@ class KnowledgeService:
                     return
                 report(f"✨ 向量化入库 ({type_tag}): {title[:20]}...")
                 embeddings = embedding_client.embed_texts(chunks)
+                if bail_if_cancelled(content_ref, claimed, item_platform):
+                    return
                 if len(embeddings) != len(chunks) or any(not vector for vector in embeddings):
                     raise RuntimeError("Embedding 返回的向量数量或内容与正文切块不匹配")
                 chroma.upsert_video_chunks(
@@ -619,6 +627,8 @@ class KnowledgeService:
                     content_item_id=item.content_item_id,
                     canonical_url=canonical_url,
                 )
+                if bail_if_cancelled(content_ref, claimed, item_platform):
+                    return
                 save_state(
                     content_ref,
                     status="done",
@@ -672,9 +682,8 @@ class KnowledgeService:
         futures = [executor.submit(consume_items) for _ in range(max_workers)]
         try:
             # 固定三个消费者，避免为上万作品一次性创建上万个 Future。
-            # 轮询等待而非 future.result() 阻塞，以便取消后能在 90s 内收尾——
-            # 正在处理的项目跑完当前步骤即停；真卡死的下载/解析线程不拖住收尾。
-            cancel_deadline = None
+            # 取消后仍保持任务活跃，直到所有消费者实际退出。否则维护接口会
+            # 在子线程尚有写入能力时误判为空闲，清空后的向量可能被迟到结果复活。
             pending = set(futures)
             while pending:
                 done, pending = _wait_futures(pending, timeout=3, return_when=ALL_COMPLETED)
@@ -682,14 +691,8 @@ class KnowledgeService:
                     exc = fut.exception()
                     if exc and not worker.is_cancelled(task_id):
                         raise exc
-                if worker.is_cancelled(task_id):
-                    if cancel_deadline is None:
-                        cancel_deadline = time.monotonic() + 90
-                    elif time.monotonic() > cancel_deadline:
-                        logger.warning("取消收尾超时，%d 个工作线程可能仍在结束当前调用", len(pending))
-                        break
         finally:
-            executor.shutdown(wait=False, cancel_futures=True)
+            executor.shutdown(wait=True, cancel_futures=True)
             if worker.is_cancelled(task_id):
                 # 把本批残留的「下载中/转写中」回退为待入库
                 try:

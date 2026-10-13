@@ -14,6 +14,9 @@
     "lint:fix": "eslint . --fix",
     "lint:ci": "eslint . --max-warnings=49"
   },
+  "overrides": {
+    "postcss-selector-parser": "7.1.6"
+  },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.11",
     "highlight.js": "^11.12.0",

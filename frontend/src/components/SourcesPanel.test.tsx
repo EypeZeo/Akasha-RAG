@@ -300,6 +300,18 @@ describe('SourcesPanel collections list & pagination', () => {
 });
 
 describe('SourcesPanel expanded video list & search', () => {
+  it('keeps the localized ingestion failure visible after the task has finished', async () => {
+    localStorage.setItem(ACTIVE_BUILD_KEY, JSON.stringify({ task_id: 'failed-build', typeLabel: 'video' }));
+    vi.mocked(api.getSyncProgress).mockResolvedValue({
+      success: true, status: 'failed', progress: 1, total: 2, message: 'Internal provider failure',
+    });
+    const { onBuildDone } = setup();
+    expect(await screen.findByRole('alert')).toHaveTextContent(TRANSLATIONS.en.ingestFailed);
+    await waitFor(() => expect(onBuildDone).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('alert')).toHaveTextContent(TRANSLATIONS.en.ingestFailed);
+    expect(screen.queryByText('Internal provider failure')).toBeNull();
+  });
+
   it.each(['douyin', 'bilibili', 'zhihu'] as const)('keeps export and ingest action counts inside the %s scope', async platform => {
     useWorkspaceStore.setState({ selectedPlatform: platform });
     vi.mocked(api.listCollections).mockResolvedValue({
@@ -320,6 +332,17 @@ describe('SourcesPanel expanded video list & search', () => {
     expect(screen.getByText(TRANSLATIONS.en.onlyIngestNote)).toBeTruthy();
     expect(screen.queryByText(`${TRANSLATIONS.en.onlyIngestVideo} (162)`)).toBeNull();
     expect(screen.queryByText(`${TRANSLATIONS.en.onlyIngestNote} (53)`)).toBeNull();
+    vi.mocked(api.exportBatchStart).mockResolvedValue({ success: true, task_id: 'all-export', mode: 'browser' });
+    vi.mocked(api.getExportProgress).mockResolvedValue({ success: true, status: 'running', progress: 0 });
+    fireEvent.click(screen.getByText(`${TRANSLATIONS.en.batchExport} (4)`));
+    const allScopeButton = screen.getByRole('button', { name: new RegExp(TRANSLATIONS.en.exportScopeAll) });
+    expect(allScopeButton.textContent).toContain(TRANSLATIONS.en.exportScopeAllDesc.replace('{count}', '29'));
+    fireEvent.click(allScopeButton);
+    fireEvent.click(screen.getByText(TRANSLATIONS.en.destBrowser));
+    fireEvent.click(screen.getByText(TRANSLATIONS.en.startExportBrowser));
+    await waitFor(() => expect(api.exportBatchStart).toHaveBeenCalledWith(expect.objectContaining({
+      collection_id: null, platform: 'all',
+    })));
   });
 
   it('downloads AI exports through the authenticated API and releases the object URL', async () => {

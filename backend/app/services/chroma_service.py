@@ -48,7 +48,11 @@ class ChromaService:
 
     def _create_collection(self, platform: str):
         return self._client.get_or_create_collection(
-            name=self._collection_name(platform), metadata={"hnsw:space": DISTANCE_METRIC, "platform": platform}
+            name=self._collection_name(platform),
+            metadata={"hnsw:space": DISTANCE_METRIC, "platform": platform},
+            # All vectors come from our configured embedding provider. Do not
+            # instantiate Chroma's default model or an EF from stored config.
+            embedding_function=None,
         )
 
     def _collection_for(self, platform: str):
