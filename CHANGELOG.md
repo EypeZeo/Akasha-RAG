@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/EypeZeo/Akasha-RAG/compare/v1.2.1...v1.2.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* improve media download cancellation and CDN fallback ([#88](https://github.com/EypeZeo/Akasha-RAG/issues/88)) ([08546cc](https://github.com/EypeZeo/Akasha-RAG/commit/08546cc39344a2b9c1dac8f84b92a7b53a29a3a1))
+
 ## [1.2.1](https://github.com/EypeZeo/Akasha-RAG/compare/v1.2.0...v1.2.1) (2026-10-13)
 
 
