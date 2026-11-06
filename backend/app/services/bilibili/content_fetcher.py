@@ -154,8 +154,8 @@ class BilibiliContentFetcher:
         # --------------------------------------------------------------
         _raise_if_cancelled()
         logger.info("[%s cid=%s] 尝试获取 DASH 音频流进行 ASR 转写...", bvid, cid)
-        audio_url = await self._client.get_audio_url(bvid, cid)
-        if not audio_url:
+        audio_urls = await self._client.get_audio_urls(bvid, cid)
+        if not audio_urls:
             raise RuntimeError(f"未能获取到 B 站音频流直链 [{bvid}]")
 
         lease_key = f"bili_{bvid}_{cid}"
@@ -164,11 +164,14 @@ class BilibiliContentFetcher:
 
         with audio_cache_lease(lease_key):
             try:
-                _raise_if_cancelled()
-                ok = await self._client.download_audio_to_file(audio_url, raw_audio_file)
-                if not ok or not raw_audio_file.exists():
+                for audio_url in audio_urls:
+                    _raise_if_cancelled()
+                    ok = await self._client.download_audio_to_file(audio_url, raw_audio_file)
+                    _raise_if_cancelled()
+                    if ok and raw_audio_file.is_file():
+                        break
+                else:
                     raise RuntimeError(f"B 站音频流下载失败或文件损坏 [{bvid}]")
-                _raise_if_cancelled()
                 # Dash audio commonly arrives as M4A.  DashScope ASR accepts
                 # only MP3/WAV in this pipeline, so never pass the raw DASH
                 # container through directly.

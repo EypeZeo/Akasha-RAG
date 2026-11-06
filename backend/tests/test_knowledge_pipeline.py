@@ -60,9 +60,10 @@ def pipeline(tmp_path, monkeypatch):
 
     monkeypatch.setattr(media_module, "audio_cache_lease", lease, raising=False)
 
-    def download(url, item_id):
+    def download(url, item_id, cancel_check=None):
         assert item_id in active_leases
         assert getattr(database_lease, "count", 0) == 0
+        assert callable(cancel_check)
         path = tmp_path / f"{item_id}.mp3"
         path.write_bytes(b"fixture audio")
         return path

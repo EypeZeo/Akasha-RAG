@@ -32,7 +32,7 @@ from app.services.chroma_service import get_chroma_service
 from app.services.collection_scope import resolve_collection
 from app.services.content_kind import content_kind_for, note_predicate, video_predicate
 from app.services.llm_service import embedding_client
-from app.services.media_service import download_audio
+from app.services.media_service import MediaDownloadCancelled, download_audio
 from app.services.platform_registry import (
     CAPABILITY_AUDIO_ASR,
     CAPABILITY_ARTICLE_TEXT,
@@ -530,20 +530,22 @@ class KnowledgeService:
                         raise RuntimeError(
                             f"平台 '{item_platform}' 缺少 canonical_url_template，无法构造音频来源地址"
                         )
+                    def _cancel_check() -> bool:
+                        return worker.is_cancelled(task_id) or worker.is_platform_blocked(item_platform)
+
                     with audio_cache_lease(platform_item_id):
-                        audio_path = download_audio(
-                            audio_url,
-                            platform_item_id,
-                        )
+                        try:
+                            audio_path = download_audio(
+                                audio_url, platform_item_id, cancel_check=_cancel_check,
+                            )
+                        except MediaDownloadCancelled as exc:
+                            raise TranscriptionCancelled(str(exc)) from exc
                         if not audio_path or not audio_path.is_file():
                             raise RuntimeError("音频下载未生成可用文件")
                         if bail_if_cancelled(content_ref, claimed, item_platform):
                             return
                         save_state(content_ref, status="transcribing")
                         report(f"📹 语音转写: {title[:22]}...")
-
-                        def _cancel_check() -> bool:
-                            return worker.is_cancelled(task_id) or worker.is_platform_blocked(item_platform)
 
                         try:
                             transcript_text = asr_service.transcribe_to_text(
