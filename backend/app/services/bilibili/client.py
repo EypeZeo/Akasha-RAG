@@ -14,6 +14,7 @@ import base64
 import io
 import logging
 import os
+import re
 import time
 import urllib.parse
 import weakref
@@ -455,7 +456,7 @@ class BilibiliClient:
             return {}
         return data.get("data") or {}
 
-    async def get_audio_url(self, bvid: str, cid: int) -> Optional[str]:
+    async def get_audio_urls(self, bvid: str, cid: int) -> list[str]:
         """
         获取音频流的 CDN 直链 (用于 ASR 音频转写)
         优先选择 <= 64kbps 的低带宽音频流以降低下载开销。
@@ -486,13 +487,13 @@ class BilibiliClient:
                 data = resp.json()
             except Exception as exc:
                 logger.warning("playurl 获取失败 [%s]: %s", bvid, exc)
-                return None
+                return []
 
         if not data or data.get("code") != 0:
             if data:
                 self._invalidate_if_unauthorized(data)
             logger.warning("获取视频播放流失败 [%s]: %s", bvid, (data or {}).get("message"))
-            return None
+            return []
 
         payload = data.get("data") or {}
         dash = payload.get("dash") or {}
@@ -513,13 +514,28 @@ class BilibiliClient:
                 best = max(preferred, key=_bw) if preferred else min(candidates, key=_bw)
             else:
                 best = audio_list[0]
-            return best.get("baseUrl") or best.get("base_url") or best.get("url")
+        else:
+            durl = payload.get("durl") or []
+            if not durl:
+                return []
+            best = durl[0]
 
-        durl = payload.get("durl") or []
-        if durl:
-            return durl[0].get("url")
-
-        return None
+        primary = best.get("baseUrl") or best.get("base_url") or best.get("url")
+        backups = best.get("backupUrl") or best.get("backup_url") or []
+        urls: list[str] = []
+        for value in [primary, *(backups if isinstance(backups, list) else [])]:
+            if not isinstance(value, str):
+                continue
+            url = f"https:{value}" if value.startswith("//") else value
+            try:
+                trusted = _is_trusted_bilibili_url(url)
+            except ValueError:
+                continue
+            if trusted and url not in urls:
+                urls.append(url)
+                if len(urls) == 4:
+                    break
+        return urls
 
     async def download_subtitle(self, subtitle_url: str) -> str:
         """下载并合并 B 站 JSON 格式的字幕为连贯文本"""
@@ -565,6 +581,10 @@ class BilibiliClient:
                     if length <= 0 or length > max_bytes:
                         logger.warning("B站音频体积不合法: %s", length)
                         return False
+                    if resp.status_code == 206:
+                        match = re.fullmatch(r"bytes 0-(\d+)/(\d+)", resp.headers.get("content-range", ""))
+                        if not match or int(match[1]) + 1 != length or int(match[2]) != length:
+                            return False
                     content_type = resp.headers.get("content-type", "").lower()
                     if not content_type.startswith("audio/") and "octet-stream" not in content_type:
                         logger.warning("B站音频类型不合法: %s", content_type)
@@ -578,12 +598,12 @@ class BilibiliClient:
                                 if written > max_bytes:
                                     raise ValueError("B站音频超过 ASR 大小上限")
                                 f.write(chunk)
-            if temporary.exists() and temporary.stat().st_size > 1024:
+            if written == length and written > 1024:
                 temporary.replace(file_path)
                 return True
             return False
         except Exception as exc:
-            logger.warning("下载 B 站音频流异常: %s", exc)
+            logger.warning("下载 B 站音频流异常: %s", type(exc).__name__)
             return False
         finally:
             temporary.unlink(missing_ok=True)

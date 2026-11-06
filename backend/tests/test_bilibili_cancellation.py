@@ -67,13 +67,13 @@ async def test_cancellation_after_subtitle_probe_skips_download_and_dash(tmp_pat
     async def download_subtitle_should_not_run(*_):
         raise AssertionError("取消之后不应该再去下载字幕")
 
-    async def get_audio_url_should_not_run(*_):
+    async def get_audio_urls_should_not_run(*_):
         raise AssertionError("取消之后不应该降级走 DASH 音频下载")
 
     fetcher._client = SimpleNamespace(
         get_player_info=get_player_info,
         download_subtitle=download_subtitle_should_not_run,
-        get_audio_url=get_audio_url_should_not_run,
+        get_audio_urls=get_audio_urls_should_not_run,
     )
 
     with pytest.raises(TranscriptionCancelled):
@@ -89,7 +89,7 @@ async def test_asr_runtime_error_during_cancellation_is_identified_as_cancelled(
     fetcher._cache_dir = tmp_path
     fetcher._client = SimpleNamespace(
         get_player_info=lambda *_: _async({}),  # 无字幕，走 DASH
-        get_audio_url=lambda *_: _async("https://upos-sz-mirrorcos.bilivideo.com/audio.m4a"),
+        get_audio_urls=lambda *_: _async(["https://upos-sz-mirrorcos.bilivideo.com/audio.m4a"]),
         download_audio_to_file=lambda _url, path: _download(path),
     )
     monkeypatch.setattr(
@@ -122,7 +122,7 @@ async def test_asr_runtime_error_without_cancellation_stays_a_real_failure(tmp_p
     fetcher._cache_dir = tmp_path
     fetcher._client = SimpleNamespace(
         get_player_info=lambda *_: _async({}),
-        get_audio_url=lambda *_: _async("https://upos-sz-mirrorcos.bilivideo.com/audio.m4a"),
+        get_audio_urls=lambda *_: _async(["https://upos-sz-mirrorcos.bilivideo.com/audio.m4a"]),
         download_audio_to_file=lambda _url, path: _download(path),
     )
     monkeypatch.setattr(
@@ -151,7 +151,7 @@ async def test_cancellation_during_asr_still_cleans_up_temp_audio_files(tmp_path
     fetcher._cache_dir = tmp_path
     fetcher._client = SimpleNamespace(
         get_player_info=lambda *_: _async({}),
-        get_audio_url=lambda *_: _async("https://upos-sz-mirrorcos.bilivideo.com/audio.m4a"),
+        get_audio_urls=lambda *_: _async(["https://upos-sz-mirrorcos.bilivideo.com/audio.m4a"]),
         download_audio_to_file=lambda _url, path: _download(path),
     )
     monkeypatch.setattr(
@@ -303,7 +303,8 @@ def test_douyin_asr_cancellation_resolves_to_pending_not_failed(tmp_path, monkey
     monkeypatch.setattr(knowledge_module, "get_chroma_service", lambda: chroma)
     monkeypatch.setattr("app.services.media_service.clean_audio_cache", Mock())
 
-    def download(url, item_id):
+    def download(url, item_id, cancel_check=None):
+        assert callable(cancel_check)
         path = tmp_path / f"{item_id}.mp3"
         path.write_bytes(b"fixture audio")
         return path

@@ -57,7 +57,11 @@ def pipe(tmp_path, monkeypatch):
     chroma.upsert_video_chunks = Mock(return_value=[])
     monkeypatch.setattr(knowledge_module, "get_chroma_service", lambda: chroma)
 
-    download = Mock(side_effect=lambda url, item_id: _fake_audio(tmp_path, item_id))
+    def download(url, item_id, cancel_check=None):
+        assert callable(cancel_check)
+        return _fake_audio(tmp_path, item_id)
+
+    download = Mock(side_effect=download)
     monkeypatch.setattr(knowledge_module, "download_audio", download)
 
     asr = Mock(return_value="这是音频中提取出的有效正文，长度足够通过实质性门禁。")

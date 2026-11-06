@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 
 import pytest
@@ -60,7 +61,7 @@ def test_same_item_calls_publish_once_and_return_same_cache(cache, monkeypatch):
     monkeypatch.setattr(media, "_resolve_ffmpeg_path", lambda: "ffmpeg")
     monkeypatch.setattr(media, "_valid_mp3", lambda path, _: path.exists())
 
-    def download(url, item, directory, ffmpeg):
+    def download(url, item, directory, ffmpeg, *, cancel_check=None):
         calls.append(item)
         entered.set()
         assert release.wait(5)
@@ -359,7 +360,7 @@ def test_browser_fallback_streams_verified_media_after_ytdlp_rejects_cdn_url(cac
         def extract_info(self, url, download):
             raise RuntimeError(f"rejected {url}")
 
-    def stream(url, headers, cookies, destination):
+    def stream(url, headers, cookies, destination, *, cancel_check=None):
         streamed.append((url, headers, cookies))
         result = destination.with_suffix(".mp4")
         result.write_bytes(b"complete media")
@@ -372,6 +373,59 @@ def test_browser_fallback_streams_verified_media_after_ytdlp_rejects_cdn_url(cac
 
     assert result.name == "browser.mp4"
     assert streamed == [("https://v.douyinvod.com/media.mp4", {"User-Agent": "browser"}, [])]
+
+
+def test_cancel_download_stops_ytdlp_waiting_for_http_response(cache):
+    entered, release, cancel = threading.Event(), threading.Event(), threading.Event()
+
+    class SlowMedia(BaseHTTPRequestHandler):
+        def do_GET(self):
+            entered.set()
+            release.wait(15)
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), SlowMedia) as server:
+        serving = threading.Thread(target=server.serve_forever, daemon=True)
+        serving.start()
+        url = f"http://127.0.0.1:{server.server_port}/slow.mp4"
+        try:
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                task = pool.submit(
+                    media._run_ytdlp, url,
+                    {"outtmpl": str(cache / "raw.%(ext)s"), "proxy": "", "socket_timeout": 15},
+                    cancel.is_set,
+                )
+                try:
+                    assert entered.wait(12)
+                    cancel.set()
+                    with pytest.raises(media.MediaDownloadCancelled):
+                        task.result(timeout=4)
+                    assert not list(cache.iterdir())
+                finally:
+                    cancel.set()
+        finally:
+            release.set()
+            server.shutdown()
+            serving.join(timeout=3)
+
+
+def test_cancel_primary_download_does_not_start_browser_or_publish_cache(cache, monkeypatch):
+    from app.services import douyin_media_resolver as resolver
+
+    cancel = threading.Event()
+    monkeypatch.setattr(media, "_resolve_ffmpeg_path", lambda: "ffmpeg")
+    monkeypatch.setattr(media, "detect_network_proxy", lambda: None)
+    monkeypatch.setattr(resolver, "resolve_douyin_media", lambda _: pytest.fail("unexpected browser fallback"))
+
+    def interrupted(url, options, cancel_check):
+        Path(options["outtmpl"].replace("%(ext)s", "mp4.part")).write_bytes(b"partial")
+        cancel.set()
+        assert cancel_check()
+        raise media.MediaDownloadCancelled()
+
+    monkeypatch.setattr(media, "_run_ytdlp", interrupted)
+    with pytest.raises(media.MediaDownloadCancelled):
+        media.download_audio("https://www.douyin.com/video/123", "123", cancel_check=cancel.is_set)
+    assert not list(cache.iterdir())
 
 
 @pytest.mark.parametrize("item", ["../123", "123/456", "123*", ""])

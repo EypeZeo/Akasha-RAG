@@ -8,14 +8,17 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+import psutil
 from yt_dlp import YoutubeDL
 
 from app.core.config import settings
@@ -40,6 +43,26 @@ PROTECTED_CACHE_FILENAMES = {"douyin_cookies.txt", ".gitkeep", "README.md"}
 
 class MediaPipelineError(RuntimeError):
     """Download, validation, or transcode failure."""
+
+
+class MediaDownloadCancelled(MediaPipelineError):
+    """The download was interrupted at the caller's request."""
+
+
+def _check_cancelled(cancel_check: Callable[[], bool] | None) -> None:
+    if cancel_check is not None and cancel_check():
+        raise MediaDownloadCancelled("音频下载已取消")
+
+
+@contextmanager
+def _download_slot(slot, cancel_check):
+    while not slot.acquire(timeout=0.2):
+        _check_cancelled(cancel_check)
+    try:
+        _check_cancelled(cancel_check)
+        yield
+    finally:
+        slot.release()
 
 
 @contextmanager
@@ -188,6 +211,8 @@ def _download_verified_media(
     headers: dict[str, str],
     cookies: list[dict] | None,
     destination: Path,
+    *,
+    cancel_check: Callable[[], bool] | None = None,
 ) -> Path:
     """Stream a browser-verified media URL when yt-dlp cannot fetch it.
 
@@ -235,6 +260,7 @@ def _download_verified_media(
             trust_env=False,
         ) as client:
             for redirect_count in range(6):
+                _check_cancelled(cancel_check)
                 current_host = urlsplit(current_url).hostname
                 request_cookies = cookie_values if current_host == initial_host else {}
                 with client.stream(
@@ -258,6 +284,7 @@ def _download_verified_media(
                     written = 0
                     with partial.open("wb") as output:
                         for chunk in response.iter_bytes(64 * 1024):
+                            _check_cancelled(cancel_check)
                             if time.monotonic() - download_started > _MAX_MEDIA_DOWNLOAD_SECONDS:
                                 raise MediaPipelineError("备用媒体下载超过 240 秒时限")
                             written += len(chunk)
@@ -277,7 +304,11 @@ def _download_verified_media(
     if written < 128:
         partial.unlink(missing_ok=True)
         raise MediaPipelineError("备用媒体传输返回空文件")
-    partial.replace(target)
+    try:
+        _check_cancelled(cancel_check)
+        partial.replace(target)
+    finally:
+        partial.unlink(missing_ok=True)
     return target
 
 
@@ -329,13 +360,76 @@ class _YDLLogger:
         pass
 
 
-def _download_raw(video_url: str, item_id: str, work_dir: Path, ffmpeg: str) -> Path:
+def _extract_media(video_url: str, options: dict) -> None:
+    started = time.monotonic()
+
+    def check_download_budget(progress):
+        if (time.monotonic() - started > _MAX_MEDIA_DOWNLOAD_SECONDS
+                or progress.get("downloaded_bytes", 0) > _MAX_MEDIA_BYTES):
+            raise MediaPipelineError("媒体下载超过时间或体积上限，请稍后重试")
+
+    with YoutubeDL({**options, "logger": _YDLLogger(), "progress_hooks": [check_download_budget]}) as ydl:
+        ydl.extract_info(video_url, download=True)
+
+
+def _run_ytdlp(video_url: str, options: dict, cancel_check: Callable[[], bool] | None) -> None:
+    if cancel_check is None:
+        _extract_media(video_url, options)
+        return
+    _check_cancelled(cancel_check)
+    # Keep signed URLs and proxy credentials out of command-line arguments.
+    payload = json.dumps([video_url, options]).encode("utf-8")
+    entry = (
+        "import json, sys; from app.services.media_service import _extract_media; "
+        "_extract_media(*json.load(sys.stdin.buffer))"
+    )
+    deadline = time.monotonic() + _MAX_MEDIA_DOWNLOAD_SECONDS
+    with subprocess.Popen(
+        [sys.executable, "-c", entry], stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    ) as process:
+        try:
+            while True:
+                _check_cancelled(cancel_check)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise MediaPipelineError("媒体下载超过时间上限")
+                try:
+                    process.communicate(input=payload, timeout=min(0.2, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    payload = None
+            _check_cancelled(cancel_check)
+            if process.returncode:
+                raise MediaPipelineError("yt-dlp 无法下载媒体")
+        finally:
+            if process.poll() is None:
+                # yt-dlp can invoke FFmpeg for some stream formats.
+                try:
+                    children = psutil.Process(process.pid).children(recursive=True)
+                except psutil.NoSuchProcess:
+                    children = []
+                process.kill()
+                for child in children:
+                    try:
+                        child.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                process.wait()
+                psutil.wait_procs(children, timeout=2)
+
+
+def _download_raw(
+    video_url: str, item_id: str, work_dir: Path, ffmpeg: str,
+    *, cancel_check: Callable[[], bool] | None = None,
+) -> Path:
     host = urlsplit(video_url).hostname or ""
     is_douyin = host == "douyin.com" or host.endswith(".douyin.com")
     options = {
         "outtmpl": str(work_dir / "raw.%(ext)s"), "format": "bestaudio/best",
         "noplaylist": True, "quiet": True, "noprogress": True, "no_warnings": True,
-        "logger": _YDLLogger(), "retries": 2, "extractor_retries": 1,
+        "retries": 2, "extractor_retries": 1,
         "fragment_retries": 2, "skip_unavailable_fragments": False,
         "cachedir": False, "socket_timeout": 20, "ffmpeg_location": ffmpeg,
         "http_headers": {"Referer": DOUYIN_REFERER, "User-Agent": USER_AGENT},
@@ -348,22 +442,15 @@ def _download_raw(video_url: str, item_id: str, work_dir: Path, ffmpeg: str) -> 
             options["cookiefile"] = str(_export_cookiefile(work_dir / "cookies.txt"))
         except MediaPipelineError:
             logger.warning("作品 %s 缺少可用登录状态", item_id)
-    budget_start = [time.monotonic()]
-
-    def check_download_budget(progress):
-        if time.monotonic() - budget_start[0] > 240 or progress.get("downloaded_bytes", 0) > 256 * 1048576:
-            raise MediaPipelineError("媒体下载超过时间或体积上限，请稍后重试")
-
-    options["progress_hooks"] = [check_download_budget]
-    options["max_filesize"] = 256 * 1048576
+    options["max_filesize"] = _MAX_MEDIA_BYTES
 
     # 阶段 1：yt-dlp 直连探测/下载 —— 串行（反爬敏感，单次 2~3s）
     primary_error = None
-    with _download_lock:
-        budget_start[0] = time.monotonic()
+    with _download_slot(_download_lock, cancel_check):
         try:
-            with YoutubeDL(options) as ydl:
-                ydl.extract_info(video_url, download=True)
+            _run_ytdlp(video_url, options, cancel_check)
+        except MediaDownloadCancelled:
+            raise
         except Exception as exc:
             if not is_douyin:
                 raise MediaPipelineError(f"音频下载失败 [{item_id}]") from exc
@@ -375,23 +462,25 @@ def _download_raw(video_url: str, item_id: str, work_dir: Path, ffmpeg: str) -> 
         # 阶段 2：浏览器兜底解析 + 下载 —— 移出 _download_lock，受 semaphore 限并发
         logger.info("yt-dlp 详情接口不可用 [%s]，转用浏览器验证后的媒体地址（预期降级路径）", item_id)
         from app.services.douyin_media_resolver import DouyinMediaResolveError, resolve_douyin_media
-        with _browser_semaphore:
+        with _download_slot(_browser_semaphore, cancel_check):
             fallback_error = None
             for attempt in range(2):
-                budget_start[0] = time.monotonic()
+                _check_cancelled(cancel_check)
                 media = None
                 try:
                     media = resolve_douyin_media(item_id)
+                    _check_cancelled(cancel_check)
                     options["outtmpl"] = str(work_dir / "browser.%(ext)s")
                     options["http_headers"] = media["http_headers"]
                     options.pop("cookiefile", None)
                     if media.get("cookies"):
                         _write_cookies(media["cookies"], work_dir / "browser_cookies.txt")
                         options["cookiefile"] = str(work_dir / "browser_cookies.txt")
-                    with YoutubeDL(options) as ydl:
-                        ydl.extract_info(media["url"], download=True)
+                    _run_ytdlp(media["url"], options, cancel_check)
                     fallback_error = None
                     break
+                except MediaDownloadCancelled:
+                    raise
                 except Exception as error:
                     fallback_error = error
                     if media is not None:
@@ -401,9 +490,12 @@ def _download_raw(video_url: str, item_id: str, work_dir: Path, ffmpeg: str) -> 
                                 media.get("http_headers", {}),
                                 media.get("cookies", []),
                                 work_dir / "browser",
+                                cancel_check=cancel_check,
                             )
                             fallback_error = None
                             break
+                        except MediaDownloadCancelled:
+                            raise
                         except Exception as stream_error:
                             fallback_error = stream_error
                     if attempt == 0:
@@ -426,8 +518,11 @@ def _download_raw(video_url: str, item_id: str, work_dir: Path, ffmpeg: str) -> 
     return files[0]
 
 
-def download_audio(video_url: str, platform_item_id: str) -> Path:
+def download_audio(
+    video_url: str, platform_item_id: str, *, cancel_check: Callable[[], bool] | None = None,
+) -> Path:
     with audio_cache_lease(platform_item_id):
+        _check_cancelled(cancel_check)
         audio_dir = _get_audio_cache_dir()
         ffmpeg = _resolve_ffmpeg_path()
         target = audio_dir / f"{platform_item_id}.mp3"
@@ -440,9 +535,11 @@ def download_audio(video_url: str, platform_item_id: str) -> Path:
             work_dir = Path(work)
             legacy_wav = audio_dir / f"{platform_item_id}.wav"
             source = legacy_wav if legacy_wav.is_file() else _download_raw(
-                video_url, platform_item_id, work_dir, ffmpeg)
+                video_url, platform_item_id, work_dir, ffmpeg, cancel_check=cancel_check)
+            _check_cancelled(cancel_check)
             temporary_mp3 = work_dir / "audio.mp3"
             _transcode(source, temporary_mp3, ffmpeg)
+            _check_cancelled(cancel_check)
             temporary_mp3.replace(target)
             if source == legacy_wav:
                 legacy_wav.unlink(missing_ok=True)
