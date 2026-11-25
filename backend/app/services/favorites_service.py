@@ -168,6 +168,8 @@ class FavoritesService:
         snapshot = await collector.fetch_snapshot(
             max_collections=100, max_videos_per_collection=500, force=force
         )
+        if getattr(snapshot, "is_cached", False):
+            raise RuntimeError("抖音实时同步失败，已保留本地收藏")
         return await asyncio.to_thread(self.save_snapshot_to_db, db, snapshot)
 
     async def sync_from_bilibili(self, db: Session) -> dict:

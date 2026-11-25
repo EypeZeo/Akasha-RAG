@@ -1,43 +1,13 @@
 """启动器多语言文案。
 
-语言选择优先级：环境变量 AKASHA_LANG (zh/en/ja/fr/de/ko/ru/hi) > 系统 locale 探测 > en。
-中文/日文系统按 locale 命中 zh/ja，其余一律 en（面向海外开源用户）。
+语言优先级依次为已保存的终端语言、环境变量 AKASHA_LANG、系统语言和英文。
 """
 from __future__ import annotations
 
-import locale
-import os
-
-SUPPORTED = ("zh", "en", "ja", "fr", "de", "ko", "ru", "hi")
-
-
-def resolve_lang() -> str:
-    env = (os.environ.get("AKASHA_LANG") or "").strip().lower()
-    if env in SUPPORTED:
-        return env
-    if env[:2] in SUPPORTED:
-        return env[:2]
-    probe = ""
-    try:
-        probe = (locale.getlocale()[0] or "").lower()
-    except Exception:
-        probe = ""
-    probe = f"{probe} {os.environ.get('LANG', '').lower()}"
-    if "zh" in probe or "chinese" in probe:
-        return "zh"
-    if "ja" in probe or "japan" in probe:
-        return "ja"
-    if "ko" in probe or "korea" in probe:
-        return "ko"
-    if "fr" in probe or "french" in probe:
-        return "fr"
-    if "de" in probe or "german" in probe:
-        return "de"
-    if "ru" in probe or "russ" in probe:
-        return "ru"
-    if "hi" in probe or "hind" in probe:
-        return "hi"
-    return "en"
+from backend.app.core.launcher_preferences import (
+    SUPPORTED_LAUNCHER_LANGUAGES as SUPPORTED,
+    resolve_launcher_language as resolve_lang,
+)
 
 
 # key -> {lang: text}。text 可含 {url} / {err} / {code} 占位符。

@@ -13,6 +13,7 @@ import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.core.launcher_preferences import LauncherLanguage, get_launcher_language, set_launcher_language
 from app.services import settings_store
 
 router = APIRouter(prefix="/settings", tags=["设置"])
@@ -35,6 +36,21 @@ def _provider_out(provider: settings_store.ChatProvider, active_id: Optional[str
         "api_key_masked": _mask(provider.api_key),
         "is_active": provider.id == active_id,
     }
+
+
+class LauncherLanguageRequest(BaseModel):
+    language: LauncherLanguage | None
+
+
+@router.get("/launcher-language")
+def read_launcher_language():
+    return {"language": get_launcher_language()}
+
+
+@router.put("/launcher-language")
+def update_launcher_language(body: LauncherLanguageRequest):
+    set_launcher_language(body.language)
+    return {"language": body.language}
 
 
 @router.get("/status")

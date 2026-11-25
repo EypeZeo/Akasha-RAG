@@ -54,15 +54,26 @@ try {
 # "preflight_*" keys were dropped there in v0.7.5).  Keep this table small and
 # free of shell metacharacters.
 # --------------------------------------------------------------------------
-[string]$script:Lang = 'en'
-if ($env:AKASHA_LANG -and $env:AKASHA_LANG.Trim().ToLowerInvariant().StartsWith('zh')) {
-    $script:Lang = 'zh'
-} elseif (-not $env:AKASHA_LANG) {
-    try {
-        if ((Get-Culture).Name.ToLowerInvariant().StartsWith('zh')) { $script:Lang = 'zh' }
-    } catch {
-        # Culture lookup is best-effort; English remains the safe default.
+[string]$PreferredLanguage = ''
+$LanguageFile = Join-Path -Path $RuntimeDirectory -ChildPath 'launcher-language.txt'
+try {
+    $PreferredLanguage = ([string](Get-Content -LiteralPath $LanguageFile -Raw -Encoding UTF8 -ErrorAction Stop)).Trim()
+} catch {
+    # The preference is optional on a new installation.
+}
+if ($PreferredLanguage -notmatch '^(zh|en|ja|fr|de|ko|ru|hi)$') {
+    $PreferredLanguage = ''
+    if ($env:AKASHA_LANG -and $env:AKASHA_LANG.Trim() -match '^(zh|en|ja|fr|de|ko|ru|hi)') {
+        $PreferredLanguage = $Matches[1]
     }
+}
+if (-not $PreferredLanguage) {
+    $PreferredLanguage = (Get-Culture).Name
+}
+[string]$script:Lang = if ($PreferredLanguage.StartsWith('zh', [StringComparison]::OrdinalIgnoreCase)) {
+    'zh'
+} else {
+    'en'
 }
 
 [hashtable]$script:Strings = @{

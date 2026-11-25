@@ -41,6 +41,7 @@ function setup(onClose = vi.fn(), accountRefreshKey = 0) {
 
 describe('SettingsModal', () => {
   beforeEach(() => {
+    vi.mocked(api.getLauncherLanguage).mockResolvedValue({ language: null });
     vi.mocked(api.listPlatforms).mockResolvedValue({ success: true, platforms: [] } as any);
     vi.mocked(api.getDashscopeKey).mockResolvedValue({ success: true, configured: false, api_key_masked: '' } as any);
     vi.mocked(api.listChatProviders).mockResolvedValue({ success: true, providers: [], active_id: null } as any);
@@ -52,6 +53,37 @@ describe('SettingsModal', () => {
     await waitFor(() => {
       expect(screen.getByText(TRANSLATIONS.en.settingsTitle)).toBeTruthy();
     });
+  });
+
+  it('saves the next launch language without changing the page language', async () => {
+    vi.mocked(api.getLauncherLanguage).mockResolvedValue({ language: 'ja' });
+    vi.mocked(api.setLauncherLanguage).mockResolvedValueOnce({ language: 'fr' });
+    vi.mocked(api.setLauncherLanguage).mockResolvedValueOnce({ language: null });
+
+    setup();
+    const select = await screen.findByRole('combobox', { name: TRANSLATIONS.en.launcherLanguageTitle });
+    await waitFor(() => expect(select).toHaveValue('ja'));
+    await userEvent.selectOptions(select, 'fr');
+    await waitFor(() => expect(select).toHaveValue('fr'));
+    expect(api.setLauncherLanguage).toHaveBeenCalledWith('fr');
+    expect(screen.getByRole('heading', { name: TRANSLATIONS.en.settingsTitle })).toBeVisible();
+
+    await userEvent.selectOptions(select, '');
+    await waitFor(() => expect(select).toHaveValue(''));
+    expect(api.setLauncherLanguage).toHaveBeenLastCalledWith(null);
+  });
+
+  it('retains the saved launch language if the update fails', async () => {
+    vi.mocked(api.getLauncherLanguage).mockResolvedValue({ language: 'ja' });
+    vi.mocked(api.setLauncherLanguage).mockRejectedValueOnce(new Error('Write failed'));
+
+    setup();
+    const select = await screen.findByRole('combobox', { name: TRANSLATIONS.en.launcherLanguageTitle });
+    await waitFor(() => expect(select).toHaveValue('ja'));
+    await userEvent.selectOptions(select, 'fr');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(TRANSLATIONS.en.operationFailed);
+    expect(select).toHaveValue('ja');
   });
 
   it('clicking the footer close button calls onClose', async () => {

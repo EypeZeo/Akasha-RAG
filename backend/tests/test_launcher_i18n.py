@@ -16,6 +16,9 @@ def _resolve(monkeypatch, *, system_locale=(None, None), **env):
     The host's real system locale is neutralized so tests exercise the documented
     priority (env var > LANG probe > 'en') deterministically on any machine.
     """
+    from backend.app.core import launcher_preferences
+
+    monkeypatch.setattr(launcher_preferences, "get_launcher_language", lambda: None)
     for key in ("AKASHA_LANG", "LANG"):
         monkeypatch.delenv(key, raising=False)
     for key, value in env.items():
@@ -52,6 +55,22 @@ def test_default_fallback_is_english(monkeypatch):
 
 def test_system_locale_probe(monkeypatch):
     assert _resolve(monkeypatch, system_locale=("Chinese (Simplified)_China", "936")) == "zh"
+
+
+def test_saved_language_is_loaded_by_the_next_launcher(monkeypatch, tmp_path):
+    from backend.app.core import launcher_preferences
+
+    monkeypatch.setattr(launcher_preferences, "LAUNCHER_LANGUAGE_PATH", tmp_path / "launcher-language.txt")
+    monkeypatch.setenv("AKASHA_LANG", "en")
+    launcher_i18n = importlib.reload(importlib.import_module("launcher_i18n"))
+    assert launcher_i18n._LANG == "en"
+
+    launcher_preferences.set_launcher_language("ja")
+    assert launcher_i18n._LANG == "en"
+    assert importlib.reload(launcher_i18n)._LANG == "ja"
+
+    launcher_preferences.set_launcher_language(None)
+    assert importlib.reload(launcher_i18n)._LANG == "en"
 
 
 def test_every_key_is_translated_into_all_languages(monkeypatch):

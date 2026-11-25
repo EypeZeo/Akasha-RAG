@@ -1,10 +1,17 @@
-import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+import asyncio
+from datetime import datetime
+from unittest.mock import AsyncMock
 
+import pytest
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.db import session as db_session
 from app.db.base import Base
+from app.db.favorites_repair import deactivate_misclassified_douyin_favorites
 from app.models.entities import CollectionItemRelation, ContentItem, FavoriteCollection, IngestionItem
 from app.services.batch_export_service import BatchExportService
+from app.services.douyin_collector import DouyinCollector, FavoriteScrapeSnapshot, collector
 from app.services.favorites_service import favorites_service
 from app.services.knowledge_service import knowledge_service
 from app.services.rag_service import rag_service
@@ -36,6 +43,72 @@ def content(db, platform, remote, title, collections, status="done"):
         db.add(CollectionItemRelation(collection_id=col.id, content_item_id=item.id))
     db.commit()
     return item
+
+
+def test_douyin_fallback_reads_only_douyin_with_all_active_memberships(db, monkeypatch):
+    first = collection(db, "douyin", "shared-id", 1)
+    second = collection(db, "douyin", "second", 2)
+    other = collection(db, "bilibili", "shared-id", 3)
+    inactive = collection(db, "douyin", "inactive", 4)
+    item = content(db, "douyin", "12345", "Douyin work", [first, second, other, inactive])
+    content(db, "bilibili", "BV1234567890", "Bilibili work", [other, first])
+    inactive.is_active = False
+    db.commit()
+    monkeypatch.setattr(db_session, "session_factory", sessionmaker(db.get_bind()))
+
+    snapshot = DouyinCollector._snapshot_from_database()
+
+    assert snapshot is not None
+    assert snapshot.is_cached and not snapshot.is_complete
+    assert {row.platform_collection_id for row in snapshot.collections} == {"shared-id", "second"}
+    assert [(row.platform_item_id, row.collection_ids) for row in snapshot.videos] == [
+        (item.remote_item_id, {"shared-id", "second"}),
+    ]
+
+
+def test_douyin_sync_keeps_cached_snapshot_read_only(db, monkeypatch):
+    cached = FavoriteScrapeSnapshot(is_cached=True, is_complete=False)
+    monkeypatch.setattr(collector, "fetch_snapshot", AsyncMock(return_value=cached))
+
+    def unexpected_save(*_):
+        pytest.fail("A cached snapshot must not be saved")
+
+    monkeypatch.setattr(favorites_service, "save_snapshot_to_db", unexpected_save)
+    with pytest.raises(RuntimeError, match="已保留本地收藏"):
+        asyncio.run(favorites_service.sync_from_douyin(db))
+
+
+def test_repair_deactivates_copies_and_keeps_original_collections(db):
+    original_video = collection(db, "bilibili", "bili", 1)
+    original_article = collection(db, "zhihu", "zhihu", 2)
+    original_empty = collection(db, "zhihu", "empty", 3)
+    shared_original = collection(db, "bilibili", "shared-id", 4)
+    copied_video = collection(db, "douyin", "bili", 5)
+    copied_article = collection(db, "douyin", "zhihu", 6)
+    copied_empty = collection(db, "douyin", "empty", 7)
+    native_collection = collection(db, "douyin", "shared-id", 8)
+    for folder in (copied_video, copied_article, copied_empty, native_collection):
+        folder.created_at = datetime(2026, 1, 2)
+    native_item = content(db, "douyin", "12345", "Native work", [native_collection])
+    video = content(db, "bilibili", "BV1234567890", "Bilibili work", [original_video])
+    article = content(db, "zhihu", "zhihu:article:123", "Zhihu work", [original_article])
+    video_copy = content(db, "douyin", video.remote_item_id, video.title, [copied_video])
+    article_copy = content(db, "douyin", article.remote_item_id, article.title, [copied_article])
+
+    engine = db.get_bind()
+    assert deactivate_misclassified_douyin_favorites(engine) == (3, 2)
+    assert deactivate_misclassified_douyin_favorites(engine) == (0, 0)
+    db.expire_all()
+    active_folders = set(db.scalars(select(FavoriteCollection.id).where(FavoriteCollection.is_active)))
+    assert active_folders == {
+        original_video.id, original_article.id, original_empty.id, shared_original.id, native_collection.id,
+    }
+    assert set(db.scalars(select(ContentItem.id).where(ContentItem.is_active))) == {
+        native_item.id, video.id, article.id,
+    }
+    assert set(db.scalars(select(IngestionItem.content_item_id))) == {
+        native_item.id, video.id, article.id, video_copy.id, article_copy.id,
+    }
 
 
 def test_export_uses_remote_identity_and_all_memberships(db):

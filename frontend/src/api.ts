@@ -2,6 +2,8 @@
  * 后端 API 调用封装
  */
 
+import type { SupportedLang } from './i18n';
+
 const BASE = '/api';
 
 /**
@@ -586,6 +588,14 @@ export async function deleteSession(sessionId: number): Promise<{ success: boole
 }
 
 // ---- Settings ----
+
+export function getLauncherLanguage(): Promise<{ language: SupportedLang | null }> {
+  return request('/settings/launcher-language');
+}
+
+export function setLauncherLanguage(language: SupportedLang | null): Promise<{ language: SupportedLang | null }> {
+  return request('/settings/launcher-language', { method: 'PUT', body: JSON.stringify({ language }) });
+}
 
 export interface ChatProvider {
   id: string;

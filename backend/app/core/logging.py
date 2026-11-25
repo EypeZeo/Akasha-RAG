@@ -15,7 +15,16 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from loguru import logger
+from loguru import logger as _loguru
+
+from app.core.launcher_preferences import (
+    SUPPORTED_LAUNCHER_LANGUAGES,
+    TERMINAL_LANGUAGE_ENV,
+    resolve_launcher_language,
+)
+from app.core.log_translations import ENGLISH_LOG_MESSAGES
+
+logger = logging.getLogger(__name__)
 
 VALID_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "NONE"]
 
@@ -52,14 +61,33 @@ LOG_DIR = PROJECT_ROOT / "logs"
 CONFIG_FILE = LOG_DIR / "log_config.json"
 
 
+def _console_format(record) -> str:
+    message = "{extra[console_message]}" if "console_message" in record["extra"] else "{message}"
+    return (
+        "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
+        "<cyan>{name}:{function}:{line}</cyan> | "
+        f"<level>{message}</level>\n{{exception}}"
+    )
+
+
 class _ApplicationLogHandler(logging.Handler):
     """Route service stdlib logs to the same console and rotating file sinks."""
+
+    def __init__(self, language: str) -> None:
+        super().__init__()
+        self.language = language
 
     def emit(self, record: logging.LogRecord) -> None:
         def origin(log_record):
             log_record.update(name=record.name, function=record.funcName, line=record.lineno)
 
-        logger.patch(origin).opt(exception=record.exc_info).log(record.levelname, record.getMessage())
+        output = _loguru.patch(origin).opt(exception=record.exc_info)
+        if self.language != "zh":
+            translated = ENGLISH_LOG_MESSAGES.get(str(record.msg))
+            if translated is not None:
+                console_message = translated % record.args if record.args else translated
+                output = output.bind(console_message=console_message)
+        output.log(record.levelname, record.getMessage())
 
 
 class LogManager:
@@ -70,6 +98,16 @@ class LogManager:
         self.file_all_handler_id: Optional[int] = None
         self.file_error_handler_id: Optional[int] = None
         self.current_level: str = "INFO"
+
+    def _add_console_handler(self, level: str) -> None:
+        if level != "NONE":
+            self.console_handler_id = _loguru.add(
+                sys.stderr,
+                format=_console_format,
+                level=level,
+                colorize=sys.stderr.isatty(),
+                diagnose=False,
+            )
 
     def _ensure_dir(self) -> None:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -92,7 +130,7 @@ class LogManager:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump({"level": level}, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            logger.warning("保存日志配置文件失败: {}", e)
+            logger.warning("保存日志配置文件失败: %s", e)
 
     def get_level(self) -> str:
         return self.current_level
@@ -113,60 +151,34 @@ class LogManager:
         # 移除现有控制台 handler
         if self.console_handler_id is not None:
             try:
-                logger.remove(self.console_handler_id)
+                _loguru.remove(self.console_handler_id)
             except Exception:
                 pass
             self.console_handler_id = None
 
-        # 若不是 NONE，则添加新的控制台 handler
-        if level_upper != "NONE":
-            self.console_handler_id = logger.add(
-                sys.stderr,
-                format=(
-                    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-                    "<level>{level: <8}</level> | "
-                    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
-                    "<level>{message}</level>"
-                ),
-                level=level_upper,
-                colorize=sys.stderr.isatty(),
-                diagnose=False,
-            )
+        self._add_console_handler(level_upper)
 
         if persist:
             self._save_level(level_upper)
 
-        logger.info("控制台日志级别已动态调整为: {}", level_upper)
+        logger.info("控制台日志级别已动态调整为: %s", level_upper)
         return True
 
     def init_logging(self) -> None:
         """初始化日志配置"""
         self._ensure_dir()
-        logger.remove()
+        _loguru.remove()
         self.console_handler_id = None
 
         # 恢复保存的级别
         initial_level = self._load_saved_level()
         self.current_level = initial_level
 
-        # 添加控制台 handler
-        if initial_level != "NONE":
-            self.console_handler_id = logger.add(
-                sys.stderr,
-                format=(
-                    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | "
-                    "<level>{level: <8}</level> | "
-                    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
-                    "<level>{message}</level>"
-                ),
-                level=initial_level,
-                colorize=sys.stderr.isatty(),
-                diagnose=False,
-            )
+        self._add_console_handler(initial_level)
 
         # 文件日志 — 全量 (DEBUG 以上)
         all_log_path = LOG_DIR / "all_{time:YYYY-MM-DD}.log"
-        self.file_all_handler_id = logger.add(
+        self.file_all_handler_id = _loguru.add(
             str(all_log_path),
             rotation="00:00",
             retention="7 days",
@@ -179,7 +191,7 @@ class LogManager:
 
         # 文件日志 — 仅 ERROR (错误归档追溯)
         error_log_path = LOG_DIR / "error_{time:YYYY-MM-DD}.log"
-        self.file_error_handler_id = logger.add(
+        self.file_error_handler_id = _loguru.add(
             str(error_log_path),
             rotation="00:00",
             retention="30 days",
@@ -194,7 +206,10 @@ class LogManager:
         for handler in list(application_logger.handlers):
             if isinstance(handler, _ApplicationLogHandler):
                 application_logger.removeHandler(handler)
-        application_logger.addHandler(_ApplicationLogHandler())
+        language = os.environ.get(TERMINAL_LANGUAGE_ENV)
+        if language not in SUPPORTED_LAUNCHER_LANGUAGES:
+            language = resolve_launcher_language()
+        application_logger.addHandler(_ApplicationLogHandler(language))
         application_logger.setLevel(logging.DEBUG)
         application_logger.propagate = False
 
@@ -212,7 +227,7 @@ class LogManager:
         except Exception:
             pass
 
-        logger.info("日志系统初始化完成 (当前控制台级别: {})，日志存储目录: {}", initial_level, LOG_DIR)
+        logger.info("日志系统初始化完成 (当前控制台级别: %s)，日志存储目录: %s", initial_level, LOG_DIR)
 
 
 log_manager = LogManager()
