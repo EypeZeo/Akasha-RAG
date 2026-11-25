@@ -6,12 +6,13 @@ the Windows Internet Settings proxy. No proxy credentials are logged.
 """
 from __future__ import annotations
 
+import logging
 import os
 import socket
 import urllib.request
 from urllib.parse import urlsplit, urlunsplit
 
-from loguru import logger
+logger = logging.getLogger(__name__)
 
 
 def _normalise_proxy(value: str | None) -> str | None:
@@ -134,7 +135,7 @@ def detect_network_proxy(validate: bool = False) -> str | None:
             if validate:
                 is_available, error = _test_proxy_connectivity(proxy)
                 if not is_available:
-                    logger.warning(f"检测到代理但连通性测试失败: {error}")
+                    logger.warning("检测到代理但连通性测试失败: %s", error)
                     continue
             return proxy
     
@@ -144,7 +145,7 @@ def detect_network_proxy(validate: bool = False) -> str | None:
             if validate:
                 is_available, error = _test_proxy_connectivity(proxy)
                 if not is_available:
-                    logger.warning(f"环境变量 {key} 指定的代理连通性测试失败: {error}")
+                    logger.warning("环境变量 %s 指定的代理连通性测试失败: %s", key, error)
                     continue
             return proxy
     
@@ -152,7 +153,7 @@ def detect_network_proxy(validate: bool = False) -> str | None:
     if proxy and validate:
         is_available, error = _test_proxy_connectivity(proxy)
         if not is_available:
-            logger.warning(f"Windows 注册表代理连通性测试失败: {error}")
+            logger.warning("Windows 注册表代理连通性测试失败: %s", error)
             return None
     
     return proxy

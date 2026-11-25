@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("migration")
+logger = logging.getLogger(__name__)
 
 MIGRATION_VERSION = "v0_7_0_multiplatform"
 MIGRATION_DESC = "Normalized multiplatform schema: source_accounts, favorite_collections, content_items, collection_items, ingestion_items, content_parts"

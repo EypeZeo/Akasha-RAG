@@ -4,13 +4,13 @@ FastAPI 应用入口
 启动命令：
     uv run --project backend uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --app-dir backend
 """
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from loguru import logger
 from sqlalchemy import update
 
 from app._version import get_version
@@ -20,6 +20,8 @@ from app.core.logging import setup_logging
 from app.db.base import Base
 from app.db.session import engine, session_factory
 from app.models.entities import VideoCache
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -76,6 +78,10 @@ async def lifespan(app: FastAPI):
     ensure_content_item_enrichment_column(engine)
     from app.services.chat_history import ensure_chat_client_key_column
     ensure_chat_client_key_column(engine)
+    from app.db.favorites_repair import deactivate_misclassified_douyin_favorites
+    repaired_collections, repaired_items = deactivate_misclassified_douyin_favorites(engine)
+    if repaired_collections or repaired_items:
+        logger.info("已停用误归类的抖音收藏记录：%d 个收藏夹、%d 个作品", repaired_collections, repaired_items)
     logger.info("数据库表初始化完成")
 
     # Eagerly initialize the platform-partitioned Chroma collections so a
@@ -93,12 +99,11 @@ async def lifespan(app: FastAPI):
         ).rowcount
         db.commit()
     if recovered:
-        logger.warning("恢复 {} 个中断的入库项为待入库，已保留正文检查点", recovered)
+        logger.warning("恢复 %d 个中断的入库项为待入库，已保留正文检查点", recovered)
 
     # 启动后台 worker
     from app.services.worker import worker
     worker.start()
-    logger.info("后台工作线程已启动")
 
     # 启动音频缓存自动定时清理调度器（启动即清理 + 后台周期自动轮询）
     from app.services.media_service import start_cache_cleaner_scheduler, stop_cache_cleaner_scheduler

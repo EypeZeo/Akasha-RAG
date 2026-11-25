@@ -112,6 +112,7 @@ class FavoriteScrapeSnapshot:
     platform: str = "douyin"
     is_complete: bool = True
     invalid_count: int = 0
+    is_cached: bool = False
 
 
 @dataclass
@@ -781,7 +782,7 @@ class DouyinCollector:
                         try:
                             context.close()
                         except Exception as e:
-                            logger.error(f"浏览器上下文清理失败（可能导致内存泄漏）: {e}")
+                            logger.error("浏览器上下文清理失败（可能导致内存泄漏）: %s", e)
                     self._active_context = None
                     self._active_playwright = None
                     self._active_page = None
@@ -1098,7 +1099,7 @@ class DouyinCollector:
 
     def scrape_favorites_sync(self) -> FavoriteScrapeSnapshot:
         """
-        使用本地已有的持久化 Cookie，直接在后台静默浏览器中抓取最新的收藏夹和视频数据并存入数据库
+        使用本地已有的 Cookie，在后台浏览器中抓取最新的收藏夹和视频数据。
 
         无需用户重新扫码，完全后台静默执行 (headless=True)。
         """
@@ -1133,16 +1134,6 @@ class DouyinCollector:
                     snapshot = self._fetch_in_context(page)
                     self._snapshot = snapshot
                     logger.info("实时抓取完成: %d 收藏夹, %d 视频", len(snapshot.collections), len(snapshot.videos))
-
-                    # 自动持久化写入数据库
-                    try:
-                        from app.db.session import session_factory
-                        from app.services.favorites_service import favorites_service
-                        with session_factory() as db:
-                            favorites_service.save_snapshot_to_db(db, snapshot)
-                        logger.info("实时抓取的收藏夹快照已成功持久化到数据库")
-                    except Exception as db_err:
-                        logger.error("自动持久化到数据库失败: %s", db_err)
 
                     # 刷新 state.json 与 Cookie 文件
                     try:
@@ -1188,34 +1179,43 @@ class DouyinCollector:
     def _snapshot_from_database() -> Optional[FavoriteScrapeSnapshot]:
         """Rebuild the last active snapshot without contacting the provider."""
         from app.db.session import session_factory
-        from app.models.entities import FavoriteCollection, FavoriteVideo
+        from app.models.entities import CollectionItemRelation, ContentItem, FavoriteCollection
         from sqlalchemy import select
 
         with session_factory() as db:
-            db_cols = db.execute(select(FavoriteCollection).where(FavoriteCollection.is_active.is_(True))).scalars().all()
-            if not db_cols:
+            active_collections = select(FavoriteCollection).where(
+                FavoriteCollection.platform == "douyin", FavoriteCollection.is_active.is_(True),
+            )
+            active_items = select(ContentItem).where(
+                ContentItem.platform == "douyin", ContentItem.is_active.is_(True),
+            )
+            collections = [
+                FavoriteScrapedCollection(c.remote_collection_id, c.title, c.video_count, c.cover_url)
+                for c in db.scalars(active_collections)
+            ]
+            videos = {
+                item.id: FavoriteScrapedVideo(
+                    item.remote_item_id, item.video_url, item.title, item.author or "", item.duration,
+                )
+                for item in db.scalars(active_items)
+            }
+            if not collections and not videos:
                 return None
-            collections = [FavoriteScrapedCollection(
-                platform_collection_id=c.platform_collection_id,
-                title=c.title,
-                video_count=c.video_count,
-                cover_url=getattr(c, "cover_url", None),
-            ) for c in db_cols]
-            col_id_map = {c.id: c.platform_collection_id for c in db_cols}
-            db_vids = db.execute(select(FavoriteVideo).where(FavoriteVideo.is_active.is_(True))).scalars().all()
-            videos: dict[str, FavoriteScrapedVideo] = {}
-            for video in db_vids:
-                item = videos.setdefault(video.platform_item_id, FavoriteScrapedVideo(
-                    platform_item_id=video.platform_item_id,
-                    url=video.video_url,
-                    title=video.title,
-                    author=video.author or "",
-                    duration=video.duration,
-                ))
-                collection_id = col_id_map.get(video.collection_id)
-                if collection_id:
-                    item.collection_ids.add(collection_id)
-            return FavoriteScrapeSnapshot(collections=collections, videos=list(videos.values()))
+
+            memberships = db.execute(
+                select(CollectionItemRelation.content_item_id, FavoriteCollection.remote_collection_id)
+                .join(FavoriteCollection)
+                .where(
+                    CollectionItemRelation.is_active.is_(True),
+                    CollectionItemRelation.collection_id.in_(active_collections.with_only_columns(FavoriteCollection.id)),
+                    CollectionItemRelation.content_item_id.in_(active_items.with_only_columns(ContentItem.id)),
+                )
+            )
+            for item_id, collection_id in memberships:
+                videos[item_id].collection_ids.add(collection_id)
+            return FavoriteScrapeSnapshot(
+                collections=collections, videos=list(videos.values()), is_complete=False, is_cached=True,
+            )
 
     async def fetch_snapshot(
         self,

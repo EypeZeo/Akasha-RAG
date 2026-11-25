@@ -121,6 +121,10 @@ export default function SettingsModal({
 }: SettingsModalProps) {
   const { lang, setLang, t, languages } = useI18n();
   const titleId = useId();
+  const launcherLanguageId = useId();
+  const [launcherLanguage, setLauncherLanguage] = useState<SupportedLang | null>();
+  const [savingLauncherLanguage, setSavingLauncherLanguage] = useState(false);
+  const [launcherLanguageError, setLauncherLanguageError] = useState(false);
   const [openingLogs, setOpeningLogs] = useState(false);
   const [platforms, setPlatforms] = useState<api.PlatformInfo[]>([]);
   const [loadingPlatforms, setLoadingPlatforms] = useState(false);
@@ -252,6 +256,37 @@ export default function SettingsModal({
       fetchApiSettings();
     }
   }, [isOpen, fetchApiSettings]);
+
+  useEffect(() => {
+    if (!isOpen || launcherLanguage !== undefined) return;
+    let cancelled = false;
+    async function loadLauncherLanguage() {
+      try {
+        const { language } = await api.getLauncherLanguage();
+        if (!cancelled) {
+          setLauncherLanguage(language);
+          setLauncherLanguageError(false);
+        }
+      } catch {
+        if (!cancelled) setLauncherLanguageError(true);
+      }
+    }
+    void loadLauncherLanguage();
+    return () => { cancelled = true; };
+  }, [isOpen, launcherLanguage]);
+
+  const handleLauncherLanguageChange = async (language: SupportedLang | null) => {
+    setSavingLauncherLanguage(true);
+    setLauncherLanguageError(false);
+    try {
+      const result = await api.setLauncherLanguage(language);
+      setLauncherLanguage(result.language);
+    } catch {
+      setLauncherLanguageError(true);
+    } finally {
+      setSavingLauncherLanguage(false);
+    }
+  };
 
   // Login can finish while the account page stays mounted behind its dialog.
   // Refresh its display profile without returning the user to settings home.
@@ -788,6 +823,27 @@ export default function SettingsModal({
                 );
               })}
             </div>
+          </div>
+
+          <div className="rounded-xl border border-[var(--color-border)] p-4 bg-white/60 space-y-2">
+            <label htmlFor={launcherLanguageId} className="block text-sm font-bold text-[var(--color-ink)]">
+              {t('launcherLanguageTitle')}
+            </label>
+            <select
+              id={launcherLanguageId}
+              value={launcherLanguage ?? ''}
+              disabled={launcherLanguage === undefined || savingLauncherLanguage}
+              onChange={event => void handleLauncherLanguageChange((event.target.value || null) as SupportedLang | null)}
+              aria-describedby={launcherLanguageId + '-description'}
+              className="w-full rounded-lg border border-[var(--color-border)] bg-white px-3 py-2 text-xs text-[var(--color-ink)] disabled:opacity-50"
+            >
+              <option value="">{t('launcherLanguageAuto')}</option>
+              {languages.map(item => <option key={item.code} value={item.code}>{item.label}</option>)}
+            </select>
+            <p id={launcherLanguageId + '-description'} className="text-xs text-[var(--color-ink-muted)]">
+              {t('launcherLanguageDescription')}
+            </p>
+            {launcherLanguageError && <p role="alert" className="text-xs text-red-700">{t('operationFailed')}</p>}
           </div>
 
           {/* Interface theme: concise visual swatches keep the choice understandable. */}

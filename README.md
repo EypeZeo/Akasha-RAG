@@ -108,9 +108,7 @@ start.bat
 也可以分开手动启动：`backend` 目录下 `uv run uvicorn app.main:app --reload --port 8000`，
 `frontend` 目录下 `npm run dev`，然后打开 http://localhost:5173 。
 
-> **界面语言**：启动窗口的文字可以用环境变量 `AKASHA_LANG` 切换，支持
-> `zh` / `en` / `ja` / `fr` / `de` / `ko` / `ru` / `hi`；不设置的话会自动按你系统的语言判断，
-> 判断不出来就用英文。例：`set AKASHA_LANG=zh && start.bat`。
+> 在网页的「系统设置 → 终端语言」中选择启动窗口的语言，下次启动时生效。选择「自动」时，启动器优先读取环境变量 `AKASHA_LANG`，再读取系统语言，默认使用英文。环境预检和后端终端日志提供中文和英文。日志中的路径、名称和外部服务返回内容保留原文。
 
 ## 使用流程
 

@@ -19,7 +19,8 @@ import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from launcher_i18n import t as _t  # noqa: E402  多语言文案（AKASHA_LANG 切换）
+from backend.app.core.launcher_preferences import TERMINAL_LANGUAGE_ENV  # noqa: E402
+from launcher_i18n import _LANG, t as _t  # noqa: E402
 
 # 剥离子进程输出里的 ANSI 转义序列（CSI 颜色/光标 + OSC 超链接等），
 # 仅用于写入日志文件，终端仍保留彩色。
@@ -232,6 +233,9 @@ class UnifiedLauncher:
                 if "终止批处理操作" in text or "Terminate batch job" in text:
                     continue
 
+                if prefix == "[FRONTEND]" and _strip_ansi(text).lstrip().startswith("➜"):
+                    text = text.replace("➜", ">", 1)
+
                 self.log_message(prefix, text, color)
 
                 # 实时探测前后端就绪输出
@@ -270,6 +274,8 @@ class UnifiedLauncher:
         ]
         env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        env[TERMINAL_LANGUAGE_ENV] = _LANG
 
         return subprocess.Popen(
             cmd,
