@@ -946,6 +946,21 @@ describe('SourcesPanel sync favorites', () => {
     expect(api.getKnowledgeStats).toHaveBeenCalledTimes(1);
   });
 
+  it('reports a partial Douyin response and refreshes its local collections', async () => {
+    vi.mocked(api.syncFavorites).mockResolvedValue(noopSync({ snapshot_complete: false }));
+
+    setup();
+    const syncBtn = await screen.findByText(TRANSLATIONS.en.sync);
+    await waitFor(() => expect(api.listCollections).toHaveBeenCalledTimes(1));
+    vi.mocked(api.listCollections).mockClear();
+    fireEvent.click(syncBtn);
+
+    await waitFor(() => {
+      expect(window.alert).toHaveBeenCalledWith(TRANSLATIONS.en.douyinSyncIncomplete);
+    });
+    expect(api.listCollections).toHaveBeenCalledTimes(1);
+  });
+
   it('builds a combined added/removed videos+notes+invalid message for a representative mixed result', async () => {
     vi.mocked(api.syncFavorites).mockResolvedValue(noopSync({
       added_videos: 3, removed_videos: 1, added_notes: 2, invalid_count: 1,

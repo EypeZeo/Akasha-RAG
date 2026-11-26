@@ -74,7 +74,7 @@ def test_douyin_sync_keeps_cached_snapshot_read_only(db, monkeypatch):
         pytest.fail("A cached snapshot must not be saved")
 
     monkeypatch.setattr(favorites_service, "save_snapshot_to_db", unexpected_save)
-    with pytest.raises(RuntimeError, match="已保留本地收藏"):
+    with pytest.raises(RuntimeError, match="Local favorites were kept"):
         asyncio.run(favorites_service.sync_from_douyin(db))
 
 

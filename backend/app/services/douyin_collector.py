@@ -4,8 +4,7 @@
 核心思路：登录后不关浏览器，在同一个持久化上下文中立即抓取数据，
 抓完再关。避免 Cookie/Storage 跨 session 丢失的问题。
 
-登录 → 检测到 Cookie → 立即调 Webpack API 抓收藏夹 → 存快照 → 关浏览器
-同步 → 直接返回已缓存的快照（不重新打开浏览器）
+登录和主动同步均从抖音收藏页面读取最新数据。
 """
 from __future__ import annotations
 
@@ -29,6 +28,7 @@ from app.core.config import settings
 from app.core.external_urls import safe_platform_image_url
 from app.core.network import detect_network_proxy
 from app.core.secure_storage import delete_json, read_json, write_json
+from app.services.douyin_favorites_page import DouyinFavoritesPageError, read_favorites_page
 
 logger = logging.getLogger(__name__)
 
@@ -222,30 +222,6 @@ class DouyinCollector:
             list_export_found=bool(current.get("list_export_found")),
             video_export_found=bool(current.get("video_export_found")),
             provider_status_code=current.get("provider_status_code"),
-        )
-
-    def _record_provider_result(self, result: object, module_id: object) -> None:
-        """Copy only allowlisted, non-sensitive fields returned by page JS."""
-        if not isinstance(result, dict):
-            self._set_sync_diagnostic(
-                phase="provider_call",
-                outcome="failed",
-                error_code="invalid_provider_result",
-                module_id=str(module_id)[:128] if module_id is not None else None,
-            )
-            return
-        status_code = result.get("statusCode")
-        if isinstance(status_code, bool) or not isinstance(status_code, int):
-            status_code = None
-        self._set_sync_diagnostic(
-            phase="provider_call",
-            outcome="success" if result.get("ok") else "failed",
-            error_code=str(result.get("error"))[:64] if result.get("error") else None,
-            module_id=str(module_id)[:128] if module_id is not None else None,
-            export_keys=[str(key)[:80] for key in (result.get("exportKeys") or []) if isinstance(key, str)],
-            list_export_found=bool(result.get("listExportFound")),
-            video_export_found=bool(result.get("videoExportFound")),
-            provider_status_code=status_code,
         )
 
     def _load_profile(self) -> dict[str, str]:
@@ -804,281 +780,83 @@ class DouyinCollector:
             self._lock.release()
 
     def _fetch_in_context(self, page) -> FavoriteScrapeSnapshot:
-        """
-        在已有的浏览器页面中通过 Webpack API 抓取收藏夹数据
-
-        :param page: 已登录的 Playwright Page
-        :return: 收藏夹快照
-        """
-        # 直接前往个人收藏夹页面，采用 commit 等待级别，坚决杜绝因主页视频流无限加载导致 120s 超时
         target_url = f"{settings.douyin_home_url.rstrip('/')}/user/self?showTab=favorite_collection"
         logger.info("直接导航至个人收藏夹页面: %s", target_url)
         try:
-            page.goto(target_url, timeout=35_000, wait_until="commit")
-        except Exception as nav_err:
-            logger.warning("导航至收藏夹页面偶发超时: %s，尝试继续探测", nav_err)
-
-        time.sleep(2.5)
-        self._refresh_profile(page)
-
-        # 智能等待并定位 Webpack 收藏夹 API 模块
-        logger.info("正在探测 Webpack 收藏夹 API 模块...")
-        mid = None
-        for attempt in range(25):
-            if self._logout_requested.is_set():
-                raise RuntimeError("抓取流程已取消")
-            try:
-                mid = page.evaluate("""
-                    () => {
-                        const chunks = window.webpackChunkdouyin_web;
-                        if (!chunks || !Array.isArray(chunks)) return null;
-                        const req = chunks.push([[Symbol("c")], {}, r => r]);
-                        try { chunks.pop(); } catch(e) {}
-                        if (!req || !req.m) return null;
-                        for (const [id, mod] of Object.entries(req.m)) {
-                            let src = "";
-                            try { src = Function.prototype.toString.call(mod); } catch(e) { continue; }
-                            if (src.includes("/aweme/v1/web/collects/list/") && src.includes("/aweme/v1/web/collects/video/list/")) {
-                                return id;
-                            }
-                        }
-                        return null;
-                    }
-                """)
-                if mid:
-                    logger.info("成功定位 Webpack 收藏夹模块 (mid=%s, attempt=%d)", mid, attempt)
-                    break
-            except Exception:
-                pass
-
-            # 若前 3 秒尚未找到，尝试模拟点击页面上的“收藏”Tab以触发模块动态加载
-            if attempt == 3:
-                try:
-                    fav_tab = page.locator('span:text-is("收藏"), [data-e2e*="tab"]:has-text("收藏")').first
-                    if fav_tab.is_visible(timeout=1000):
-                        fav_tab.click(force=True)
-                        logger.info("已尝试模拟点击收藏 Tab 触发模块加载")
-                except Exception:
-                    pass
-
-            time.sleep(1.0)
-
-        # 如果前 25 秒仍未就绪，尝试轻量 reload 一次并重试 15 秒
-        if not mid:
-            logger.warning("未立即定位到 collects 模块，尝试页面轻量重载...")
-            try:
-                page.reload(timeout=25_000, wait_until="commit")
-                time.sleep(3.0)
-                for _ in range(15):
-                    if self._logout_requested.is_set():
-                        raise RuntimeError("抓取流程已取消")
-                    mid = page.evaluate("""
-                        () => {
-                            const chunks = window.webpackChunkdouyin_web;
-                            if (!chunks || !Array.isArray(chunks)) return null;
-                            const req = chunks.push([[Symbol("c")], {}, r => r]);
-                            try { chunks.pop(); } catch(e) {}
-                            if (!req || !req.m) return null;
-                            for (const [id, mod] of Object.entries(req.m)) {
-                                let src = "";
-                                try { src = Function.prototype.toString.call(mod); } catch(e) { continue; }
-                                if (src.includes("/aweme/v1/web/collects/list/") && src.includes("/aweme/v1/web/collects/video/list/")) {
-                                    return id;
-                                }
-                            }
-                            return null;
-                        }
-                    """)
-                    if mid:
-                        logger.info("刷新后成功定位 Webpack 收藏夹模块 (mid=%s)", mid)
-                        break
-                    time.sleep(1.0)
-            except Exception as reload_err:
-                logger.warning("刷新页面探测异常: %s", reload_err)
-
-        if not mid:
+            result = read_favorites_page(page, target_url, self._refresh_profile, self._logout_requested.is_set)
+        except DouyinFavoritesPageError as exc:
             self._set_sync_diagnostic(
-                phase="module_discovery",
+                phase="favorites_page",
                 outcome="failed",
-                error_code="module_not_found",
+                error_code=exc.code,
+                provider_status_code=exc.provider_status_code,
             )
-            raise RuntimeError("抖音页面加载失败：收藏夹 API 模块未检测到，请确认网络正常后重试")
+            raise
 
-        # 执行 JS 调用 Webpack collects 模块
-        result = page.evaluate("""
-            async (targetMid) => {
-                // 固定递增退避（不是可配置项，就是这三个字面量常量）：3 次
-                // 尝试之间的 2 个间隔，仅在还有下一次尝试时才等待——最后一次
-                // 失败后直接跳出循环报错，不再白等一次。抛异常和拿到非零
-                // statusCode 走同一条退避判断，不再只有 catch 里才等待。
-                const RETRY_DELAYS_MS = [500, 1000];
-                const chunks = window.webpackChunkdouyin_web;
-                if (!Array.isArray(chunks)) return {ok:false, error:"no_webpack"};
-                const req = chunks.push([[Symbol("c")], {}, r => r]);
-                try { chunks.pop(); } catch(e) {}
-                if (!req || !req.m) return {ok:false, error:"no_require"};
-
-                const api = req(Number(targetMid));
-                if (!api) return {ok:false, error:"bad_module_id"};
-
-                // 智能查找 API 函数
-                let listFn = null, videoFn = null;
-                const exportKeys = Object.keys(api || {}).slice(0, 20).map(key => String(key).slice(0, 80));
-                for (const key of Object.keys(api)) {
-                    const v = api[key];
-                    if (typeof v !== 'function') continue;
-                    try {
-                        const src = Function.prototype.toString.call(v);
-                        if (!listFn && src.includes('collects/list')) listFn = v;
-                        if (!videoFn && src.includes('collects/video/list')) videoFn = v;
-                    } catch(e) {}
-                }
-                if (!listFn) listFn = api.So;
-                if (!videoFn) videoFn = api.d6;
-                if (typeof listFn !== "function" || typeof videoFn !== "function")
-                    return {ok:false, error:"bad_exports", exportKeys,
-                        listExportFound:typeof listFn === "function",
-                        videoExportFound:typeof videoFn === "function"};
-
-                // 拉收藏夹列表（支持弱网重试）
-                const collections = [];
-                let cursor = 0, guard = 0;
-                while (guard < 30 && collections.length < 100) {
-                    guard++;
-                    let r = null;
-                    let providerFailure = null;
-                    for (let retry = 0; retry < 3; retry++) {
-                        try {
-                            r = await listFn.call(api, {cursor, offset:30});
-                            if (r && r.statusCode === 0) break;
-                        } catch(e) {
-                            r = null;
-                            providerFailure = "provider_call_threw";
-                        }
-                        if (retry < 2) {
-                            await new Promise(res => setTimeout(res, RETRY_DELAYS_MS[retry]));
-                        }
-                    }
-                    if (!r || r.statusCode !== 0) {
-                        if (collections.length > 0) break;
-                        return {ok:false, error:providerFailure || "list_status",
-                            statusCode:typeof r?.statusCode === "number" ? r.statusCode : null,
-                            exportKeys, listExportFound:true, videoExportFound:true};
-                    }
-                    for (const c of (Array.isArray(r.data) ? r.data : []))
-                        if (c && c.collectionFolderId) collections.push(c);
-                    cursor = Number(r.cursor || 0);
-                    if (!r.hasMore) break;
-                }
-
-                // 拉每个收藏夹的视频（支持弱网重试）
-                const byCol = {};
-                let totalInvalidCount = 0;
-                for (const c of collections) {
-                    const cid = String(c.collectionFolderId);
-                    const rows = [];
-                    const seen = new Set();
-                    let cCur = 0, cG = 0;
-                    while (cG < 120 && rows.length < 500) {
-                        cG++;
-                        let vr = null;
-                        let providerFailure = null;
-                        for (let retry = 0; retry < 3; retry++) {
-                            try {
-                                vr = await videoFn.call(api, {collectsId:cid, cursor:cCur, offset:20});
-                                if (vr && vr.statusCode === 0) break;
-                            } catch(e) {
-                                vr = null;
-                                providerFailure = "provider_call_threw";
-                            }
-                            if (retry < 2) {
-                                await new Promise(res => setTimeout(res, RETRY_DELAYS_MS[retry]));
-                            }
-                        }
-                        if (!vr || vr.statusCode !== 0) {
-                            if (rows.length === 0) {
-                                return {ok:false, error:providerFailure || "video_status",
-                                    statusCode:typeof vr?.statusCode === "number" ? vr.statusCode : null,
-                                    exportKeys, listExportFound:true, videoExportFound:true};
-                            }
-                            break;
-                        }
-                        for (const v of (Array.isArray(vr.data) ? vr.data : [])) {
-                            const vid = String(v?.awemeId || v?.groupId || "").trim();
-                            if (!vid || seen.has(vid)) continue;
-                            seen.add(vid);
-
-                            // 严格过滤失效、私密、已删除、已下架或状态异常作品
-                            const st = v?.status || {};
-                            const isDel = st.is_delete === true || st.is_prohibited === true;
-                            const isPriv = st.private_status === 1 || st.part_see === 1;
-                            const tStr = String(v?.itemTitle || v?.desc || "");
-                            const isBadTitle = tStr.includes("已失效") || tStr.includes("已下架") || tStr.includes("已被删除");
-                            if (isDel || isPriv || isBadTitle) {
-                                totalInvalidCount++;
-                                continue;
-                            }
-
-                            rows.push({
-                                awemeId:vid,
-                                title:String(v?.itemTitle||v?.desc||"Untitled"),
-                                author:String(v?.authorInfo?.nickname||""),
-                                durationMs:Number(v?.video?.duration||0)
-                            });
-                        }
-                        cCur = Number(vr.cursor || 0);
-                        if (!vr.hasMore) break;
-                    }
-                    byCol[cid] = rows;
-                }
-                return {ok:true, collections, itemsByCollection:byCol, invalidCount: totalInvalidCount,
-                    exportKeys, listExportFound:true, videoExportFound:true, statusCode:0};
-            }
-        """, mid)
-
-        self._record_provider_result(result, mid)
-        if not isinstance(result, dict) or not result.get("ok"):
-            error = result.get("error", "unknown") if isinstance(result, dict) else str(result)
-            raise RuntimeError(f"Webpack 模块调用失败: {error}")
-
-        # 解析结果
         collections: list[FavoriteScrapedCollection] = []
-        videos_by_id: dict[str, FavoriteScrapedVideo] = {}
-
-        for col in (result.get("collections") or []):
-            cid = str(col.get("collectionFolderId") or "").strip()
-            if not cid:
-                continue
-            collections.append(FavoriteScrapedCollection(
-                platform_collection_id=cid,
-                title=str(col.get("collectionFolderName") or "收藏夹")[:255],
-                video_count=max(int(col.get("videoTotal") or 0), 0),
-                cover_url=col.get("cover"),
-            ))
-            rows = (result.get("itemsByCollection") or {}).get(cid, [])
-            for row in (rows or []):
-                aid = str(row.get("awemeId") or "").strip()
-                if not aid or not aid.isdigit():
+        videos: dict[str, FavoriteScrapedVideo] = {}
+        complete = result.is_complete
+        invalid_ids: set[str] = set()
+        for folder in result.folders:
+            folder_id = str(folder.get("collects_id_str") or folder["collects_id"])
+            rows = result.works[folder_id]
+            reported = folder.get("total_number")
+            seen_ids: set[str] = set()
+            for row in rows:
+                work_id = str(row.get("aweme_id") or row.get("group_id") or "")
+                if not work_id.isascii() or not work_id.isdigit():
+                    complete = False
                     continue
-                if aid not in videos_by_id:
-                    videos_by_id[aid] = FavoriteScrapedVideo(
-                        platform_item_id=aid,
-                        url=f"https://www.douyin.com/video/{aid}",
-                        title=str(row.get("title") or "Untitled")[:500],
-                        author=str(row.get("author") or "").strip()[:255],
-                        duration=self._duration_to_seconds(row.get("durationMs")),
+                if work_id in seen_ids:
+                    continue
+                seen_ids.add(work_id)
+                title = str(row.get("item_title") or row.get("desc") or "Untitled")
+                status = row.get("status")
+                unavailable = isinstance(status, dict) and (
+                    status.get("is_delete") or status.get("is_prohibited")
+                    or status.get("private_status") == 1 or status.get("part_see") == 1
+                )
+                if unavailable or any(marker in title for marker in ("已失效", "已下架", "已被删除")):
+                    invalid_ids.add(work_id)
+                    continue
+                if work_id not in videos:
+                    author = row.get("author")
+                    video = row.get("video")
+                    videos[work_id] = FavoriteScrapedVideo(
+                        platform_item_id=work_id,
+                        url=f"https://www.douyin.com/video/{work_id}",
+                        title=title[:500],
+                        author=str(author.get("nickname") or "").strip()[:255] if isinstance(author, dict) else "",
+                        duration=self._duration_to_seconds(video.get("duration")) if isinstance(video, dict) else None,
                     )
-                    videos_by_id[aid].collection_ids.add(cid)
+                videos[work_id].collection_ids.add(folder_id)
 
-        reported_total = sum(c.video_count for c in collections)
-        actual_total = len(videos_by_id)
-        missing_diff = max(0, reported_total - actual_total)
-        invalid_count = max(int(result.get("invalidCount") or 0), missing_diff)
+            # The list can end before the folder's reported total when the site
+            # omits works. Keep any previously stored items we could not verify.
+            known_total = type(reported) is int and reported >= 0
+            if not known_total or len(seen_ids) != reported:
+                complete = False
+            cover = folder.get("collects_cover")
+            cover_urls = cover.get("url_list") if isinstance(cover, dict) else None
+            cover_url = cover_urls[0] if isinstance(cover_urls, list) and cover_urls else None
+            collections.append(FavoriteScrapedCollection(
+                platform_collection_id=folder_id,
+                title=folder["collects_name"].strip()[:255],
+                video_count=reported if known_total else len(seen_ids),
+                cover_url=safe_platform_image_url("douyin", cover_url) if isinstance(cover_url, str) else None,
+            ))
 
+        self._set_sync_diagnostic(
+            phase="favorites_page",
+            outcome="success" if complete else "partial",
+            error_code=None,
+            provider_status_code=0,
+        )
         return FavoriteScrapeSnapshot(
             collections=collections,
-            videos=list(videos_by_id.values()),
-            invalid_count=invalid_count,
+            videos=list(videos.values()),
+            is_complete=complete,
+            invalid_count=len(invalid_ids.difference(videos)),
         )
 
     @staticmethod
@@ -1091,7 +869,7 @@ class DouyinCollector:
             return None
         if d <= 0:
             return None
-        return d // 1000 if d > 1000 else d
+        return max(1, d // 1000)
 
     # ------------------------------------------------------------------
     # 同步接口（返回缓存的快照）
@@ -1142,7 +920,7 @@ class DouyinCollector:
                         pass
 
                     self.status = "logged_in"
-                    self.message = f"已就绪，已同步 {len(snapshot.collections)} 个收藏夹，{len(snapshot.videos)} 个视频"
+                    self.message = f"已读取 {len(snapshot.collections)} 个收藏夹、{len(snapshot.videos)} 个作品"
                     return snapshot
                 finally:
                     if context:
