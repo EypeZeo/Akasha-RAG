@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/EypeZeo/Akasha-RAG/compare/v1.3.0...v1.3.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **douyin:** synchronize favorites through the web page ([#91](https://github.com/EypeZeo/Akasha-RAG/issues/91)) ([67d557e](https://github.com/EypeZeo/Akasha-RAG/commit/67d557ede09cc1ee863ae1724544917ec26a1369))
+
 ## [1.3.0](https://github.com/EypeZeo/Akasha-RAG/compare/v1.2.1...v1.3.0) (2026-11-25)
 
 
