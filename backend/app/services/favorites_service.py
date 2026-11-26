@@ -169,8 +169,11 @@ class FavoritesService:
             max_collections=100, max_videos_per_collection=500, force=force
         )
         if getattr(snapshot, "is_cached", False):
-            raise RuntimeError("抖音实时同步失败，已保留本地收藏")
-        return await asyncio.to_thread(self.save_snapshot_to_db, db, snapshot)
+            raise RuntimeError("Live Douyin sync failed. Local favorites were kept.")
+        result = await asyncio.to_thread(self.save_snapshot_to_db, db, snapshot)
+        result["snapshot_complete"] = getattr(snapshot, "is_complete", True)
+        result["observed_works"] = len(snapshot.videos)
+        return result
 
     async def sync_from_bilibili(self, db: Session) -> dict:
         """
@@ -466,30 +469,10 @@ class FavoritesService:
             .all()
         )
         existing_item_map = {item.remote_item_id: item for item in existing_items}
-        existing_item_durations = {item.remote_item_id: (item.duration or 0) for item in existing_items}
-
-        desired_video_ids = set(desired_video_payload.keys())
-        existing_video_ids = set(existing_item_map.keys())
-
-        added_ids = desired_video_ids - existing_video_ids
-        removed_ids_unique = existing_video_ids - desired_video_ids
-
-        added_videos = sum(
-            1 for vid in added_ids
-            if not is_note(platform, desired_video_payload[vid].get("duration") or 0)
-        )
-        added_notes = sum(
-            1 for vid in added_ids
-            if is_note(platform, desired_video_payload[vid].get("duration") or 0)
-        )
-        removed_videos = sum(
-            1 for vid in removed_ids_unique
-            if not is_note(platform, existing_item_durations.get(vid, 0))
-        )
-        removed_notes = sum(
-            1 for vid in removed_ids_unique
-            if is_note(platform, existing_item_durations.get(vid, 0))
-        )
+        previous_active_durations = {
+            item.remote_item_id: item.duration or 0 for item in existing_items if item.is_active
+        }
+        desired_video_ids = set(desired_video_payload)
 
         # 2. 新增或更新 ContentItem
         for remote_id, payload in desired_video_payload.items():
@@ -705,8 +688,9 @@ class FavoritesService:
                     .group_by(CollectionItemRelation.content_item_id)
                 ).all()
             )
-        for item in existing_item_map.values():
-            item.is_active = active_link_counts.get(item.id, 0) > 0
+        for remote_id, item in existing_item_map.items():
+            if is_complete or remote_id in desired_video_ids:
+                item.is_active = active_link_counts.get(item.id, 0) > 0
 
         # 4. 同步 IngestionItem 表
         existing_ingestions = (
@@ -762,7 +746,14 @@ class FavoritesService:
             ingestion.lease_expires_at = None
 
         db.flush()
-        return added_videos, removed_videos, added_notes, removed_notes
+        active_durations = {
+            remote_id: item.duration or 0 for remote_id, item in existing_item_map.items() if item.is_active
+        }
+        added_ids = active_durations.keys() - previous_active_durations.keys()
+        removed_ids = previous_active_durations.keys() - active_durations.keys()
+        added_notes = sum(is_note(platform, active_durations[remote_id]) for remote_id in added_ids)
+        removed_notes = sum(is_note(platform, previous_active_durations[remote_id]) for remote_id in removed_ids)
+        return len(added_ids) - added_notes, len(removed_ids) - removed_notes, added_notes, removed_notes
 
     def list_collections(self, db: Session, platform: Optional[str] = None) -> list[dict]:
         """

@@ -258,6 +258,13 @@ def test_save_snapshot_differentiates_videos_and_notes(db):
     assert res2["added_total"] == 1
     assert res2["removed_total"] == 1
 
+    res3 = favorites_service.save_snapshot_to_db(
+        db, FavoriteScrapeSnapshot(collections=[col], videos=[v1], is_complete=False),
+    )
+    assert res3["added_videos"] == 1
+    assert res3["removed_total"] == 0
+    assert res3["videos_total"] == 3
+
 
 def test_zhihu_text_is_saved_as_a_durable_ingestion_checkpoint(db):
     """Provider-native article text reaches the shared ingestion row unchanged."""
@@ -318,7 +325,7 @@ def test_incomplete_zhihu_snapshot_keeps_existing_memberships_active(db):
             collections=[collection], videos=[video], platform="zhihu", is_complete=True
         ),
     )
-    favorites_service.save_snapshot_to_db(
+    partial = favorites_service.save_snapshot_to_db(
         db,
         FavoriteScrapeSnapshot(collections=[], videos=[], platform="zhihu", is_complete=False),
     )
@@ -336,6 +343,7 @@ def test_incomplete_zhihu_snapshot_keeps_existing_memberships_active(db):
     assert stored_collection.is_active is True
     assert stored_item.is_active is True
     assert relation.is_active is True
+    assert partial["removed_total"] == 0
 
 
 @pytest.mark.asyncio

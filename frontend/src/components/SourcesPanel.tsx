@@ -410,9 +410,11 @@ export default function SourcesPanel({
         const { addedVideos: addedV, removedVideos: removedV, addedNotes: addedN, removedNotes: removedN, invalidCount } =
           aggregateSyncCounts(r);
 
+        const douyinIncomplete = r.snapshot_complete === false
+          || r.results?.some(result => result.snapshot_complete === false);
         let successMsg: string;
         if (addedV === 0 && removedV === 0 && addedN === 0 && removedN === 0 && invalidCount === 0) {
-          successMsg = t('syncUpToDate');
+          successMsg = t(douyinIncomplete ? 'douyinSyncIncomplete' : 'syncUpToDate');
         } else {
           const parts: string[] = [];
           if (addedV > 0 && removedV > 0) {
@@ -436,6 +438,7 @@ export default function SourcesPanel({
           }
 
           successMsg = `${t('syncSuccessPrefix')}${parts.join('，')}`;
+          if (douyinIncomplete) successMsg += `\n${t('douyinSyncIncomplete')}`;
         }
 
         // platform="all" 时一个平台失败、另一个成功仍然算 r.success（真实

@@ -182,6 +182,7 @@ export async function syncFavorites(platform: string = 'douyin'): Promise<{
   notes_count?: number;
   invalid_count?: number;
   synced_total?: number;
+  snapshot_complete?: boolean;
   message?: string;
   results?: any[];
   partial?: boolean;

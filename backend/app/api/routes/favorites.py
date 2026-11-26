@@ -103,7 +103,12 @@ async def sync_favorites(
             v_cnt = result.get("videos_count", 0)
             n_cnt = result.get("notes_count", 0)
             invalid_cnt = result.get("invalid_count", 0)
-            if invalid_cnt > 0:
+            if result.get("snapshot_complete") is False:
+                summary_msg = (
+                    f"已读取 {result['observed_works']} 个抖音作品。"
+                    "抖音本次未返回部分收藏，已保留本地记录。"
+                )
+            elif invalid_cnt > 0:
                 summary_msg = f"已同步 {total} 个内容，其中来自抖音平台 {v_cnt} 个视频内容、{n_cnt} 个图文内容，已失效视频 {invalid_cnt} 个无法同步，同步已完成。"
             else:
                 summary_msg = f"已同步 {total} 个内容，其中来自抖音平台 {v_cnt} 个视频内容、{n_cnt} 个图文内容，同步已完成。"
